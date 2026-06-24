@@ -1,0 +1,21 @@
+# JD 结构化字段定义（v2 - 对齐 Profile 脚本版）
+
+- 公司名：string
+- 公司成立日期：string
+- 公司注册资金（万元）：float
+- 公司介绍：string
+- 公司规模：string
+- 公司融资阶段：string
+- 公司所属行业：string
+- 公司地址：string
+- 公司经纬度坐标：string
+- 工作时间：string
+- 职位名称：string
+- 职位薪资下限(万/年)：float
+- 职位薪资上限(万/年)：float
+- 薪资构成：string
+- 经验要求：string
+- 学历要求：string
+- 技能关键词列表：list[string]
+- 岗位职责描述：string
+- 福利标签：list[string]
