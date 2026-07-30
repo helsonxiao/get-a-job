@@ -240,18 +240,28 @@ class CDPSession:
     # ----------------------------------------------------------------
     # Target (标签页) 管理
     # ----------------------------------------------------------------
-    def create_target(self, url="about:blank"):
-        """创建新标签页, 返回 (targetId, sessionId)"""
+    def create_target(self, url="about:blank", background=False):
+        """创建新标签页, 返回 (targetId, sessionId)
+
+        Args:
+            url: 目标 URL, 默认 about:blank
+            background: True 时标签页在后台打开, 不抢夺当前焦点
+        """
         # 调试: 记录传给 Chrome 的 URL
         if url != "about:blank":
             log.debug(f"create_target URL: {url}")
             if "%5C" in url or "%5c" in url or "\\" in url:
                 log.warning(f"create_target URL 包含反斜杠! URL={url}")
-        r = self.send("Target.createTarget", {"url": url})
+        params = {"url": url}
+        if background:
+            params["background"] = True
+        r = self.send("Target.createTarget", params)
         tid = r["result"]["targetId"]
         r = self.send("Target.attachToTarget", {"targetId": tid, "flatten": True})
         sid = r["result"]["sessionId"]
-        log.debug(f"已创建标签页: targetId={tid}, sessionId={sid}")
+        log.debug(
+            f"已创建标签页: targetId={tid}, sessionId={sid}, background={background}"
+        )
         return tid, sid
 
     def close_target(self, tid):

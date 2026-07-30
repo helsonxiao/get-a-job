@@ -1,2 +1,4 @@
 requests>=2.28.0
 websocket-client>=1.4.0
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0

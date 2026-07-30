@@ -22,7 +22,7 @@ JobCrawler 类负责完整的自动化采集流程:
 import time
 import random
 import json
-from typing import Optional
+from typing import Callable, Optional
 
 from .logger import get_logger
 from .cdp_session import CDPSession, human_simulate, DEFAULT_CDP_PORT
@@ -142,6 +142,8 @@ class JobCrawler:
         delay_max: 翻页最大延迟 (秒)
         fetch_company: 是否抓取公司页
         debug: 调试模式
+        on_job_saved: 单个职位保存后的回调, 签名 (job_dir: str, job_id: str) -> None。
+                      适配层用它做增量迁移, 让 Web 端能实时看到新抓的职位。
     """
 
     def __init__(
@@ -153,6 +155,8 @@ class JobCrawler:
         delay_max=8,
         fetch_company=True,
         debug=False,
+        on_job_saved: Optional[Callable[[str, str], None]] = None,
+        existing_ids: Optional[set] = None,
     ):
         self.cdp_port = cdp_port
         self.jobs_dir = jobs_dir
@@ -161,6 +165,9 @@ class JobCrawler:
         self.delay_max = delay_max
         self.fetch_company = fetch_company
         self.debug = debug
+        self.on_job_saved = on_job_saved
+        # 已采集过的职位 ID 集合 (来自 data/jobs/), 翻页时跳过避免重复抓取
+        self.existing_ids = existing_ids or set()
         self.stats = CrawlStats()
 
     def crawl_from_url(self, list_url: str, har_path: Optional[str] = None):
@@ -286,8 +293,11 @@ class JobCrawler:
                         f"{job_name} @ {brand_name}"
                     )
 
-                    # 去重检查
-                    if encrypt_job_id and encrypt_job_id in scraped_ids:
+                    # 去重检查: 本次会话已采 + 历史已采 (data/jobs/)
+                    if encrypt_job_id and (
+                        encrypt_job_id in scraped_ids
+                        or encrypt_job_id in self.existing_ids
+                    ):
                         log.info(f"  → 已采集过, 跳过")
                         self.stats.jobs_skipped_dup += 1
                         continue
@@ -407,6 +417,13 @@ class JobCrawler:
             f"{structured.get('company_name', '')}"
         )
 
+        # 增量入库回调: 让适配层立刻迁移 + 入索引, Web 端能实时看到
+        if self.on_job_saved:
+            try:
+                self.on_job_saved(job_dir, job_id)
+            except Exception as e:
+                log.warning(f"  → 增量入库回调失败 (不影响采集): {e}")
+
     @staticmethod
     def _params_from_har(har_result: HARAnalysisResult) -> dict:
         """从 HAR 分析结果提取搜索参数
@@ -425,7 +442,7 @@ class JobCrawler:
 
 
 def crawl_single_jd(url, cdp_port=DEFAULT_CDP_PORT, debug=False, fetch_company=True, jobs_dir="jobs"):
-    """抓取单个职位 (兼容原有 jd_cdp_parser.py 的功能)
+    """抓取单个职位。
 
     Args:
         url: JD 详情页 URL

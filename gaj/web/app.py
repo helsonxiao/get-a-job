@@ -1,0 +1,612 @@
+"""FastAPI Web 应用 —— 职位看板 + AI 打分控制台。
+
+路由总览:
+  GET  /                    首页 (单页应用)
+  GET  /api/stats           仪表盘统计
+  GET  /api/facets          筛选项与计数
+  GET  /api/jobs            职位列表 (支持搜索/筛选/排序/分页)
+  GET  /api/jobs/{id}       职位详情 (含公司 + 全部打分)
+  POST /api/jobs/{id}/ai-score    触发 AI 打分
+  POST /api/jobs/{id}/resume      触发简历生成
+  POST /api/score-all       批量规则打分
+  POST /api/reindex         重建索引
+  GET  /api/logs/stream     SSE 实时日志流
+  GET  /api/providers       可用 AI provider 列表
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import threading
+from pathlib import Path
+from typing import Any, Optional
+
+from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+
+from .. import config as cfg
+from ..logging_setup import SINK, get_logger, setup
+from ..store import index, repo
+
+log = get_logger("web")
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+# ---------------------------------------------------------------- SSE 日志桥
+
+_log_queue: asyncio.Queue | None = None
+_loop: asyncio.AbstractEventLoop | None = None
+#: 关闭信号: set 后 SSE 流立即退出, 不再阻塞 uvicorn reload
+_shutdown_event: asyncio.Event | None = None
+
+
+def _on_log(payload: dict) -> None:
+    """日志 SINK 回调: 把日志推到 asyncio.Queue (线程安全)。"""
+    global _log_queue, _loop
+    if _log_queue is not None and _loop is not None:
+        try:
+            _loop.call_soon_threadsafe(_log_queue.put_nowait, payload)
+        except Exception:
+            pass
+
+
+def _attach_log_bridge() -> None:
+    """把日志 SINK 桥接到 SSE 队列。"""
+    SINK.add(_on_log)
+
+
+# ---------------------------------------------------------------- 后台任务
+
+_running_tasks: dict[str, dict] = {}
+_task_lock = threading.Lock()
+
+
+def _run_in_thread(func, task_key: str, **kwargs) -> None:
+    """在后台线程执行耗时任务, 状态记录到 _running_tasks。"""
+    with _task_lock:
+        _running_tasks[task_key] = {"status": "running", "key": task_key}
+
+    def _wrapper():
+        try:
+            result = func(**kwargs)
+            with _task_lock:
+                _running_tasks[task_key] = {
+                    "status": "done", "key": task_key, "result": _safe_serialize(result),
+                }
+        except Exception as exc:
+            log.error(f"后台任务 {task_key} 失败: {exc}")
+            with _task_lock:
+                _running_tasks[task_key] = {
+                    "status": "error", "key": task_key, "error": str(exc),
+                }
+
+    t = threading.Thread(target=_wrapper, daemon=True, name=f"gaj-{task_key}")
+    t.start()
+
+
+def _safe_serialize(obj: Any) -> Any:
+    """把可能含 dataclass / Path 的对象转成 JSON 安全的结构。"""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return {k: _safe_serialize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_safe_serialize(v) for v in obj]
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    return str(obj)
+
+
+# ---------------------------------------------------------------- FastAPI
+
+app = FastAPI(title="Get A Job", docs_url="/api/docs")
+
+
+@app.on_event("startup")
+async def _startup() -> None:
+    global _log_queue, _loop, _shutdown_event
+    setup()
+    cfg.ensure_dirs()
+    _log_queue = asyncio.Queue(maxsize=1000)
+    _loop = asyncio.get_event_loop()
+    _shutdown_event = asyncio.Event()
+    _attach_log_bridge()
+    log.info("Web 服务启动")
+
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    if _shutdown_event is not None:
+        _shutdown_event.set()
+    SINK.remove(_on_log)
+    log.info("Web 服务关闭")
+
+
+# ---------------------------------------------------------------- 页面
+
+
+@app.get("/")
+async def index_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+# ---------------------------------------------------------------- API
+
+
+@app.get("/api/stats")
+async def api_stats() -> dict:
+    with index.session() as conn:
+        f = index.facets(conn)
+    return f
+
+
+@app.get("/api/facets")
+async def api_facets() -> dict:
+    with index.session() as conn:
+        return index.facets(conn)
+
+
+@app.get("/api/jobs")
+async def api_jobs(
+    search: str = Query("", description="搜索关键词"),
+    city: str = Query("", description="城市, 逗号分隔"),
+    status: str = Query("", description="规则状态, 逗号分隔"),
+    scored: str = Query("all", description="all|none|rule_only|ai"),
+    provider: str = Query("", description="AI provider, 逗号分隔"),
+    salary_min: Optional[float] = Query(None, description="薪资上限最小值 (万)"),
+    online: bool = Query(False, description="只看在线"),
+    outsourcing: Optional[bool] = Query(None, description="外包过滤"),
+    favorite: str = Query("all", description="all|only|exclude"),
+    ignored: str = Query("exclude", description="exclude|all|only, 默认排除已忽略"),
+    sort: str = Query("best_total"),
+    desc: bool = Query(True),
+    limit: int = Query(50, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    with index.session() as conn:
+        items = index.query_jobs(
+            conn,
+            search=search,
+            cities=city.split(",") if city else [],
+            statuses=status.split(",") if status else [],
+            scored=scored,
+            providers=provider.split(",") if provider else [],
+            salary_min=salary_min,
+            online_only=online,
+            outsourcing=outsourcing,
+            favorite=favorite,
+            ignored=ignored,
+            sort=sort,
+            desc=desc,
+            limit=limit,
+            offset=offset,
+        )
+        total = index.count_jobs(conn)
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@app.get("/api/jobs/{job_id}")
+async def api_job_detail(job_id: str) -> dict:
+    job = repo.load_job(job_id)
+    if not job:
+        raise HTTPException(404, f"职位不存在: {job_id}")
+    company = repo.load_company(job.company_id) if job.company_id else None
+    rule_score = repo.load_rule_score(job_id)
+    ai_scores = repo.list_ai_scores(job_id)
+    jd_text = repo.read_text(repo.job_dir(job_id) / cfg.JOB_JD_TEXT)
+    return {
+        "job": job.to_dict(),
+        "company": company.to_dict() if company else None,
+        "rule_score": rule_score,
+        "ai_scores": ai_scores,
+        "jd_text": jd_text,
+        "score_summary": repo.score_summary(job_id),
+    }
+
+
+@app.post("/api/jobs/{job_id}/ai-score")
+async def api_ai_score(
+    job_id: str,
+    provider: str = Query("deepseek"),
+    deep: bool = Query(False),
+) -> dict:
+    """触发单个职位 AI 打分 (后台执行, 通过 SSE 看进度)。"""
+    if not repo.job_exists(job_id):
+        raise HTTPException(404, f"职位不存在: {job_id}")
+
+    from ..ai.runner import score_with_ai
+
+    task_key = f"ai-score-{job_id}-{provider}"
+    with _task_lock:
+        if task_key in _running_tasks and _running_tasks[task_key]["status"] == "running":
+            return {"task": task_key, "status": "already_running"}
+
+    _run_in_thread(score_with_ai, task_key, job_id=job_id, provider=provider, deep=deep)
+    return {"task": task_key, "status": "started"}
+
+
+@app.post("/api/jobs/{job_id}/resume")
+async def api_resume(
+    job_id: str,
+    provider: str = Query("deepseek"),
+    style: str = Query("optimize"),
+) -> dict:
+    """触发简历生成 (后台执行)。"""
+    if not repo.job_exists(job_id):
+        raise HTTPException(404, f"职位不存在: {job_id}")
+
+    from ..resume.generator import generate_resume
+
+    task_key = f"resume-{job_id}-{provider}"
+    _run_in_thread(
+        generate_resume, task_key, job_id=job_id, provider=provider, style=style,
+    )
+    return {"task": task_key, "status": "started"}
+
+
+@app.delete("/api/jobs/{job_id}")
+async def api_delete_job(job_id: str) -> dict:
+    """删除职位 (含打分文件 + 索引行)。同步执行。"""
+    if not repo.job_exists(job_id):
+        raise HTTPException(404, f"职位不存在: {job_id}")
+    repo.delete_job(job_id)
+    with index.session() as conn:
+        index.delete_job_from_index(conn, job_id)
+    log.info(f"职位已删除: {job_id}")
+    return {"ok": True, "job_id": job_id}
+
+
+@app.post("/api/jobs/batch-delete")
+async def api_batch_delete_jobs(body: dict = Body(...)) -> dict:
+    """批量删除职位。body: {"ids": ["id1","id2",...]}"""
+    ids = body.get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "ids 必须是非空数组")
+    deleted: list[str] = []
+    failed: list[dict] = []
+    with index.session() as conn:
+        for jid in ids:
+            try:
+                if repo.job_exists(jid):
+                    repo.delete_job(jid)
+                index.delete_job_from_index(conn, jid)
+                deleted.append(jid)
+            except Exception as exc:
+                failed.append({"job_id": jid, "error": str(exc)})
+    log.info(f"批量删除完成: {len(deleted)} 成功, {len(failed)} 失败")
+    return {"ok": True, "deleted": deleted, "failed": failed,
+            "deleted_count": len(deleted)}
+
+
+@app.post("/api/jobs/{job_id}/favorite")
+async def api_set_favorite(job_id: str, body: dict = Body(...)) -> dict:
+    """切换收藏状态。body: {"favorite": true/false}"""
+    if not repo.job_exists(job_id):
+        raise HTTPException(404, f"职位不存在: {job_id}")
+    fav = bool(body.get("favorite", False))
+    final = repo.set_job_favorite(job_id, fav)
+    # 同步索引: 重新 upsert 即可
+    with index.session() as conn:
+        job = repo.load_job(job_id)
+        if job:
+            index.upsert_job(conn, job)
+    return {"ok": True, "job_id": job_id, "favorite": final}
+
+
+@app.post("/api/jobs/{job_id}/ignore")
+async def api_set_ignore(job_id: str, body: dict = Body(...)) -> dict:
+    """切换忽略状态。body: {"ignored": true/false}
+
+    忽略的职位在列表默认不展示, 但仍可通过筛选器查看。
+    """
+    if not repo.job_exists(job_id):
+        raise HTTPException(404, f"职位不存在: {job_id}")
+    ign = bool(body.get("ignored", False))
+    final = repo.set_job_ignored(job_id, ign)
+    with index.session() as conn:
+        job = repo.load_job(job_id)
+        if job:
+            index.upsert_job(conn, job)
+    return {"ok": True, "job_id": job_id, "ignored": final}
+
+
+@app.post("/api/jobs/{job_id}/manual-override")
+async def api_set_manual_override(job_id: str, body: dict = Body(...)) -> dict:
+    """人工调分覆盖。body: {"total": 75.0, "note": "条件太苛刻, 实际可接受"}
+
+    total 为 null 时清除人工调分, 回退到 AI/规则分。
+    note 用于记录调整原因, 后续简历生成可引用。
+    """
+    if not repo.job_exists(job_id):
+        raise HTTPException(404, f"职位不存在: {job_id}")
+    total = body.get("total")
+    note = body.get("note", "") or ""
+    if total is not None:
+        try:
+            total = float(total)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "total 必须是数字或 null")
+        if total < 0 or total > 100:
+            raise HTTPException(400, "total 应在 0-100 之间")
+    override = repo.set_manual_override(job_id, total, note)
+    # 同步索引
+    with index.session() as conn:
+        index.update_manual_override(conn, job_id, total, note)
+    log.info(f"人工调分已更新: {job_id} -> {total} ({note[:50]})")
+    return {"ok": True, "job_id": job_id, "manual_override": override}
+
+
+@app.delete("/api/jobs/{job_id}/ai-scores/{file_name}")
+async def api_delete_ai_score(job_id: str, file_name: str) -> dict:
+    """删除指定的 AI 打分文件。file_name 形如 ai_deepseek_20260731T123456.json"""
+    if not repo.job_exists(job_id):
+        raise HTTPException(404, f"职位不存在: {job_id}")
+    try:
+        ok = repo.delete_ai_score(job_id, file_name)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if not ok:
+        raise HTTPException(404, f"AI 打分文件不存在: {file_name}")
+    with index.session() as conn:
+        index.delete_score_from_index(conn, job_id, file_name)
+    return {"ok": True, "job_id": job_id, "file": file_name}
+
+
+@app.post("/api/score-all")
+async def api_score_all(force: bool = Query(False)) -> dict:
+    """批量规则打分 (后台执行)。"""
+    from ..core.score_runner import score_all
+
+    task_key = "score-all"
+    _run_in_thread(score_all, task_key, force=force)
+    return {"task": task_key, "status": "started"}
+
+
+@app.post("/api/reindex")
+async def api_reindex() -> dict:
+    """重建索引 (后台执行)。"""
+    task_key = "reindex"
+    _run_in_thread(index.reindex, task_key)
+    return {"task": task_key, "status": "started"}
+
+
+@app.get("/api/tasks")
+async def api_tasks() -> dict:
+    """查询后台任务状态。"""
+    with _task_lock:
+        return {"tasks": dict(_running_tasks)}
+
+
+@app.get("/api/providers")
+async def api_providers() -> dict:
+    try:
+        from ..browser import available_providers
+
+        return {"providers": available_providers()}
+    except Exception:
+        return {"providers": ["deepseek", "doubao", "tongyi", "kimi"]}
+
+
+# ---------------------------------------------------------------- 规则与画像配置
+
+
+@app.get("/api/rules")
+async def api_rules() -> dict:
+    """返回规则目录 + 当前覆盖项, 供前端展示和编辑。
+
+    每个评分项包含:
+      - max: 当前生效满分 (用户覆盖值或代码默认值)
+      - default_max: 代码默认满分
+      - detail: 判定逻辑的人类可读描述
+
+    overrides: 当前保存的覆盖项字典 (None 表示用默认值)
+    """
+    from ..core.scoring import build_rules_catalog
+    from ..core.scoring_config import load_overrides
+
+    catalog = build_rules_catalog()
+    catalog["overrides"] = load_overrides().to_dict()
+    return catalog
+
+
+@app.put("/api/scoring-config")
+async def api_scoring_config_save(body: dict = Body(...)) -> dict:
+    """保存打分参数覆盖。
+
+    body 是 {field_name: value} 字典, 字段名对应 ScoringOverrides 的 dataclass 字段:
+      - reject_confidence_floor: float (0-1, 淘汰置信度下限)
+      - f01_max ~ w05_max: float (各评分项的满分)
+
+    值为 null 时清除该项覆盖, 回退到代码默认值。
+    保存后需重新规则打分才生效。
+    """
+    from ..core.scoring_config import ScoringOverrides, load_overrides, save_overrides
+
+    old = load_overrides()
+    # 合并: 未提交的字段保留原值
+    known = {f for f in ScoringOverrides.__dataclass_fields__}
+    merged = old.to_dict()
+    for k, v in body.items():
+        if k not in known:
+            continue
+        if v is None:
+            merged[k] = None
+        else:
+            try:
+                merged[k] = float(v)
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"{k} 必须是数字或 null")
+    # 校验 reject_confidence_floor 范围
+    if merged.get("reject_confidence_floor") is not None:
+        v = merged["reject_confidence_floor"]
+        if v < 0 or v > 1:
+            raise HTTPException(400, "reject_confidence_floor 应在 0-1 之间")
+    # 校验 max_points 范围
+    for k, v in merged.items():
+        if k.endswith("_max") and v is not None and (v < 0 or v > 100):
+            raise HTTPException(400, f"{k} 应在 0-100 之间")
+
+    new_ov = ScoringOverrides(**merged)
+    save_overrides(new_ov)
+    log.info(f"打分覆盖已保存: {sum(1 for v in merged.values() if v is not None)} 项生效")
+    return {"ok": True, "overrides": new_ov.to_dict()}
+
+
+@app.get("/api/profile")
+async def api_profile_get() -> dict:
+    """返回当前画像 (解析后的字段) + 序列化模板元数据 (供前端构建表单)。"""
+    from ..core.profile import _SERIALIZE_GROUPS, load_profile
+
+    profile = load_profile()
+    fields = profile.to_dict()
+    # 去掉 raw 字段 (解析过程的原始键值对, 前端不需要)
+    fields.pop("raw", None)
+    return {
+        "fields": fields,
+        "groups": [
+            {
+                "title": gtitle,
+                "fields": [
+                    {"name": fname, "label": flabel, "type": ftype}
+                    for fname, flabel, ftype in flist
+                ],
+            }
+            for gtitle, flist in _SERIALIZE_GROUPS
+        ],
+        "weights": profile.normalized_weights,
+    }
+
+
+@app.put("/api/profile")
+async def api_profile_save(body: dict = Body(...)) -> dict:
+    """保存画像。前端提交字段字典, 后端序列化回 profile.md。
+
+    保存后建议前端触发重新打分 (规则参数变了, 旧分数失效)。
+    """
+    from ..core.profile import load_profile, save_profile
+
+    # 合并: 未提交的字段保留原值, 避免前端漏传导致丢数据
+    old = load_profile().to_dict()
+    old.pop("raw", None)
+    merged = {**old, **body}
+    save_profile(merged)
+
+    # 验证: 重新解析确认写回成功
+    new = load_profile()
+    return {
+        "ok": True,
+        "fields": {k: v for k, v in new.to_dict().items() if k != "raw"},
+        "weights": new.normalized_weights,
+    }
+
+
+# ---------------------------------------------------------------- 主简历
+
+
+@app.get("/api/resume")
+async def api_resume_get() -> dict:
+    """返回主简历内容 (Markdown)。"""
+    path = repo.master_resume_path()
+    content = ""
+    if path.exists():
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            log.warning(f"读取主简历失败: {exc}")
+    return {
+        "content": content,
+        "path": str(path),
+        "exists": bool(content.strip()),
+        "size": len(content),
+    }
+
+
+@app.put("/api/resume")
+async def api_resume_save(body: dict = Body(...)) -> dict:
+    """保存主简历 (Markdown)。
+
+    body: {"content": "...markdown..."}
+    支持 .md 文件上传后前端读成文本传过来, 后端只认字符串。
+    """
+    content = body.get("content")
+    if content is None or not isinstance(content, str):
+        raise HTTPException(400, "content 必须是非空字符串")
+    # 简单校验: 不接受超长内容 (防止误传二进制)
+    if len(content) > 200_000:
+        raise HTTPException(400, "简历内容过长 (>200KB), 请确认是 Markdown 文本")
+    path = repo.save_master_resume(content)
+    log.info(f"主简历已保存: {path} ({len(content)} 字)")
+    return {"ok": True, "path": str(path), "size": len(content)}
+
+
+@app.get("/api/logs/stream")
+async def api_logs_stream():
+    """SSE 实时日志流。"""
+
+    async def event_stream():
+        global _log_queue
+        assert _log_queue is not None
+        assert _shutdown_event is not None
+        # 先发一个连接确认
+        yield f"data: {json.dumps({'type': 'connected'})}\n\n"
+        while not _shutdown_event.is_set():
+            try:
+                # 用 wait 避免在 shutdown 时还要等满 30s 超时
+                get_task = asyncio.ensure_future(_log_queue.get())
+                done, _ = await asyncio.wait(
+                    {get_task, asyncio.ensure_future(_shutdown_event.wait())},
+                    timeout=30,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if get_task in done:
+                    payload = get_task.result()
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                else:
+                    get_task.cancel()
+                    if _shutdown_event.is_set():
+                        break
+                    # 心跳
+                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+            except asyncio.CancelledError:
+                break
+        # 发送关闭信号, 前端可据此重连
+        yield f"data: {json.dumps({'type': 'shutdown'})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ---------------------------------------------------------------- 入口
+
+
+def run(host: str = "127.0.0.1", port: int = 8765, reload: bool = True) -> None:
+    """启动 Web 服务。
+
+    reload=True 时 (默认), Python 文件变更自动重启服务。
+    前端 index.html 通过 FileResponse 实时读取, 改完刷新浏览器即可, 无需重启。
+    """
+    import uvicorn
+
+    setup()
+    log.info(f"启动 Web 服务: http://{host}:{port} (reload={reload})")
+    if reload:
+        # reload 模式下必须传 import string, 不能传 app 对象
+        # timeout_graceful_shutdown=3: SSE 连接最长等 3s 后强制关闭, 避免 reload 卡死
+        uvicorn.run(
+            "gaj.web.app:app", host=host, port=port,
+            log_level="info", reload=True, timeout_graceful_shutdown=3,
+        )
+    else:
+        uvicorn.run(app, host=host, port=port, log_level="info")
