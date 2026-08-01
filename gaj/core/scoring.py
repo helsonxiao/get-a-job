@@ -37,7 +37,7 @@ from .scoring_config import ScoringOverrides, load_overrides
 
 log = get_logger("scoring")
 
-RULES_VERSION = "3.1"
+RULES_VERSION = "4.0"
 
 #: 硬性淘汰所需的最低证据置信度 (代码默认值, 可被 scoring_config.json 覆盖)。
 REJECT_CONFIDENCE_FLOOR = 0.6
@@ -357,6 +357,67 @@ def run_hard_checks(job: Job, company: Company, profile: Profile, overrides: Sco
         h8.evidence = _sig_evidence(job, "outsourcing")
     checks.append(h8)
 
+    # H-09 学历硬性不符 (rank 越小要求越高: 1=博士 2=硕士 3=本科 4=大专)
+    h9 = HardCheck("H-09", "学历硬性不符", floor=floor)
+    edu = job.education or {}
+    if edu.get("unlimited") or not edu.get("level"):
+        h9.reason = "岗位学历不限, 无法判断"
+        h9.confidence = 0.0
+    else:
+        profile_edu_rank = profile.education_rank()
+        if profile_edu_rank is None:
+            h9.hit = True
+            h9.confidence = 0.4
+            h9.reason = f"岗位要求 {edu.get('raw', '')}, 但画像未填学历, 无法确认是否达标"
+            h9.evidence.append(f"岗位要求: {edu.get('raw', '')}")
+            h9.evidence.append("画像学历未填")
+        else:
+            job_rank = edu.get("rank")
+            if job_rank is not None and job_rank < profile_edu_rank:
+                h9.hit = True
+                h9.confidence = 1.0
+                h9.reason = (
+                    f"岗位要求学历 {edu.get('raw', '')} (rank={job_rank}), "
+                    f"本人学历 {profile.education} (rank={profile_edu_rank}), 要求更高"
+                )
+                h9.evidence.append(f"岗位要求: {edu.get('raw', '')}")
+                h9.evidence.append(f"本人: {profile.education}")
+            else:
+                h9.reason = f"岗位要求 {edu.get('raw', '')}, 本人 {profile.education}, 兼容"
+    checks.append(h9)
+
+    # H-10 经验年限硬性不符
+    h10 = HardCheck("H-10", "经验年限硬性不符", floor=floor)
+    exp = job.experience or {}
+    if exp.get("unlimited") or exp.get("min_years") is None:
+        h10.reason = "岗位经验不限, 无法判断"
+        h10.confidence = 0.0
+    else:
+        min_years = float(exp.get("min_years") or 0)
+        years = profile.total_years
+        if years is None:
+            h10.hit = True
+            h10.confidence = 0.4
+            h10.reason = f"岗位要求 {min_years} 年经验, 但画像未填工作年限, 无法确认"
+            h10.evidence.append(f"岗位要求: {min_years} 年")
+            h10.evidence.append("画像年限未填")
+        else:
+            if min_years > years + 1:
+                h10.hit = True
+                h10.confidence = 1.0
+                h10.reason = f"岗位要求 {min_years} 年, 本人 {years} 年, 超出 {min_years - years:.1f} 年"
+                h10.evidence.append(f"岗位要求: {exp.get('raw', '')}")
+                h10.evidence.append(f"本人: {years} 年")
+            elif min_years > years:
+                h10.hit = True
+                h10.confidence = 0.5
+                h10.reason = f"岗位要求 {min_years} 年, 本人 {years} 年, 差距 {min_years - years:.1f} 年 (1年以内可放宽)"
+                h10.evidence.append(f"岗位要求: {exp.get('raw', '')}")
+                h10.evidence.append(f"本人: {years} 年")
+            else:
+                h10.reason = f"岗位要求 {min_years} 年, 本人 {years} 年, 兼容"
+    checks.append(h10)
+
     return checks
 
 
@@ -407,16 +468,34 @@ def score_finance(job: Job, company: Company, profile: Profile, overrides: Scori
     )
 
     welfare_blob = " ".join(job.welfare)
-    equity = any(k in welfare_blob for k in ("股票", "期权", "股权", "限制性股票"))
+    equity_welfare = [w for w in job.welfare if any(k in w for k in ("股票", "期权", "股权", "限制性股票"))]
+    is_listed = "上市" in (company.stage or "")
+    has_option = any("期权" in w for w in equity_welfare)
+    has_rsu = any(k in w for w in equity_welfare for k in ("股票", "股权", "限制性股票")) and not has_option
     f04_max = ov.get("F-04", 0.5)
+    if not equity_welfare:
+        f04_points = 0.0
+        f04_detail = "未提及股权激励"
+    elif is_listed and (has_rsu or has_option):
+        f04_points = f04_max
+        f04_detail = f"上市公司 + {equity_welfare[0]} → RSU 折现率高, 满分"
+    elif has_rsu:
+        f04_points = round(f04_max * 0.7, 2)
+        f04_detail = f"未上市 + {equity_welfare[0]} → RSU 折现率约 70%"
+    elif has_option:
+        f04_points = round(f04_max * 0.3, 2)
+        f04_detail = f"未上市 + {equity_welfare[0]} → 期权折现率低, 按 30% 算"
+    else:
+        f04_points = f04_max
+        f04_detail = f"福利含 {equity_welfare[0]}"
     dim.add(
         ScoreItem(
             "F-04",
             "股票/期权激励",
-            f04_max if equity else 0.0,
+            f04_points,
             f04_max,
-            "福利含股权激励" if equity else "未提及股权激励",
-            [w for w in job.welfare if any(k in w for k in ("股票", "期权", "股权"))],
+            f04_detail,
+            equity_welfare,
         )
     )
 
@@ -431,6 +510,34 @@ def score_finance(job: Job, company: Company, profile: Profile, overrides: Scori
             f05_max,
             f"命中 {len(hit_benefits)} 项看重的福利" if hit_benefits else "未命中高价值福利",
             hit_benefits,
+        )
+    )
+
+    # F-06 薪资构成质量: 评估薪资包的确定性
+    f06_max = ov.get("F-06", 0.5)
+    salary_raw = job.salary.get("raw", "")
+    negotiable = job.salary.get("negotiable")
+    has_months = months != 12 or "薪" in salary_raw or "×" in salary_raw or "x" in salary_raw.lower()
+    if negotiable and smin is None:
+        f06_points = 0.0
+        f06_detail = "薪资面议, 构成无法判断"
+    elif has_months:
+        f06_points = f06_max
+        f06_detail = f"明确月薪×月数 ({months} 薪), base 占比清晰"
+    elif smin is not None:
+        f06_points = round(f06_max * 0.6, 2)
+        f06_detail = "仅年薪范围, 构成可能含绩效/股权, 折 60%"
+    else:
+        f06_points = 0.0
+        f06_detail = "薪资未知, 构成无法判断"
+    dim.add(
+        ScoreItem(
+            "F-06",
+            "薪资构成质量",
+            f06_points,
+            f06_max,
+            f06_detail,
+            [salary_raw] if salary_raw else [],
         )
     )
     return dim.finalize()
@@ -550,6 +657,22 @@ def score_growth(job: Job, company: Company, profile: Profile, overrides: Scorin
             _sig_evidence(job, "tech_depth"),
         )
     )
+
+    # G-07 技术前瞻性: JD 是否涉及当前技术热点 (3 年价值视角)
+    forwardness = _sig_value(job, "tech_forwardness")
+    forward_hits = list(forwardness) if forwardness else []
+    g07_max = ov.get("G-07", 1.0)
+    dim.add(
+        ScoreItem(
+            "G-07",
+            "技术前瞻性",
+            g07_max if forward_hits else 0.0,
+            g07_max,
+            f"JD 涉及热点方向: {', '.join(forward_hits[:3])}" if forward_hits
+            else "JD 未涉及 AI/云原生/Web3 等热点方向",
+            _sig_evidence(job, "tech_forwardness"),
+        )
+    )
     return dim.finalize()
 
 
@@ -598,6 +721,42 @@ def score_resource(job: Job, company: Company, profile: Profile, overrides: Scor
 
     r04_max = ov.get("R-04", 2.0)
     dim.add(ScoreItem("R-04", "特殊资源(手动)", 0.0, r04_max, "预留手动加分位, 默认 0"))
+
+    # R-05 文化适配信号: JD 推断的企业文化 vs 画像偏好
+    culture_tags = _sig_value(job, "culture")
+    culture_tags = list(culture_tags) if culture_tags else []
+    preferred_culture = profile.tech_culture or []
+    r05_max = ov.get("R-05", 2.0)
+    if not preferred_culture:
+        r05_points = 0.0
+        r05_detail = "画像未填文化偏好, 不加分"
+    elif culture_tags:
+        matched = [t for t in culture_tags if any(p in t or t in p for p in preferred_culture)]
+        # 反向: 推断为"传统"且画像偏好"技术驱动/创新"
+        is_traditional = "传统" in culture_tags
+        prefer_innovative = any(k in " ".join(preferred_culture) for k in ("技术", "创新", "极客"))
+        if matched:
+            r05_points = r05_max
+            r05_detail = f"JD 文化 {culture_tags} 命中偏好 {matched}"
+        elif is_traditional and prefer_innovative:
+            r05_points = 0.0
+            r05_detail = f"JD 体现「传统」文化, 与偏好「{', '.join(preferred_culture)}」反向不匹配"
+        else:
+            r05_points = 0.0
+            r05_detail = f"JD 文化 {culture_tags}, 未命中偏好 {preferred_culture}"
+    else:
+        r05_points = 0.0
+        r05_detail = "JD 未体现明显文化标签"
+    dim.add(
+        ScoreItem(
+            "R-05",
+            "文化适配信号",
+            r05_points,
+            r05_max,
+            r05_detail,
+            _sig_evidence(job, "culture") or culture_tags,
+        )
+    )
     return dim.finalize()
 
 
@@ -669,14 +828,73 @@ def score_wlb(job: Job, company: Company, profile: Profile, overrides: ScoringOv
         )
     )
 
+    # W-05 通勤便利: 同城时用 GPS 估算直线距离→通勤时长, 对比 max_commute_minutes
     w05_max = ov.get("W-05", 1.0)
+    city = job.city or ""
+    job_gps = getattr(job, "gps", None)
+    home_lng = profile.home_lng
+    home_lat = profile.home_lat
+    w05_points = 0.0
+    w05_detail = ""
+    w05_evidence: list[str] = []
+
+    # job.gps 是 {"lng": float, "lat": float} 格式
+    has_job_gps = isinstance(job_gps, dict) and job_gps.get("lng") and job_gps.get("lat")
+    has_home_gps = home_lng is not None and home_lat is not None
+
+    if city and city == profile.current_city and has_job_gps and has_home_gps:
+        # 同城且有双方 GPS: 算直线距离
+        import math
+        lng1, lat1 = float(job_gps["lng"]), float(job_gps["lat"])
+        lng2, lat2 = float(home_lng), float(home_lat)
+        # Haversine 公式 (简化, 地球半径 6371km)
+        dlat = math.radians(lat2 - lat1)
+        dlng = math.radians(lng2 - lng1)
+        a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+        dist_km = 2 * 6371 * math.asin(math.sqrt(a))
+        # 估算通勤时长: 直线距离÷30km/h × 1.3 蜿蜒系数 + 10min 等车
+        est_minutes = dist_km / 30 * 60 * 1.3 + 10
+        max_commute = profile.max_commute_minutes
+        w05_evidence.append(f"直线距离 {dist_km:.1f}km, 估算通勤 {est_minutes:.0f} 分钟")
+        if max_commute:
+            if est_minutes <= max_commute:
+                w05_points = w05_max
+                w05_detail = f"同城, 通勤约 {est_minutes:.0f} 分钟 ≤ 上限 {max_commute} 分钟"
+            elif est_minutes <= max_commute * 1.5:
+                w05_points = round(w05_max * 0.5, 2)
+                w05_detail = f"同城, 通勤约 {est_minutes:.0f} 分钟, 略超上限 {max_commute} 分钟 (1.5倍内半分)"
+            else:
+                w05_points = 0.0
+                w05_detail = f"同城, 通勤约 {est_minutes:.0f} 分钟, 远超上限 {max_commute} 分钟"
+        else:
+            # 未填 max_commute: 用距离档位
+            if dist_km <= 15:
+                w05_points = w05_max
+                w05_detail = f"同城, 距离 {dist_km:.1f}km ≤ 15km"
+            elif dist_km <= 30:
+                w05_points = round(w05_max * 0.5, 2)
+                w05_detail = f"同城, 距离 {dist_km:.1f}km (15~30km 半分)"
+            else:
+                w05_points = 0.0
+                w05_detail = f"同城, 距离 {dist_km:.1f}km > 30km"
+    elif city and city == profile.current_city:
+        # 同城但无 GPS: 回退到城市匹配 (满分)
+        w05_points = w05_max
+        w05_detail = f"{city} 即常住城市 (无 GPS, 按城市匹配满分)"
+    elif city and city in profile.all_acceptable_cities():
+        w05_points = round(w05_max * 0.4, 2)
+        w05_detail = f"{city} 属可接受城市 (非常住, 40%)"
+    else:
+        w05_points = 0.0
+        w05_detail = f"城市「{city or '未知'}」不在可接受范围"
     dim.add(
         ScoreItem(
             "W-05",
             "通勤便利",
-            w05_max if job.city and job.city == profile.current_city else 0.0,
+            w05_points,
             w05_max,
-            f"{job.city or '未知'} vs 常住 {profile.current_city or '未填'}",
+            w05_detail,
+            w05_evidence,
         )
     )
     return dim.finalize()
@@ -771,6 +989,31 @@ def eval_ai_triggers(
             "reason": "BOSS 匿名雇主, 公司相关维度缺乏依据",
             "ask": f"根据 JD 内容「{job.title}」和描述特征, 推测这可能是哪一类/哪一家公司, "
                    "并说明判断依据。",
+        })
+
+    # A-09: 文化适配存疑 — R-05 得 0 分且画像有文化偏好, 总分≥6.0 时让 AI 核实
+    resource_dim = dims.get("resource")
+    if resource_dim:
+        r05_item = next((i for i in resource_dim.items if i.code == "R-05"), None)
+        if r05_item and r05_item.points == 0 and profile.tech_culture and total >= 6.0:
+            triggers.append({
+                "code": "A-09",
+                "reason": f"R-05 文化适配得 0 分, 但总分 {total} 较高, 可能是 JD 未体现而非真的不匹配",
+                "ask": f"JD 体现的企业文化与我偏好的「{', '.join(profile.tech_culture)}」是否真的不匹配? "
+                       f"请联网查「{company.name or job.company_name}」的真实工作氛围。",
+            })
+
+    # A-10: 公司稳定性存疑 — 未上市 + 小规模 + 急招信号
+    jd_text = (job.jd or {}).get("full", "") or ""
+    rush_signals = any(k in jd_text for k in ("急招", "大量招聘", "极速扩张", "紧急招聘", "快速扩张"))
+    is_listed = "上市" in (company.stage or "")
+    is_small = company.scale_max is not None and company.scale_max < 100
+    if not is_listed and is_small and rush_signals:
+        triggers.append({
+            "code": "A-10",
+            "reason": f"公司未上市 + 规模<{company.scale_max}人 + JD 含急招信号, 可能存在稳定性风险",
+            "ask": f"「{company.name or job.company_name}」规模较小且急招, "
+                   "请联网查其融资状况、近期是否有裁员或经营异常消息。",
         })
 
     return triggers
@@ -899,9 +1142,9 @@ def explain(result: ScoreResult) -> str:
 
 #: 规则项的代码默认满分 (与打分函数一一对应, 修改打分逻辑时同步更新)。
 _ITEM_DEFAULTS: dict[str, float] = {
-    "F-01": 4.0, "F-02": 4.0, "F-03": 1.0, "F-04": 0.5, "F-05": 0.5,
-    "G-01": 3.0, "G-02": 2.0, "G-03": 2.0, "G-04": 1.0, "G-05": 1.0, "G-06": 1.0,
-    "R-01": 5.0, "R-02": 2.0, "R-03": 1.0, "R-04": 2.0,
+    "F-01": 4.0, "F-02": 3.5, "F-03": 1.0, "F-04": 0.5, "F-05": 0.5, "F-06": 0.5,
+    "G-01": 3.0, "G-02": 2.0, "G-03": 2.0, "G-04": 1.0, "G-05": 0.5, "G-06": 1.0, "G-07": 0.5,
+    "R-01": 4.0, "R-02": 2.0, "R-03": 1.0, "R-04": 1.0, "R-05": 2.0,
     "W-01": 3.0, "W-02": 2.0, "W-03": 1.0, "W-04": 3.0, "W-05": 1.0,
 }
 
@@ -914,10 +1157,12 @@ _CATALOG_STATIC: dict[str, Any] = {
         {"code": "H-02", "label": "行业被拒绝", "detail": "公司行业命中画像的拒绝行业列表。"},
         {"code": "H-03", "label": "公司规模过小", "detail": "公司规模上限低于画像的拒绝规模下限 (默认 20 人)。"},
         {"code": "H-04", "label": "薪资低于硬性下限", "detail": "年薪下限 < 画像的硬性最低可接受年薪 (默认期望下限的 85%)。面议/未知不淘汰。"},
-        {"code": "H-05", "label": "出差强度超标", "detail": "JD 要求长期驻场/外派, 且画像明确不接受出差。证据置信度低于阈值只标 REVIEW。"},
-        {"code": "H-06", "label": "加班强度超标", "detail": "推断为 996/大小周/单休等高强度作息。证据置信度低于阈值只标 REVIEW。"},
-        {"code": "H-07", "label": "命中排除关键词", "detail": "JD 文本命中画像的排除关键词黑名单 (如大小周、995、外包驻场)。"},
-        {"code": "H-08", "label": "外包/驻场岗位", "detail": "推断为外包/劳务派遣/驻场岗位, 且画像不接受外包。证据置信度低于阈值只标 REVIEW。"},
+        {"code": "H-05", "label": "出差强度超标", "detail": "JD 要求长期驻场/外派, 且画像明确不接受出差。判定逻辑: 命中后取 JD 信号推断置信度, >= floor 直接淘汰, < floor 标 REVIEW 交 AI 核实。"},
+        {"code": "H-06", "label": "加班强度超标", "detail": "推断为 996/大小周/单休等高强度作息。判定逻辑: 置信度来自 job.signals['overtime'], >= floor 直接淘汰, < floor 标 REVIEW。"},
+        {"code": "H-07", "label": "命中排除关键词", "detail": "JD 文本命中画像的排除关键词黑名单 (如大小周、995、外包驻场)。命中即淘汰, 无置信度衰减。"},
+        {"code": "H-08", "label": "外包/驻场岗位", "detail": "推断为外包/劳务派遣/驻场岗位, 且画像不接受外包。判定逻辑: 置信度来自 job.signals['outsourcing'], >= floor 直接淘汰, < floor 标 REVIEW。"},
+        {"code": "H-09", "label": "学历硬性不符", "detail": "岗位要求学历高于本人最高学历。判定逻辑: 岗位 edu.rank < 本人 edu.rank 即命中 (1=博士 2=硕士 3=本科 4=大专), 命中即淘汰(无置信度衰减, 学历要求是硬门槛)。画像未填学历时标 REVIEW。"},
+        {"code": "H-10", "label": "经验年限硬性不符", "detail": "岗位要求最低年限超出本人总年限。判定逻辑: 超出 1 年以上直接淘汰, 1 年以内差距标 REVIEW 交 AI 核实。画像未填年限时标 REVIEW。"},
     ],
     "dimensions": [
         {
@@ -926,8 +1171,9 @@ _CATALOG_STATIC: dict[str, Any] = {
                 {"code": "F-01", "label": "薪资下限达标", "detail": "年薪下限 >= 期望最低年薪 → 满分"},
                 {"code": "F-02", "label": "薪资中位数达标", "detail": "薪资中位 >= 期望中位 → 满分"},
                 {"code": "F-03", "label": "薪资上限惊喜", "detail": "年薪上限 >= 期望上限×1.2 → 满分"},
-                {"code": "F-04", "label": "股票/期权激励", "detail": "福利含股票/期权/股权 → 满分"},
+                {"code": "F-04", "label": "股票/期权激励", "detail": "股权激励的折现率: 上市RSU→满分, 未上市RSU→70%, 创业期权→30% (期权按彩票算)"},
                 {"code": "F-05", "label": "高价值福利", "detail": "每命中 1 项看重的福利 +满分的50%, 封顶满分"},
+                {"code": "F-06", "label": "薪资构成质量", "detail": "薪资构成的确定性: 明确base月薪×月数→满分, 仅年薪范围→60%, 面议→0"},
             ],
         },
         {
@@ -939,15 +1185,17 @@ _CATALOG_STATIC: dict[str, Any] = {
                 {"code": "G-04", "label": "团队规模契合", "detail": "JD 团队规模落在偏好区间内 → 满分"},
                 {"code": "G-05", "label": "经验学历兼容", "detail": "经验/学历要求均兼容本人 → 满分"},
                 {"code": "G-06", "label": "技术深度信号", "detail": "JD 含架构/性能/选型等深度关键词 → 满分"},
+                {"code": "G-07", "label": "技术前瞻性", "detail": "JD 涉及 AI/云原生/Web3 等热点方向 → 满分, 评估 3 年后的技术资产价值"},
             ],
         },
         {
-            "key": "resource", "label": "资源匹配",
+            "key": "resource", "label": "平台与文化适配",
             "items": [
                 {"code": "R-01", "label": "城市匹配", "detail": "常住城市→满分, 可接受城市→40%, 其他→0"},
                 {"code": "R-02", "label": "行业经验重叠", "detail": "公司行业命中既往行业标签 → 满分"},
                 {"code": "R-03", "label": "公司体量偏好", "detail": "规模≥500人 或 上市 → 满分"},
                 {"code": "R-04", "label": "特殊资源(手动)", "detail": "预留手动加分位, 默认 0"},
+                {"code": "R-05", "label": "文化适配信号", "detail": "从 JD 推断企业文化(技术驱动/扁平/结果导向/创新), 与画像偏好匹配 → 满分"},
             ],
         },
         {
@@ -957,7 +1205,7 @@ _CATALOG_STATIC: dict[str, Any] = {
                 {"code": "W-02", "label": "弹性福利信号", "detail": "福利含弹性/不打卡/自由 → 满分"},
                 {"code": "W-03", "label": "企业规范性", "detail": "规模≥2000人 或 上市 → 满分"},
                 {"code": "W-04", "label": "加班强度", "detail": "light→满分, moderate/unknown→33%, heavy→0"},
-                {"code": "W-05", "label": "通勤便利", "detail": "职位城市 = 常住城市 → 满分"},
+                {"code": "W-05", "label": "通勤便利", "detail": "同城用 GPS 估算通勤时长, 对比画像 max_commute_minutes; GPS 缺失时回退到城市匹配"},
             ],
         },
     ],
@@ -970,23 +1218,102 @@ _CATALOG_STATIC: dict[str, Any] = {
         {"code": "A-06", "label": "用户主动深度分析", "detail": "用户勾选深度分析时触发"},
         {"code": "A-07", "label": "硬规则命中但证据不足", "detail": "某条硬性规则命中但置信度 < 60%, 请 AI 核实证据是否成立"},
         {"code": "A-08", "label": "匿名雇主", "detail": "BOSS 匿名雇主, 公司维度全靠猜, 请 AI 推测公司类型"},
+        {"code": "A-09", "label": "文化适配存疑", "detail": "R-05 得 0 分且画像有文化偏好, 总分≥6.0 时, 请 AI 联网查公司真实工作氛围"},
+        {"code": "A-10", "label": "公司稳定性存疑", "detail": "未上市+小规模+急招信号, 请 AI 联网查融资状况和近期经营异常"},
     ],
 }
 
 
-def build_rules_catalog(overrides: ScoringOverrides | None = None) -> dict[str, Any]:
+def _build_hard_check_threshold(code: str, profile: Profile) -> dict[str, Any]:
+    """为硬规则构建结构化阈值信息, 告诉用户当前阈值是多少、来自画像哪个字段。
+
+    硬规则的阈值都在画像里编辑, 规则概览只展示来源和当前值。
+    """
+    thresholds: dict[str, dict[str, Any]] = {
+        "H-01": {
+            "value": profile.all_acceptable_cities(),
+            "source": "profile.acceptable_cities + current_city",
+            "source_label": "可接受城市列表",
+        },
+        "H-02": {
+            "value": profile.reject_industries,
+            "source": "profile.reject_industries",
+            "source_label": "拒绝行业列表",
+        },
+        "H-03": {
+            "value": profile.reject_scale_below,
+            "source": "profile.reject_scale_below",
+            "source_label": "拒绝规模下限(人)",
+        },
+        "H-04": {
+            "value": profile.hard_min_salary_10k,
+            "source": "profile.hard_min_salary_10k",
+            "source_label": "硬性最低年薪(万)",
+        },
+        "H-05": {
+            "value": profile.accept_travel,
+            "source": "profile.accept_travel",
+            "source_label": "是否接受出差",
+        },
+        "H-06": {
+            "value": "JD信号推断(overtime==heavy)",
+            "source": "job.signals['overtime']",
+            "source_label": "加班强度信号(自动推断)",
+        },
+        "H-07": {
+            "value": profile.blacklist_keywords,
+            "source": "profile.blacklist_keywords",
+            "source_label": "排除关键词黑名单",
+        },
+        "H-08": {
+            "value": profile.accept_outsourcing,
+            "source": "profile.accept_outsourcing",
+            "source_label": "是否接受外包",
+        },
+        "H-09": {
+            "value": profile.education or "(未填)",
+            "source": "profile.education",
+            "source_label": "最高学历",
+        },
+        "H-10": {
+            "value": f"{profile.total_years} 年" if profile.total_years else "(未填)",
+            "source": "profile.total_years",
+            "source_label": "工作总年限",
+        },
+    }
+    info = thresholds.get(code)
+    if not info:
+        return {}
+    return {**info, "editable_in": "画像编辑"}
+
+
+def build_rules_catalog(
+    overrides: ScoringOverrides | None = None,
+    profile: Profile | None = None,
+) -> dict[str, Any]:
     """构建规则目录, 注入当前生效的 max 和 default_max。
 
     每个评分项额外返回:
       - max: 当前生效满分 (用户覆盖值或代码默认值)
       - default_max: 代码默认满分 (供前端显示"恢复默认")
+
+    每条硬规则额外返回:
+      - threshold: {value, source, source_label, editable_in} 当前阈值和来源
     """
     import copy
 
+    from .profile import load_profile
+
     ov = overrides or _load_active_overrides()
+    prof = profile or load_profile()
     catalog = copy.deepcopy(_CATALOG_STATIC)
     catalog["reject_confidence_floor"] = ov.get_floor(REJECT_CONFIDENCE_FLOOR)
     catalog["default_reject_confidence_floor"] = REJECT_CONFIDENCE_FLOOR
+
+    # 硬规则: 注入当前阈值来源
+    for hc in catalog["hard_checks"]:
+        hc["threshold"] = _build_hard_check_threshold(hc["code"], prof)
+
     for dim in catalog["dimensions"]:
         dim_total = 0.0
         for item in dim["items"]:

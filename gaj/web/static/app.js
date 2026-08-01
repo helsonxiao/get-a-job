@@ -9,11 +9,12 @@ function app() {
     tasks: {},
     logs: [], sseConnected: false, logCollapsed: true,
     showConfig: false, configTab: 'rules',
-    rulesCatalog: null, rulesEdit: {}, initialRulesEdit: {}, rulesSaving: false,
-    profileData: null, profileSaving: false,
+    rulesCatalog: null, rulesEdit: {}, initialRulesEdit: {}, rulesSaving: false, scoringPresets: {},
+    profileData: null, profileSaving: false, weightPresets: {},
     showResume: false, resumeData: {content: '', exists: false, size: 0}, resumeSaving: false, resumeSavedAt: '',
     manualEdit: {total: '', note: ''}, manualSaving: false,
     selectMode: false, selectedIds: [], batchDeleting: false,
+    reparseFile: '', reparseExpand: '',
     toasts: [], _toastSeq: 0,
 
     async init() {
@@ -22,8 +23,10 @@ function app() {
       await this.loadProviders();
       this.loadRules();
       this.loadProfile();
+      this.loadWeightPresets();
       this.loadResume();
       this.connectSSE();
+      this.initListWidth();
       // 动态轮询: 有任务在跑时 2s, 稳态 5s, 减少日志噪音
       this._pollTimer = setInterval(() => this.pollTasks(), 5000);
     },
@@ -58,6 +61,9 @@ function app() {
       const ov = d.overrides || {};
       this.rulesEdit = {...ov};
       this.initialRulesEdit = {...ov};
+      // 并行加载评分项配比预设
+      const p = await this.api('/api/scoring-config/presets');
+      if (p && p.presets) this.scoringPresets = p.presets;
     },
 
     dimMaxSum(dim) {
@@ -67,7 +73,25 @@ function app() {
       }, 0).toFixed(1);
     },
 
+    formatThreshold(t) {
+      if (!t) return '';
+      const v = t.value;
+      if (Array.isArray(v)) return v.length ? v.join('、') : '(空)';
+      if (typeof v === 'boolean') return v ? '是' : '否';
+      return String(v);
+    },
+
     async saveScoringConfig() {
+      // 校验维度封顶: 各项满分之和不能超过 10
+      if (this.rulesCatalog) {
+        for (const dim of this.rulesCatalog.dimensions) {
+          const sum = parseFloat(this.dimMaxSum(dim));
+          if (sum > 10) {
+            this.toast(`${dim.label} 各项满分之和 ${sum} 超过封顶 10, 请调整后再保存`, 'error');
+            return;
+          }
+        }
+      }
       this.rulesSaving = true;
       const d = await this.api('/api/scoring-config', 'PUT', this.rulesEdit);
       if (d && d.ok) {
@@ -89,6 +113,16 @@ function app() {
       const cleared = {};
       for (const k of Object.keys(this.rulesEdit)) cleared[k] = null;
       this.rulesEdit = cleared;
+    },
+
+    applyScoringPreset(name) {
+      const p = this.scoringPresets[name];
+      if (!p) return;
+      // 覆盖全部评分项字段 (reject_confidence_floor 保持不动)
+      const next = {...this.rulesEdit};
+      for (const [k, v] of Object.entries(p)) next[k] = v;
+      this.rulesEdit = next;
+      this.toast(`已套用「${name}」配比预设, 记得点"保存规则参数"生效`, 'info');
     },
 
     async loadProfile() {
@@ -131,6 +165,22 @@ function app() {
         this.toast('画像保存失败, 请重试', 'error');
       }
       this.profileSaving = false;
+    },
+
+    async loadWeightPresets() {
+      const d = await this.api('/api/profile/weight-presets');
+      if (d && d.presets) this.weightPresets = d.presets;
+    },
+
+    applyWeightPreset(name) {
+      const p = this.weightPresets[name];
+      if (!p || !this.profileData) return;
+      // 预设 key (growth/finance/wlb/resource) → profile 字段 (weight_xxx)
+      this.profileData.fields.weight_growth = p.growth;
+      this.profileData.fields.weight_finance = p.finance;
+      this.profileData.fields.weight_wlb = p.wlb;
+      this.profileData.fields.weight_resource = p.resource;
+      this.toast(`已套用「${name}」预设, 记得点"保存画像"生效`, 'info');
     },
 
     async loadResume() {
@@ -217,6 +267,41 @@ function app() {
       const d = await this.api('/api/jobs/' + encodeURIComponent(id));
       if (d) this.detail = d;
       this.detailLoading = false;
+    },
+
+    // 列表宽度拖拽
+    startResize(e) {
+      e.preventDefault();
+      const panel = document.querySelector('.list-panel');
+      const resizer = e.target;
+      panel.classList.add('dragging');
+      resizer.classList.add('active');
+      const startX = e.clientX;
+      const startWidth = panel.offsetWidth;
+      const onMove = (ev) => {
+        const delta = ev.clientX - startX;
+        const newWidth = Math.max(280, Math.min(window.innerWidth * 0.7, startWidth + delta));
+        panel.style.width = newWidth + 'px';
+      };
+      const onUp = () => {
+        panel.classList.remove('dragging');
+        resizer.classList.remove('active');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        try { localStorage.setItem('listWidth', panel.offsetWidth); } catch(_) {}
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+
+    initListWidth() {
+      try {
+        const w = parseInt(localStorage.getItem('listWidth') || '0', 10);
+        if (w >= 280) {
+          const panel = document.querySelector('.list-panel');
+          if (panel) panel.style.width = Math.min(window.innerWidth * 0.7, w) + 'px';
+        }
+      } catch(_) {}
     },
 
     async scoreAll() {
@@ -349,6 +434,37 @@ function app() {
       }
     },
 
+    async reparseAi(jobId, file) {
+      if (!jobId || !file) return;
+      if (this.reparseFile === file) return;  // 防重入
+      const scoreItem = (this.detail?.ai_scores || []).find(s => s._file === file);
+      if (!scoreItem) return;
+      const rawText = (scoreItem._edit_text || scoreItem.raw_response || '').trim();
+      if (!rawText) { this.toast('请输入 AI 原始回复文本', 'error'); return; }
+      this.reparseFile = file;
+      try {
+        const d = await this.api('/api/jobs/' + encodeURIComponent(jobId) + '/ai-reparse', 'POST', {
+          raw_text: rawText,
+          provider: scoreItem.provider || 'unknown',
+        });
+        if (d && d.ok) {
+          this.toast('重新解析成功: ' + d.result.status + ' ' + d.result.total_score + '/10', 'success');
+          await this.selectJob(jobId);
+          await this.loadJobs();
+        } else {
+          this.toast('解析失败, 请检查文本是否包含合法 JSON', 'error');
+        }
+      } catch (e) {
+        this.toast('解析失败: ' + (e.message || '未知错误'), 'error');
+      } finally {
+        this.reparseFile = '';
+      }
+    },
+
+    job_id_for_detail() {
+      return this.selectedJobId;
+    },
+
     toggleSelect(jobId) {
       if (this.selectedIds.includes(jobId)) {
         this.selectedIds = this.selectedIds.filter(id => id !== jobId);
@@ -450,6 +566,8 @@ function app() {
     },
 
     connectSSE() {
+      // 关闭旧连接, 防止 HMR 重载导致多个 EventSource 累积
+      if (this._sse) { try { this._sse.close(); } catch(_) {} this._sse = null; }
       const es = new EventSource('/api/logs/stream');
       this._sse = es;
       es.onopen = () => { this.sseConnected = true; };

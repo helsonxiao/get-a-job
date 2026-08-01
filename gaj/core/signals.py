@@ -115,6 +115,8 @@ class JobSignals:
     travel: Signal = field(default_factory=Signal)
     team_size: Signal = field(default_factory=Signal)
     tech_depth: Signal = field(default_factory=Signal)
+    tech_forwardness: Signal = field(default_factory=Signal)
+    culture: Signal = field(default_factory=Signal)
     blacklist_hits: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -125,6 +127,8 @@ class JobSignals:
             "travel": self.travel.to_dict(),
             "team_size": self.team_size.to_dict(),
             "tech_depth": self.tech_depth.to_dict(),
+            "tech_forwardness": self.tech_forwardness.to_dict(),
+            "culture": self.culture.to_dict(),
             "blacklist_hits": list(self.blacklist_hits),
         }
 
@@ -321,6 +325,32 @@ TECH_DEPTH_KEYWORDS: tuple[str, ...] = (
     "开源",
 )
 
+# 技术前瞻性: 3 年后仍有价值的方向 (对应 G-07)
+TECH_FORWARD_KEYWORDS: tuple[str, ...] = (
+    # AI / 机器学习
+    "AI", "人工智能", "大模型", "LLM", "AIGC", "生成式",
+    "机器学习", "深度学习", "NLP", "计算机视觉", "推荐算法",
+    # 云原生
+    "云原生", "K8s", "Kubernetes", "Service Mesh", "Serverless", "微服务",
+    # Web3
+    "Web3", "区块链", "智能合约",
+    # 低代码
+    "低代码", "无代码", "aPaaS",
+    # 跨端
+    "跨端", "Flutter", "React Native", "小程序",
+    # 大数据
+    "大数据", "数据中台", "实时计算", "Flink", "数据湖",
+)
+
+# 企业文化标签词典 (对应 R-05)
+CULTURE_PATTERNS: dict[str, tuple[str, ...]] = {
+    "技术驱动": ("技术驱动", "极客", "开源", "代码review", "技术分享", "工程文化", "技术氛围"),
+    "扁平管理": ("扁平管理", "直接沟通", "少层级", "敏捷", "Scrum", "透明"),
+    "结果导向": ("结果导向", "OKR", "目标驱动", "效率", "产出", "拿结果"),
+    "创新": ("创新", "试错", "探索", "孵化", "内部创业", "Hackathon"),
+    "传统": ("流程规范", "KPI考核", "层级", "汇报", "审批", "制度完善"),
+}
+
 
 def infer_tech_depth(jd_text: str) -> Signal:
     """判断 JD 是否体现技术深度诉求 (对应打分规则的"技术深度信号")。"""
@@ -331,6 +361,41 @@ def infer_tech_depth(jd_text: str) -> Signal:
         sig.evidence.append(f"「{h}」: {_snippet(text, h)}")
     if not hits:
         sig.evidence.append("JD 未体现架构/性能/选型等技术深度要求")
+    return sig
+
+
+def infer_tech_forwardness(jd_text: str) -> Signal:
+    """判断 JD 是否涉及当前技术热点 (对应 G-07, 评估 3 年价值)。
+
+    value 为命中的关键词列表, 未命中为空列表。
+    """
+    text = clean_text(jd_text)
+    hits = _find_hits(text, TECH_FORWARD_KEYWORDS)
+    sig = Signal(value=hits, confidence=0.8 if hits else 0.6)
+    for h in hits[:4]:
+        sig.evidence.append(f"「{h}」: {_snippet(text, h)}")
+    if not hits:
+        sig.evidence.append("JD 未涉及 AI/云原生/Web3 等热点方向")
+    return sig
+
+
+def infer_culture(jd_text: str) -> Signal:
+    """从 JD 推断企业文化标签 (对应 R-05)。
+
+    value 为命中的文化标签列表 (如 ["技术驱动", "创新"]), 未命中为空列表。
+    "传统" 标签作为反向信号单独返回, 供评分逻辑判断是否与画像冲突。
+    """
+    text = clean_text(jd_text)
+    hit_tags: list[str] = []
+    evidence: list[str] = []
+    for tag, kws in CULTURE_PATTERNS.items():
+        hits = _find_hits(text, kws)
+        if hits:
+            hit_tags.append(tag)
+            evidence.append(f"「{tag}」: 命中 {hits[:2]}")
+    sig = Signal(value=hit_tags, confidence=0.7 if hit_tags else 0.5, evidence=evidence)
+    if not hit_tags:
+        sig.evidence.append("JD 未体现明显的企业文化标签")
     return sig
 
 
@@ -362,5 +427,7 @@ def extract_signals(
         travel=infer_travel(jd_text),
         team_size=infer_team_size(jd_text, company_intro),
         tech_depth=infer_tech_depth(jd_text),
+        tech_forwardness=infer_tech_forwardness(jd_text),
+        culture=infer_culture(jd_text),
         blacklist_hits=find_blacklist_hits(jd_text, blacklist),
     )

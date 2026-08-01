@@ -80,6 +80,13 @@
           <button @click="resetAllRulesDefault()">🔄 全部恢复默认</button>
           <span style="color:var(--text3);font-size:12px">保存后请点击"规则打分"重新评分</span>
         </div>
+        <div class="weight-presets" x-show="Object.keys(scoringPresets).length > 0">
+          <span class="presets-label">配比预设:</span>
+          <template x-for="(p, name) in scoringPresets" :key="name">
+            <button class="preset-btn" @click="applyScoringPreset(name)" x-text="name"
+              :title="'一键套用'+name+'的评分项配比 (各维度满分=10)'"></button>
+          </template>
+        </div>
 
         <h3 class="config-h">🚫 硬性淘汰规则 (命中即淘汰, 证据不足只标 REVIEW)</h3>
         <div class="rule-grid">
@@ -88,6 +95,14 @@
               <div class="rule-code" x-text="h.code"></div>
               <div class="rule-label" x-text="h.label"></div>
               <div class="rule-detail" x-text="h.detail"></div>
+              <template x-if="h.threshold">
+                <div class="rule-threshold">
+                  <span class="rt-label">当前阈值:</span>
+                  <span class="rt-value" x-text="formatThreshold(h.threshold)"></span>
+                  <span class="rt-source" x-text="'← ' + h.threshold.source_label"></span>
+                  <span class="rt-edit" @click="configTab='profile'">去画像编辑改</span>
+                </div>
+              </template>
             </div>
           </template>
         </div>
@@ -97,7 +112,9 @@
           <div class="dim-block">
             <div class="dim-header">
               <strong x-text="dim.label"></strong>
-              <span class="dim-max" x-text="'当前满分 '+dimMaxSum(dim)+' / 默认 '+dim.default_max_score"></span>
+              <span class="dim-max" :class="{'over-cap': parseFloat(dimMaxSum(dim)) > 10}"
+                    x-text="'当前满分 '+dimMaxSum(dim)+' / 默认 '+dim.default_max_score"></span>
+              <span class="dim-cap-warn" x-show="parseFloat(dimMaxSum(dim)) > 10">⚠ 超过封顶10, 实际最多算10分</span>
             </div>
             <div class="rule-grid">
               <template x-for="item in dim.items" :key="item.code">
@@ -141,9 +158,26 @@
         <div class="config-meta">
           <span>当前权重(归一化): <strong x-text="profileData.weights ? '财务'+(profileData.weights.finance*100).toFixed(0)+'% / 成长'+(profileData.weights.growth*100).toFixed(0)+'% / 资源'+(profileData.weights.resource*100).toFixed(0)+'% / WLB'+(profileData.weights.wlb*100).toFixed(0)+'%' : ''"></strong></span>
         </div>
+        <div class="profile-actions" style="margin-bottom: 12px;">
+          <button class="primary" @click="saveProfile()" :disabled="profileSaving">
+            <span x-show="!profileSaving">💾 保存画像</span>
+            <span x-show="profileSaving">⏳ 保存中...</span>
+          </button>
+          <button @click="loadProfile()">↩️ 重新加载</button>
+          <span style="color:var(--text3);font-size:12px">保存后请点击"规则打分"重新评分</span>
+        </div>
         <template x-for="g in profileData.groups" :key="g.title">
           <div class="profile-group">
             <h4 class="config-h" x-text="g.title"></h4>
+            <template x-if="g.title.includes('价值观权重') && Object.keys(weightPresets).length > 0">
+              <div class="weight-presets">
+                <span class="presets-label">快速预设:</span>
+                <template x-for="(p, name) in weightPresets" :key="name">
+                  <button class="preset-btn" @click="applyWeightPreset(name)" x-text="name"
+                    :title="'成长'+p.growth+'% / 财务'+p.finance+'% / WLB'+p.wlb+'% / 资源'+p.resource+'%'"></button>
+                </template>
+              </div>
+            </template>
             <div class="profile-fields">
               <template x-for="f in g.fields" :key="f.name">
                 <div class="profile-field">
@@ -168,14 +202,6 @@
             </div>
           </div>
         </template>
-        <div class="profile-actions">
-          <button class="primary" @click="saveProfile()" :disabled="profileSaving">
-            <span x-show="!profileSaving">💾 保存画像</span>
-            <span x-show="profileSaving">⏳ 保存中...</span>
-          </button>
-          <button @click="loadProfile()">↩️ 重新加载</button>
-          <span style="color:var(--text3);font-size:12px">保存后请点击"规则打分"重新评分</span>
-        </div>
       </div>
     </template>
     <div x-show="!profileData" class="loading">加载画像中...</div>
@@ -283,7 +309,7 @@
         <div class="job-item" :class="{active: selectedJobId === job.job_id, selected: selectedIds.includes(job.job_id)}" @click="selectJob(job.job_id)">
           <div class="job-item-top">
             <input type="checkbox" :checked="selectedIds.includes(job.job_id)" @click.stop="toggleSelect(job.job_id)" x-show="selectMode">
-            <span class="fav-star" @click.stop="toggleFavorite(job.job_id, !job.favorite)" :class="{on: job.favorite}" x-text="job.favorite ? '★' : '☆'"></span>
+            <button class="ignore-btn" @click.stop="toggleIgnore(job.job_id, !job.ignored)" :class="{on: job.ignored}" x-text="job.ignored ? '🚫 已忽略' : '🚫 忽略'"></button>
             <div class="title" x-text="job.title"></div>
           </div>
           <div class="meta">
@@ -313,6 +339,7 @@
       <span style="color:var(--text3);font-size:12px;line-height:28px" x-text="(filters.offset + 1) + '-' + Math.min(filters.offset + jobs.length, jobsTotal) + ' / ' + jobsTotal"></span>
       <button @click="nextPage()" :disabled="filters.offset + jobs.length >= jobsTotal">下一页</button>
     </div>
+    <div class="list-resizer" @mousedown="startResize($event)"></div>
   </div>
 
   <!-- Job Detail -->
@@ -320,77 +347,136 @@
     <div class="loading" x-show="detailLoading">加载中...</div>
     <div class="empty" x-show="!detailLoading && !detail">← 选择一个职位查看详情</div>
     <template x-if="detail && !detailLoading">
-    <div class="detail-content" x-cloak>
-      <h2 x-text="detail.job.title"></h2>
-      <div class="info-grid" style="margin-bottom: 16px;">
-        <div><span class="label">公司:</span> <span x-text="detail.company?.name || detail.job.company_name || '未知'"></span></div>
-        <div><span class="label">行业:</span> <span x-text="detail.company?.industry || '-'"></span></div>
-        <div><span class="label">薪资:</span> <span class="salary" style="color:var(--orange)" x-text="detail.job.salary?.raw || '面议'"></span></div>
-        <div><span class="label">城市:</span> <span x-text="detail.job.city + ' ' + (detail.job.district || '')"></span></div>
-        <div><span class="label">经验:</span> <span x-text="detail.job.experience?.raw || '不限'"></span></div>
-        <div><span class="label">学历:</span> <span x-text="detail.job.education?.raw || '不限'"></span></div>
-        <div><span class="label">规模:</span> <span x-text="detail.company?.scale_raw || '-'"></span></div>
-        <div><span class="label">阶段:</span> <span x-text="detail.company?.stage || '-'"></span></div>
-        <div><span class="label">技能:</span> <span x-text="(detail.job.skills || []).join(', ') || '-'"></span></div>
-        <div><span class="label">福利:</span> <span x-text="(detail.job.welfare || []).join(', ') || '-'"></span></div>
-        <div><span class="label">地址:</span> <span x-text="detail.job.address || '-'"></span></div>
-        <div>
-          <span class="label">坐标:</span>
-          <template x-if="detail.job.gps">
-            <span style="color:var(--text2)" x-text="detail.job.gps.lng + ', ' + detail.job.gps.lat"></span>
-          </template>
-          <template x-if="!detail.job.gps">
-            <span style="color:var(--text3)">未记录</span>
+    <div class="detail-content" x-cloak x-data="{scrolled: false}" x-init="$nextTick(() => { const el = document.querySelector('.detail-panel'); if (el) el.addEventListener('scroll', () => { scrolled = el.scrollTop > 180; }); })">
+      <!-- 滚动悬浮摘要条: 含操作按钮, 滚动时固定顶部 -->
+      <div class="sticky-job-summary" :class="{show: scrolled}">
+        <div class="sjs-info">
+          <span class="sjs-title" x-text="detail.job.title"></span>
+          <span class="sjs-sep">·</span>
+          <span class="sjs-company" x-text="detail.company?.name || detail.job.company_name || '未知'"></span>
+          <span class="sjs-sep">·</span>
+          <span class="sjs-salary" x-text="detail.job.salary?.raw || '面议'"></span>
+          <span class="sjs-sep">·</span>
+          <span class="sjs-city" x-text="detail.job.city || ''"></span>
+          <template x-if="detail.rule_score">
+            <span class="sjs-score">
+              <span class="sjs-sep">·</span>
+              <span class="badge" :class="detail.rule_score.status.toLowerCase()" x-text="detail.rule_score.status"></span>
+              <span class="sjs-total" x-text="(detail.rule_score.total_score || 0).toFixed(1) + '/10'"></span>
+            </span>
           </template>
         </div>
-        <div><span class="label">链接:</span> <a :href="detail.job.url" target="_blank">BOSS直聘 ↗</a></div>
-        <div><span class="label">抓取:</span> <span x-text="detail.job.last_seen"></span></div>
+        <div class="sjs-actions" x-show="scrolled">
+          <button class="primary" @click="triggerAiScore()" :disabled="taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)">🤖 打分</button>
+          <button @click="triggerAiScore(true)" :disabled="taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)">📋 深度</button>
+          <button @click="triggerResume()" :disabled="taskRunning('resume-' + selectedJobId + '-' + aiProvider)">📄 简历</button>
+          <button @click="toggleFavorite(selectedJobId, !detail.job.favorite)" :class="{primary: detail.job.favorite}" x-text="detail.job.favorite ? '★ 已藏' : '☆ 收藏'"></button>
+          <button @click="toggleIgnore(selectedJobId, !detail.job.ignored)" :class="{primary: detail.job.ignored}" x-text="detail.job.ignored ? '🚫 已忽略' : '🚫 忽略'"></button>
+          <button class="danger" @click="if(confirm('确认删除职位「' + detail.job.title + '」? 此操作不可恢复')) deleteJob(selectedJobId)">🗑 删除</button>
+        </div>
+      </div>
+      <!-- 标题区: 职位名 + 操作栏 (顶部时) -->
+      <div class="title-row">
+        <h2 x-text="detail.job.title"></h2>
+        <div class="title-actions" x-show="!scrolled">
+          <select x-model="aiProvider" style="min-width:80px">
+            <template x-for="p in providers" :key="p">
+              <option :value="p" x-text="p"></option>
+            </template>
+          </select>
+          <button class="primary" @click="triggerAiScore()" :disabled="taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)">
+            <span x-show="!taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)">🤖 打分</span>
+            <span x-show="taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)">⏳</span>
+          </button>
+          <button @click="triggerAiScore(true)" :disabled="taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)">📋 深度</button>
+          <button @click="triggerResume()" :disabled="taskRunning('resume-' + selectedJobId + '-' + aiProvider)">📄 简历</button>
+          <button @click="toggleFavorite(selectedJobId, !detail.job.favorite)" :class="{primary: detail.job.favorite}" x-text="detail.job.favorite ? '★ 已藏' : '☆ 收藏'"></button>
+          <button @click="toggleIgnore(selectedJobId, !detail.job.ignored)" :class="{primary: detail.job.ignored}" x-text="detail.job.ignored ? '🚫 已忽略' : '🚫 忽略'"></button>
+          <button class="danger" @click="if(confirm('确认删除职位「' + detail.job.title + '」? 此操作不可恢复')) deleteJob(selectedJobId)">🗑 删除</button>
+        </div>
+      </div>
+      <div class="detail-subtitle">
+        <span x-text="detail.company?.name || detail.job.company_name || '未知'"></span>
+        <span style="color:var(--text3);margin:0 6px">·</span>
+        <span class="salary" style="color:var(--orange);font-weight:600" x-text="detail.job.salary?.raw || '面议'"></span>
+        <span style="color:var(--text3);margin:0 6px">·</span>
+        <span x-text="detail.job.city + (detail.job.district ? ' ' + detail.job.district : '')"></span>
+        <span style="color:var(--text3);margin:0 6px">·</span>
+        <a :href="detail.job.url" target="_blank" style="font-size:12px">BOSS直聘 ↗</a>
       </div>
 
-      <!-- Action Bar -->
-      <div class="action-bar">
-        <select x-model="aiProvider" style="min-width:100px">
-          <template x-for="p in providers" :key="p">
-            <option :value="p" x-text="p"></option>
-          </template>
-        </select>
-        <button class="primary" @click="triggerAiScore()" :disabled="taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)">
-          <span x-show="!taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)">🤖 AI 打分</span>
-          <span x-show="taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)">⏳ 打分中...</span>
-        </button>
-        <button @click="triggerAiScore(true)" :disabled="taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)">📋 深度分析</button>
-        <button @click="triggerResume()" :disabled="taskRunning('resume-' + selectedJobId + '-' + aiProvider)">📄 生成简历</button>
-        <span style="flex:1"></span>
-        <button @click="toggleFavorite(selectedJobId, !detail.job.favorite)" :class="{primary: detail.job.favorite}">
-          <span x-show="!detail.job.favorite">☆ 收藏</span>
-          <span x-show="detail.job.favorite">★ 已收藏</span>
-        </button>
-        <button @click="toggleIgnore(selectedJobId, !detail.job.ignored)" :class="{primary: detail.job.ignored}">
-          <span x-show="!detail.job.ignored">🚫 忽略</span>
-          <span x-show="detail.job.ignored">🚫 已忽略</span>
-        </button>
-        <button class="danger" @click="deleteJob(selectedJobId)">🗑 删除职位</button>
+      <!-- 基础信息卡片 -->
+      <div class="detail-section">
+        <h3>📌 基础信息 <span class="section-hint" x-text="'抓取于 ' + (detail.job.last_seen || '-')""></span></h3>
+        <div class="info-grid">
+          <div><span class="label">公司:</span> <span x-text="detail.company?.name || detail.job.company_name || '未知'"></span></div>
+          <div><span class="label">行业:</span> <span x-text="detail.company?.industry || '-'"></span></div>
+          <div><span class="label">薪资:</span> <span class="salary" style="color:var(--orange)" x-text="detail.job.salary?.raw || '面议'"></span></div>
+          <div><span class="label">城市:</span> <span x-text="detail.job.city + (detail.job.district ? ' ' + detail.job.district : '')"></span></div>
+          <div><span class="label">经验:</span> <span x-text="detail.job.experience?.raw || '不限'"></span></div>
+          <div><span class="label">学历:</span> <span x-text="detail.job.education?.raw || '不限'"></span></div>
+          <div><span class="label">规模:</span> <span x-text="detail.company?.scale_raw || '-'"></span></div>
+          <div><span class="label">阶段:</span> <span x-text="detail.company?.stage || '-'"></span></div>
+          <div><span class="label">技能:</span> <span x-text="(detail.job.skills || []).join(', ') || '-'"></span></div>
+          <div><span class="label">福利:</span> <span x-text="(detail.job.welfare || []).join(', ') || '-'"></span></div>
+          <div style="grid-column: 1 / -1"><span class="label">地址:</span> <span x-text="detail.job.address || '-'"></span></div>
+          <div>
+            <span class="label">坐标:</span>
+            <template x-if="detail.job.gps">
+              <span style="color:var(--text2);font-size:12px" x-text="detail.job.gps.lng + ', ' + detail.job.gps.lat"></span>
+            </template>
+            <template x-if="!detail.job.gps">
+              <span style="color:var(--text3)">未记录</span>
+            </template>
+          </div>
+        </div>
       </div>
 
       <!-- Rule Score -->
       <div class="detail-section" x-show="detail.rule_score">
-        <h3>规则打分</h3>
+        <h3>📊 规则打分 <span class="section-hint" x-text="detail.rule_score.rules_version ? 'v' + detail.rule_score.rules_version : ''"></span></h3>
         <div class="score-card">
-          <div class="header-row">
-            <span class="badge" :class="detail.rule_score.status.toLowerCase()" x-text="detail.rule_score.status"></span>
-            <span class="total" x-text="(detail.rule_score.total_score || 0).toFixed(1) + '/10'"></span>
-            <span style="color:var(--text3)" x-text="'(' + (detail.rule_score.total_100 || 0).toFixed(0) + '分)'"></span>
-            <span style="color:var(--text3);margin-left:auto" x-text="detail.rule_score.rules_version ? 'v' + detail.rule_score.rules_version : ''"></span>
+          <div class="score-summary">
+            <div class="header-row">
+              <span class="badge" :class="detail.rule_score.status.toLowerCase()" x-text="detail.rule_score.status"></span>
+              <span class="total" x-text="(detail.rule_score.total_score || 0).toFixed(1) + '/10'"></span>
+              <span style="color:var(--text3)" x-text="'(' + (detail.rule_score.total_100 || 0).toFixed(0) + '分)'"></span>
+            </div>
+            <div class="dims">
+              <template x-for="(val, key) in detail.rule_score.dimension_scores || {}" :key="key">
+                <div class="dim">
+                  <span class="lbl" x-text="{finance:'财务',growth:'成长',resource:'资源',wlb:'WLB'}[key] || key"></span>
+                  <span class="val" x-text="(val || 0).toFixed(1)"></span>
+                </div>
+              </template>
+            </div>
           </div>
-          <div class="dims">
-            <template x-for="(val, key) in detail.rule_score.dimension_scores || {}" :key="key">
-              <div class="dim">
-                <div class="val" x-text="(val || 0).toFixed(1)"></div>
-                <div class="lbl" x-text="{finance:'财务',growth:'成长',resource:'资源',wlb:'WLB'}[key] || key"></div>
-                <div class="dim-bar"><div class="fill" :style="'width:' + (val || 0) * 10 + '%'"></div></div>
-              </div>
-            </template>
-          </div>
+          <!-- Hard Checks (只展示命中的) -->
+          <template x-if="detail.rule_score.hard_checks && detail.rule_score.hard_checks.filter(h => h.hit).length">
+            <div class="hard-checks-list">
+              <div class="hc-title">命中规则明细</div>
+              <template x-for="hc in detail.rule_score.hard_checks.filter(h => h.hit)" :key="hc.code">
+                <div class="hard-check-item" :class="{'fatal': hc.fatal, 'suspicion': !hc.fatal}">
+                  <div class="hc-header">
+                    <span class="hc-code" x-text="hc.code"></span>
+                    <span class="hc-label" x-text="hc.label"></span>
+                    <span class="hc-verdict" x-text="hc.fatal ? '✗ 淘汰' : '? 存疑→AI'"></span>
+                  </div>
+                  <div class="hc-reason" x-text="hc.reason"></div>
+                  <div class="hc-confidence" x-show="hc.confidence < 1.0">
+                    置信度 <span x-text="(hc.confidence*100).toFixed(0) + '%'"></span>
+                    <span x-text="hc.confidence >= hc.floor ? '≥' : '<'"></span>
+                    下限 <span x-text="(hc.floor*100).toFixed(0) + '%'"></span>
+                  </div>
+                  <template x-if="hc.evidence && hc.evidence.length">
+                    <div class="hc-evidence">
+                      证据: <span x-text="hc.evidence.join('、')"></span>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
           <div style="margin-top:8px;font-size:12px;color:var(--text2)" x-show="detail.rule_score.reject_reason">
             <span style="color:var(--red)">淘汰: </span><span x-text="detail.rule_score.reject_reason"></span>
           </div>
@@ -437,46 +523,89 @@
 
       <!-- AI Scores -->
       <div class="detail-section" x-show="detail.ai_scores && detail.ai_scores.length > 0">
-        <h3>AI 打分 (<span x-text="detail.ai_scores.length"></span> 次)</h3>
+        <h3>🤖 AI 打分 <span class="section-hint" x-text="detail.ai_scores.length + ' 次'"></span></h3>
         <template x-for="s in detail.ai_scores" :key="s._file || s.created_at">
           <div class="ai-score-section">
             <div class="header-row">
               <span class="provider" x-text="'🤖 ' + s.provider"></span>
               <span class="badge" :class="s.status.toLowerCase()" x-text="s.status"></span>
-              <span class="total" style="font-size:18px" x-text="(s.total_score || 0).toFixed(1) + '/10'"></span>
-              <span class="badge ai" x-text="s.recommendation"></span>
+              <template x-if="s.status !== 'PARSE_FAILED'">
+                <span class="total" style="font-size:18px" x-text="(s.total_score || 0).toFixed(1) + '/10'"></span>
+              </template>
+              <template x-if="s.status !== 'PARSE_FAILED'">
+                <span class="badge ai" x-text="s.recommendation"></span>
+              </template>
               <span style="color:var(--text3);margin-left:auto;font-size:12px" x-text="s.created_at"></span>
               <button class="danger" style="padding:2px 8px;font-size:11px" @click="deleteAiScore(s._file)">🗑 删除</button>
             </div>
-            <div class="dims" style="margin:6px 0">
-              <template x-for="key in ['finance','growth','resource','wlb']" :key="key">
-                <div class="dim">
-                  <div class="val" x-text="((s.dimension_scores || {})[key] || 0).toFixed(1)"></div>
-                  <div class="lbl" x-text="{finance:'财务',growth:'成长',resource:'资源',wlb:'WLB'}[key]"></div>
+            <!-- 解析失败: 显示编辑入口 -->
+            <template x-if="s.status === 'PARSE_FAILED'">
+              <div class="parse-failed-box">
+                <div style="color:var(--yellow);font-size:13px;margin-bottom:6px">⚠ JSON 解析失败, 可人工编辑后重新解析</div>
+                <textarea x-model="s._edit_text" class="raw-edit-textarea" placeholder="编辑 AI 原始回复..." x-init="s._edit_text = s._edit_text || s.raw_response || ''"></textarea>
+                <div style="margin-top:6px;display:flex;gap:6px">
+                  <button class="primary" style="padding:4px 12px;font-size:12px" @click="reparseAi(job_id_for_detail(), s._file)" :disabled="reparseFile === s._file">
+                    <span x-show="reparseFile !== s._file">🔄 重新解析</span>
+                    <span x-show="reparseFile === s._file">⏳ 解析中</span>
+                  </button>
                 </div>
-              </template>
-            </div>
-            <div class="reason" x-show="s.recommendation_reason" x-text="s.recommendation_reason"></div>
-            <template x-for="h in s.highlights || []" :key="h">
-              <div class="tag highlight">+ <span x-text="h"></span></div>
+              </div>
             </template>
-            <template x-for="r in s.risks || []" :key="r">
-              <div class="tag risk">! <span x-text="r"></span></div>
+            <!-- 解析成功: 正常展示 -->
+            <template x-if="s.status !== 'PARSE_FAILED'">
+              <div>
+                <div class="dims" style="margin:6px 0">
+                  <template x-for="key in ['finance','growth','resource','wlb']" :key="key">
+                    <div class="dim">
+                      <div class="val" x-text="((s.dimension_scores || {})[key] || 0).toFixed(1)"></div>
+                      <div class="lbl" x-text="{finance:'财务',growth:'成长',resource:'资源',wlb:'WLB'}[key]"></div>
+                    </div>
+                  </template>
+                </div>
+                <div class="reason" x-show="s.recommendation_reason" x-text="s.recommendation_reason"></div>
+                <template x-for="h in s.highlights || []" :key="h">
+                  <div class="tag highlight">+ <span x-text="h"></span></div>
+                </template>
+                <template x-for="r in s.risks || []" :key="r">
+                  <div class="tag risk">! <span x-text="r"></span></div>
+                </template>
+                <template x-for="t in s.interview_tips || []" :key="t">
+                  <div class="tag tip">💡 <span x-text="t"></span></div>
+                </template>
+                <div class="reason" x-show="s.deep_analysis_report" style="white-space:pre-wrap;border-top:1px solid var(--border);padding-top:6px;margin-top:6px" x-text="s.deep_analysis_report"></div>
+                <!-- 查看原始回复 + 重新解析 -->
+                <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+                  <button style="font-size:12px;padding:2px 8px;background:var(--bg3);border:none;border-radius:4px;color:var(--text2);cursor:pointer" @click="reparseExpand = (reparseExpand === s._file ? '' : s._file)">
+                    <span x-show="reparseExpand !== s._file">📄 查看原始回复</span>
+                    <span x-show="reparseExpand === s._file">▲ 收起</span>
+                  </button>
+                  <template x-if="reparseExpand === s._file">
+                    <div style="margin-top:6px">
+                      <textarea x-model="s._edit_text" class="raw-edit-textarea" placeholder="编辑 AI 原始回复..." x-init="s._edit_text = s._edit_text || s.raw_response || ''"></textarea>
+                      <div style="margin-top:6px;display:flex;gap:6px">
+                        <button class="primary" style="padding:4px 12px;font-size:12px" @click="reparseAi(job_id_for_detail(), s._file)" :disabled="reparseFile === s._file">
+                          <span x-show="reparseFile !== s._file">🔄 重新解析</span>
+                          <span x-show="reparseFile === s._file">⏳ 解析中</span>
+                        </button>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
             </template>
-            <div class="reason" x-show="s.deep_analysis_report" style="white-space:pre-wrap;border-top:1px solid var(--border);padding-top:6px;margin-top:6px" x-text="s.deep_analysis_report"></div>
           </div>
         </template>
       </div>
 
       <!-- JD -->
       <div class="detail-section">
-        <h3>岗位描述</h3>
+        <h3>📝 岗位描述</h3>
         <div class="jd-text" x-text="detail.jd_text || detail.job.jd?.full || '无 JD'"></div>
       </div>
 
       <!-- Company -->
       <div class="detail-section" x-show="detail.company && detail.company.intro">
-        <h3>公司简介</h3>
+        <h3>🏢 公司简介</h3>
         <div class="jd-text" x-text="detail.company?.intro || ''"></div>
       </div>
     </div>

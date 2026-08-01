@@ -512,27 +512,22 @@ def _search_clause(search: str) -> tuple[str, list[Any]]:
     )
 
 
-def query_jobs(
-    conn: sqlite3.Connection,
+def _build_where(
     *,
     search: str = "",
     cities: Iterable[str] = (),
     statuses: Iterable[str] = (),
-    scored: str = "all",          # all | none | rule_only | ai
+    scored: str = "all",
     providers: Iterable[str] = (),
     salary_min: float | None = None,
     online_only: bool = False,
     outsourcing: bool | None = None,
-    favorite: str = "all",        # all | only | exclude
-    ignored: str = "exclude",     # exclude | all | only
-    sort: str = "best_total",
-    desc: bool = True,
-    limit: int = 200,
-    offset: int = 0,
-) -> list[dict]:
+    favorite: str = "all",
+    ignored: str = "exclude",
+) -> tuple[str, list[Any]]:
+    """构造列表筛选的 WHERE 子句与参数, 供 query / count 共用。"""
     where: list[str] = []
     params: list[Any] = []
-
     if search:
         clause, search_params = _search_clause(search)
         where.append(clause)
@@ -572,14 +567,38 @@ def query_jobs(
         where.append("(ignored = 0 OR ignored IS NULL)")
     elif ignored == "only":
         where.append("ignored = 1")
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    return clause, params
 
+
+def query_jobs(
+    conn: sqlite3.Connection,
+    *,
+    search: str = "",
+    cities: Iterable[str] = (),
+    statuses: Iterable[str] = (),
+    scored: str = "all",          # all | none | rule_only | ai
+    providers: Iterable[str] = (),
+    salary_min: float | None = None,
+    online_only: bool = False,
+    outsourcing: bool | None = None,
+    favorite: str = "all",        # all | only | exclude
+    ignored: str = "exclude",     # exclude | all | only
+    sort: str = "best_total",
+    desc: bool = True,
+    limit: int = 200,
+    offset: int = 0,
+) -> list[dict]:
+    where_clause, params = _build_where(
+        search=search, cities=cities, statuses=statuses, scored=scored,
+        providers=providers, salary_min=salary_min, online_only=online_only,
+        outsourcing=outsourcing, favorite=favorite, ignored=ignored,
+    )
     sort_col = sort if sort in _SORTABLE else "best_total"
     direction = "DESC" if desc else "ASC"
-    sql = "SELECT * FROM jobs"
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    # 收藏永远排最前, 然后按 sort_col 排序, NULL 排最后
-    sql += (
+    sql = (
+        "SELECT * FROM jobs" + where_clause +
+        # 收藏永远排最前, 然后按 sort_col 排序, NULL 排最后
         f" ORDER BY favorite DESC, ({sort_col} IS NULL), {sort_col} {direction}"
         f" LIMIT ? OFFSET ?"
     )
@@ -589,8 +608,28 @@ def query_jobs(
     return [_row_to_dict(r) for r in rows]
 
 
-def count_jobs(conn: sqlite3.Connection) -> int:
-    return conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+def count_jobs(
+    conn: sqlite3.Connection,
+    *,
+    search: str = "",
+    cities: Iterable[str] = (),
+    statuses: Iterable[str] = (),
+    scored: str = "all",
+    providers: Iterable[str] = (),
+    salary_min: float | None = None,
+    online_only: bool = False,
+    outsourcing: bool | None = None,
+    favorite: str = "all",
+    ignored: str = "exclude",
+) -> int:
+    """带筛选条件的职位计数, 参数与 query_jobs 一致。"""
+    where_clause, params = _build_where(
+        search=search, cities=cities, statuses=statuses, scored=scored,
+        providers=providers, salary_min=salary_min, online_only=online_only,
+        outsourcing=outsourcing, favorite=favorite, ignored=ignored,
+    )
+    sql = "SELECT COUNT(*) FROM jobs" + where_clause
+    return conn.execute(sql, params).fetchone()[0]
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:

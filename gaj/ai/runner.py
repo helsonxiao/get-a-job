@@ -149,6 +149,7 @@ def score_with_ai(
         if result:
             result["provider"] = provider
             result["deep_analysis_report"] = result.get("deep_analysis_report", "")
+            result["raw_response"] = raw_response
             repo.save_ai_score(job_id, provider, result)
             log.info(
                 f"[{job_id}] AI 打分完成: {result['status']} "

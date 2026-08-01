@@ -26,6 +26,23 @@ _SPLIT_RE = re.compile(r"[,，、;；]+")
 _TRUE = {"是", "true", "yes", "y", "1", "接受"}
 _FALSE = {"否", "false", "no", "n", "0", "不接受"}
 
+# 权重预设方案: 画像编辑页一键切换
+WEIGHT_PRESETS: dict[str, dict[str, float]] = {
+    "平衡型(默认)": {"growth": 30, "finance": 30, "wlb": 30, "resource": 10},
+    "成长优先(技术人)": {"growth": 40, "finance": 25, "wlb": 25, "resource": 10},
+    "财务优先(赚钱)": {"growth": 25, "finance": 40, "wlb": 25, "resource": 10},
+    "生活优先(WLB)": {"growth": 25, "finance": 25, "wlb": 40, "resource": 10},
+    "资源优先(管理者)": {"growth": 30, "finance": 30, "wlb": 10, "resource": 30},
+}
+
+# 学历 -> rank 映射 (rank 越小要求越高, 与 models.py Job.education.rank 一致)
+_EDUCATION_RANK: dict[str, int] = {
+    "博士": 1, "doctor": 1, "phd": 1,
+    "硕士": 2, "研究生": 2, "master": 2,
+    "本科": 3, "学士": 3, "bachelor": 3,
+    "大专": 4, "专科": 4, "associate": 4,
+}
+
 
 def _norm_key(key: str) -> str:
     return _PAREN_RE.sub("", key).strip()
@@ -149,6 +166,19 @@ class Profile:
         if self.current_city and self.current_city not in cities:
             cities.insert(0, self.current_city)
         return cities
+
+    def education_rank(self) -> int | None:
+        """把最高学历字符串映射为 rank (1=博士 2=硕士 3=本科 4=大专), 供 H-09 比较。
+
+        与 models.py 中 Job.education.rank 的映射保持一致。
+        """
+        if not self.education:
+            return None
+        edu = self.education.strip().lower()
+        for key, rank in _EDUCATION_RANK.items():
+            if key.lower() in edu:
+                return rank
+        return None
 
     def summary_for_ai(self) -> str:
         """给大模型看的画像摘要, 控制在几百字以内。"""
@@ -297,54 +327,58 @@ def load_profile(path: Path | None = None) -> Profile:
 
 #: 字段名 -> 文件里的键名 (按 profile.md 分组顺序排列)
 _SERIALIZE_GROUPS: list[tuple[str, list[tuple[str, str, str]]]] = [
-    ("基础数值", [
+    ("个人基础", [
         ("age", "年龄", "int"),
         ("gender", "性别", "str"),
         ("total_years", "工作总年限", "float"),
+        ("education", "最高学历", "str"),
+        ("current_city", "当前城市", "str"),
+    ]),
+    ("薪资预期（对应 F 维度 + H-04 硬性下限）", [
         ("current_salary_10k", "当前年薪（万元）", "float"),
         ("hard_min_salary_10k", "硬性最低可接受年薪（万元）", "float"),
         ("expect_min_salary_10k", "期望最低年薪（万元）", "float"),
-        ("max_commute_minutes", "单程通勤上限（分钟）", "int"),
     ]),
-    ("居住地坐标（用于通勤计算，经纬度小数）", [
+    ("地理与通勤（对应 H-01 + R-01 + W-05）", [
+        ("acceptable_cities", "可接受城市", "list"),
+        ("max_commute_minutes", "单程通勤上限（分钟）", "int"),
         ("home_lng", "居住地经度", "float"),
         ("home_lat", "居住地纬度", "float"),
     ]),
-    ("枚举与分类（多选用英文逗号分隔）", [
-        ("education", "最高学历", "str"),
-        ("current_city", "当前城市", "str"),
-        ("acceptable_cities", "可接受城市", "list"),
-        ("reject_industries", "拒绝行业", "list"),
-        ("reject_work_modes", "拒绝工作模式", "list"),
-        ("reject_scale_below", "拒绝公司规模下限", "int"),
+    ("技能与方向（对应 G-01 + G-03 + R-02）", [
         ("skills", "技能关键词列表", "list"),
         ("industry_tags", "行业经验标签", "list"),
+        ("preferred_directions", "偏好业务方向", "list"),
     ]),
-    ("价值观权重（数字，总和100）", [
+    ("公司偏好（对应 G-02 + G-04 + H-02 + H-03 + R-03）", [
+        ("preferred_stages", "偏好公司阶段", "list"),
+        ("reject_industries", "拒绝行业", "list"),
+        ("reject_scale_below", "拒绝公司规模下限", "int"),
+        ("team_size_min", "偏好团队规模（最小）", "int"),
+        ("team_size_max", "偏好团队规模（最大）", "int"),
+    ]),
+    ("工作生活平衡（对应 W 维度 + R-05 文化适配）", [
+        ("max_weekly_hours", "可接受每周工作时长（小时）", "float"),
+        ("latest_offwork_hour", "可接受最晚下班时间（点）", "int"),
+        ("valued_benefits", "看重的福利", "list"),
+        ("tech_culture", "偏好技术氛围", "list"),
+    ]),
+    ("硬性开关（对应 H-05 + H-08 等，是/否）", [
+        ("accept_travel", "接受出差", "bool"),
+        ("accept_outsourcing", "接受外包岗位", "bool"),
+        ("accept_weekend_shift", "接受周末调休", "bool"),
+        ("accept_stack_change", "接受更换技术栈", "bool"),
+        ("accept_relocation", "接受异地搬迁", "bool"),
+    ]),
+    ("价值观权重（数字，总和100，可上方一键套用预设）", [
         ("weight_growth", "职业成长权重", "float"),
         ("weight_finance", "财务回报权重", "float"),
         ("weight_wlb", "工作生活平衡权重", "float"),
         ("weight_resource", "平台资源权重", "float"),
     ]),
-    ("软性偏好（多选用英文逗号分隔）", [
-        ("preferred_stages", "偏好公司阶段", "list"),
-        ("preferred_directions", "偏好业务方向", "list"),
-        ("team_size_min", "偏好团队规模（最小）", "int"),
-        ("team_size_max", "偏好团队规模（最大）", "int"),
-        ("tech_culture", "偏好技术氛围", "list"),
-        ("max_weekly_hours", "可接受每周工作时长（小时）", "float"),
-        ("latest_offwork_hour", "可接受最晚下班时间（点）", "int"),
-        ("valued_benefits", "看重的福利", "list"),
-    ]),
-    ("硬性开关（是/否）", [
-        ("accept_travel", "接受出差", "bool"),
-        ("accept_weekend_shift", "接受周末调休", "bool"),
-        ("accept_stack_change", "接受更换技术栈", "bool"),
-        ("accept_outsourcing", "接受外包岗位", "bool"),
-        ("accept_relocation", "接受异地搬迁", "bool"),
-    ]),
-    ("硬性负面排除关键词（脚本黑名单，匹配即淘汰）", [
+    ("排除清单（对应 H-07 黑名单）", [
         ("blacklist_keywords", "排除关键词", "list"),
+        ("reject_work_modes", "拒绝工作模式", "list"),
     ]),
 ]
 

@@ -20,6 +20,53 @@ log = get_logger("scoring_config")
 
 SCORING_CONFIG_PATH: Path = cfg.DATA_ROOT / "scoring_config.json"
 
+#: 评分项配比预设方案。每套覆盖全部评分项, 保证各维度满分之和 = 10。
+#: 规则概览页一键套用, 免去逐项调整 23 个配置项的麻烦。
+SCORING_ITEM_PRESETS: dict[str, dict[str, float]] = {
+    "推荐均衡": {
+        # finance = 10
+        "f01_max": 4.0, "f02_max": 3.5, "f03_max": 1.0,
+        "f04_max": 0.5, "f05_max": 0.5, "f06_max": 0.5,
+        # growth = 10
+        "g01_max": 3.0, "g02_max": 2.0, "g03_max": 2.0,
+        "g04_max": 1.0, "g05_max": 0.5, "g06_max": 1.0, "g07_max": 0.5,
+        # resource = 10
+        "r01_max": 4.0, "r02_max": 2.0, "r03_max": 1.0,
+        "r04_max": 1.0, "r05_max": 2.0,
+        # wlb = 10
+        "w01_max": 3.0, "w02_max": 2.0, "w03_max": 1.0,
+        "w04_max": 3.0, "w05_max": 1.0,
+    },
+    "成长优先(3年价值)": {
+        # finance = 10: 略降中位数, 升构成质量
+        "f01_max": 4.0, "f02_max": 3.0, "f03_max": 1.0,
+        "f04_max": 0.5, "f05_max": 0.5, "f06_max": 1.0,
+        # growth = 10: G-01 技术栈降, G-07 前瞻性升
+        "g01_max": 2.0, "g02_max": 2.0, "g03_max": 2.0,
+        "g04_max": 1.0, "g05_max": 0.5, "g06_max": 1.0, "g07_max": 1.5,
+        # resource = 10
+        "r01_max": 4.0, "r02_max": 2.0, "r03_max": 1.0,
+        "r04_max": 1.0, "r05_max": 2.0,
+        # wlb = 10
+        "w01_max": 3.0, "w02_max": 2.0, "w03_max": 1.0,
+        "w04_max": 3.0, "w05_max": 1.0,
+    },
+    "WLB优先(真实时薪)": {
+        # finance = 10
+        "f01_max": 4.0, "f02_max": 3.5, "f03_max": 1.0,
+        "f04_max": 0.5, "f05_max": 0.5, "f06_max": 0.5,
+        # growth = 10
+        "g01_max": 3.0, "g02_max": 2.0, "g03_max": 2.0,
+        "g04_max": 1.0, "g05_max": 0.5, "g06_max": 1.0, "g07_max": 0.5,
+        # resource = 10
+        "r01_max": 4.0, "r02_max": 2.0, "r03_max": 1.0,
+        "r04_max": 1.0, "r05_max": 2.0,
+        # wlb = 10: W-01 弹性降, W-04 加班/W-05 通勤升
+        "w01_max": 2.0, "w02_max": 2.0, "w03_max": 1.0,
+        "w04_max": 4.0, "w05_max": 1.0,
+    },
+}
+
 
 @dataclass
 class ScoringOverrides:
@@ -34,6 +81,7 @@ class ScoringOverrides:
     f03_max: float | None = None  # 薪资上限惊喜
     f04_max: float | None = None  # 股票/期权激励
     f05_max: float | None = None  # 高价值福利
+    f06_max: float | None = None  # 薪资构成质量
 
     # 职业发展 (growth)
     g01_max: float | None = None  # 技术栈重合度
@@ -42,12 +90,14 @@ class ScoringOverrides:
     g04_max: float | None = None  # 团队规模契合
     g05_max: float | None = None  # 经验学历兼容
     g06_max: float | None = None  # 技术深度信号
+    g07_max: float | None = None  # 技术前瞻性
 
     # 资源匹配 (resource)
     r01_max: float | None = None  # 城市匹配
     r02_max: float | None = None  # 行业经验重叠
     r03_max: float | None = None  # 公司体量偏好
     r04_max: float | None = None  # 特殊资源(手动)
+    r05_max: float | None = None  # 文化适配信号
 
     # 工作生活平衡 (wlb)
     w01_max: float | None = None  # 工作模式弹性

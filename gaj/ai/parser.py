@@ -26,6 +26,19 @@ log = get_logger("ai.parser")
 
 _CODE_BLOCK_RE = re.compile(r"```(?:json|JSON)?\s*\n?(.*?)```", re.DOTALL)
 
+#: 网页版大模型的 UI 按钮文本, 常被 driver 误抓进回复正文
+_UI_NOISE_RE = re.compile(
+    r"(?<!\w)(?:json|JSON|复制|下载|展开|收起|重新生成|分享|举报|代码块)(?!\w)"
+)
+
+
+def _strip_ui_noise(text: str) -> str:
+    """剔除网页版大模型 UI 按钮文本 (独立出现的噪声词)。
+
+    只在正常提取失败时调用, 避免误伤合法 JSON 值。
+    """
+    return _UI_NOISE_RE.sub("", text)
+
 
 def _extract_code_block(text: str) -> str | None:
     """从 ```json ... ``` 代码块中提取内容。"""
@@ -84,6 +97,17 @@ def _try_parse(text: str) -> dict | None:
                 return obj
         except json.JSONDecodeError:
             pass
+    # 补全缺失的闭合括号 (网页版 driver 有时会吞掉末尾的 })
+    open_braces = cleaned.count("{") - cleaned.count("}")
+    open_brackets = cleaned.count("[") - cleaned.count("]")
+    if open_braces > 0 or open_brackets > 0:
+        suffix = "}" * max(open_braces, 0) + "]" * max(open_brackets, 0)
+        try:
+            obj = json.loads(cleaned + suffix)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
     return None
 
 
@@ -113,6 +137,22 @@ def extract_json(text: str) -> dict | None:
     obj = _try_parse(text.strip())
     if obj:
         return obj
+
+    # 策略 4: 剔除网页版 UI 噪声词 (复制/下载/json 等) 后重试
+    cleaned = _strip_ui_noise(text)
+    if cleaned.strip() != text.strip():
+        block = _extract_code_block(cleaned)
+        if block:
+            obj = _try_parse(block)
+            if obj:
+                log.info("剔除 UI 噪声后解析成功")
+                return obj
+        brace = _extract_brace_range(cleaned)
+        if brace:
+            obj = _try_parse(brace)
+            if obj:
+                log.info("剔除 UI 噪声后解析成功")
+                return obj
 
     log.warning(f"无法从 LLM 回复中提取 JSON (回复前 200 字: {text[:200]})")
     return None

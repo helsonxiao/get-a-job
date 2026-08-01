@@ -75,7 +75,11 @@ def _unsubscribe(q: asyncio.Queue) -> None:
 
 
 def _attach_log_bridge() -> None:
-    """把日志 SINK 桥接到 SSE 广播。"""
+    """把日志 SINK 桥接到 SSE 广播 (幂等, 防止 reload 重复注册)。"""
+    try:
+        SINK.remove(_on_log)
+    except (KeyError, ValueError):
+        pass
     SINK.add(_on_log)
 
 
@@ -207,7 +211,19 @@ async def api_jobs(
             limit=limit,
             offset=offset,
         )
-        total = index.count_jobs(conn)
+        total = index.count_jobs(
+            conn,
+            search=search,
+            cities=city.split(",") if city else [],
+            statuses=status.split(",") if status else [],
+            scored=scored,
+            providers=provider.split(",") if provider else [],
+            salary_min=salary_min,
+            online_only=online,
+            outsourcing=outsourcing,
+            favorite=favorite,
+            ignored=ignored,
+        )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
@@ -249,6 +265,38 @@ async def api_ai_score(
 
     _run_in_thread(score_with_ai, task_key, job_id=job_id, provider=provider, deep=deep)
     return {"task": task_key, "status": "started"}
+
+
+@app.post("/api/jobs/{job_id}/ai-reparse")
+async def api_ai_reparse(job_id: str, body: dict = Body(...)) -> dict:
+    """人工编辑 AI 原始回复后重新解析并保存。
+
+    body: {"raw_text": "...", "provider": "deepseek"}
+    """
+    if not repo.job_exists(job_id):
+        raise HTTPException(404, f"职位不存在: {job_id}")
+    raw_text = (body or {}).get("raw_text", "").strip()
+    provider = (body or {}).get("provider", "unknown")
+    if not raw_text:
+        raise HTTPException(400, "raw_text 不能为空")
+
+    from ..ai.parser import parse_ai_response
+
+    result = parse_ai_response(raw_text, provider=provider, job_id=job_id)
+    if not result:
+        raise HTTPException(422, "解析失败: 无法从编辑后的文本中提取 JSON")
+    result["provider"] = provider
+    result["deep_analysis_report"] = result.get("deep_analysis_report", "")
+    result["raw_response"] = raw_text
+    repo.save_ai_score(job_id, provider, result)
+    log.info(f"人工重新解析成功: {job_id} ({provider}) -> {result['status']} {result['total_score']}/10")
+    # 刷新索引
+    try:
+        from ..ai.runner import _refresh_index
+        _refresh_index(job_id)
+    except Exception:
+        pass
+    return {"ok": True, "job_id": job_id, "result": result}
 
 
 @app.post("/api/jobs/{job_id}/resume")
@@ -425,12 +473,16 @@ async def api_rules() -> dict:
       - default_max: 代码默认满分
       - detail: 判定逻辑的人类可读描述
 
+    每条硬规则额外包含:
+      - threshold: {value, source, source_label, editable_in} 当前阈值和来源
+
     overrides: 当前保存的覆盖项字典 (None 表示用默认值)
     """
+    from ..core.profile import load_profile
     from ..core.scoring import build_rules_catalog
     from ..core.scoring_config import load_overrides
 
-    catalog = build_rules_catalog()
+    catalog = build_rules_catalog(profile=load_profile())
     catalog["overrides"] = load_overrides().to_dict()
     return catalog
 
@@ -476,6 +528,17 @@ async def api_scoring_config_save(body: dict = Body(...)) -> dict:
     save_overrides(new_ov)
     log.info(f"打分覆盖已保存: {sum(1 for v in merged.values() if v is not None)} 项生效")
     return {"ok": True, "overrides": new_ov.to_dict()}
+
+
+@app.get("/api/scoring-config/presets")
+async def api_scoring_config_presets() -> dict:
+    """返回评分项配比预设方案, 供规则概览页一键套用。
+
+    每套预设覆盖全部评分项, 保证各维度满分之和 = 10。
+    """
+    from ..core.scoring_config import SCORING_ITEM_PRESETS
+
+    return {"presets": SCORING_ITEM_PRESETS}
 
 
 @app.get("/api/profile")
@@ -524,6 +587,17 @@ async def api_profile_save(body: dict = Body(...)) -> dict:
         "fields": {k: v for k, v in new.to_dict().items() if k != "raw"},
         "weights": new.normalized_weights,
     }
+
+
+@app.get("/api/profile/weight-presets")
+async def api_profile_weight_presets() -> dict:
+    """返回权重预设方案列表, 供画像编辑页一键切换。
+
+    返回形如 {"平衡型(默认)": {"growth": 30, "finance": 30, "wlb": 30, "resource": 10}, ...}
+    """
+    from ..core.profile import WEIGHT_PRESETS
+
+    return {"presets": WEIGHT_PRESETS}
 
 
 # ---------------------------------------------------------------- 主简历
