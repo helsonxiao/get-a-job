@@ -471,6 +471,268 @@ def migrate(
     return report
 
 
+# ---------------------------------------------------------------- 串号修复
+
+
+def _is_anonymous_like(name: str) -> bool:
+    """更宽松的匿名雇主检测。
+
+    迁移时的 ``_ANON_RE`` 限制了"某"后面的字符数 (≤12) 且不允许标点,
+    导致"无锡某大型光伏、锂电、半导体智能装备上市公司"这种长名字漏判。
+    修复时用更宽松的策略: 含"某"且以公司/集团/企业/厂/上市结尾。
+    """
+    text = (name or "").strip()
+    if not text:
+        return False
+    if is_anonymous_employer(text):
+        return True
+    return "某" in text and text.endswith(("公司", "集团", "企业", "厂", "上市"))
+
+
+@dataclass
+class FixReport:
+    """修复报告 —— 字段都带公司名/职位标题, 方便人类阅读。"""
+
+    # (brand_id, company_name) —— 误标的 anon-* 公司, 已隔离无需冲突标记
+    anon_false_positives: list[tuple[str, str]] = field(default_factory=list)
+    # (job_id, job_title, old_company_name) —— 匿名职位改挂到独立 anon-{job_id}
+    reassigned_jobs: list[tuple[str, str, str]] = field(default_factory=list)
+    # (brand_id, company_name) —— 因串号被删除的脏公司目录
+    deleted_companies: list[tuple[str, str]] = field(default_factory=list)
+    # (brand_id, winning_name, votes, total) —— 多数投票定名
+    resolved_by_majority: list[tuple[str, str, int, int]] = field(default_factory=list)
+    # (brand_id, company_name, reason) —— 无法自动处理
+    skipped: list[tuple[str, str, str]] = field(default_factory=list)
+
+    def render(self) -> str:
+        lines = [""]
+
+        if not (
+            self.anon_false_positives
+            or self.reassigned_jobs
+            or self.deleted_companies
+            or self.resolved_by_majority
+            or self.skipped
+        ):
+            lines += ["=" * 62, "  没有发现需要修复的串号数据", "=" * 62]
+            return "\n".join(lines)
+
+        lines += [
+            "=" * 62,
+            "  串号修复报告",
+            "=" * 62,
+            "",
+            "  背景: 抓取时详情页的『公司链接』被串号, 导致同一个 brand_id",
+            "  关联到了多家不相关的公司 (最典型的就是匿名雇主『某XX公司』",
+            "  的详情页指向了完全无关的真实公司, 简介被张冠李戴)。",
+            "",
+        ]
+
+        if self.anon_false_positives:
+            lines.append(f"  ▸ 清除误标冲突标记: {len(self.anon_false_positives)} 家公司")
+            lines.append("    这些公司已经是 anon-{job_id} 独立目录了 (迁移时已隔离),")
+            lines.append("    但残留了 data_conflict=True 标记, 清掉即可, 无数据变动。")
+            for _, name in self.anon_false_positives[:5]:
+                lines.append(f"      - {name}")
+            if len(self.anon_false_positives) > 5:
+                lines.append(f"      ... 共 {len(self.anon_false_positives)} 家")
+            lines.append("")
+
+        if self.reassigned_jobs:
+            lines.append(f"▸ 匿名职位重新归档: {len(self.reassigned_jobs)} 个职位")
+            lines.append("    这些职位是 BOSS 匿名雇主 (公司名含『某』字),")
+            lines.append("    但被错误归到了一个串号的 brand_id 下, 共享了别家的公司简介。")
+            lines.append("    处理: 每个职位改挂到 anon-{职位ID}, 公司简介清空。")
+            lines.append("    影响: 职位本身保留, 只是公司信息不再被错误数据污染。")
+            for jid, title, old_name in self.reassigned_jobs[:8]:
+                title_short = (title or "(无标题)")[:24]
+                lines.append(f"      - [{title_short}] 原公司: {old_name[:30]}")
+            if len(self.reassigned_jobs) > 8:
+                lines.append(f"      ... 共 {len(self.reassigned_jobs)} 个职位")
+            lines.append("")
+
+        if self.deleted_companies:
+            lines.append(f"▸ 删除脏公司目录: {len(self.deleted_companies)} 家")
+            lines.append("    这些 brand_id 下的职位全部是匿名雇主, 已全部改挂走,")
+            lines.append("    原公司目录里只剩脏数据 (典型: 叮咚买菜的简介被安到了")
+            lines.append("    一堆匿名雇主头上), 直接删除。")
+            for _, name in self.deleted_companies[:5]:
+                lines.append(f"      - {name}")
+            lines.append("")
+
+        if self.resolved_by_majority:
+            lines.append(f"▸ 多数投票定名: {len(self.resolved_by_majority)} 家公司")
+            lines.append("    同一 brand_id 下有真实公司名 (非匿名), 按出现次数最多")
+            lines.append("    的公司名作为正确名称, 清除冲突标记。")
+            for _, name, votes, total in self.resolved_by_majority[:5]:
+                lines.append(f"      - {name} ({votes}/{total} 个职位使用此名)")
+            lines.append("")
+
+        if self.skipped:
+            lines.append(f"▸ 无法自动处理: {len(self.skipped)} 家")
+            for _, name, why in self.skipped[:5]:
+                lines.append(f"      - {name}: {why}")
+            lines.append("")
+
+        lines.append("=" * 62)
+        return "\n".join(lines)
+
+
+def _collect_conflict_companies() -> list[Company]:
+    """加载所有 data_conflict=True 的公司记录。"""
+    out: list[Company] = []
+    for comp in repo.iter_companies():
+        if comp.data_conflict:
+            out.append(comp)
+    return out
+
+
+def _jobs_by_brand_id(brand_id: str) -> list[Job]:
+    """找出所有 company_id = brand_id 的职位。"""
+    return [j for j in repo.iter_jobs() if j.company_id == brand_id]
+
+
+def _reassign_job_to_anon(job: Job, *, dry_run: bool) -> str:
+    """把一条职位改挂到 anon-{job_id}, 并创建对应匿名公司。
+
+    返回新的 brand_id。
+    """
+    new_bid = f"anon-{job.job_id}"
+    old_bid = job.company_id
+
+    # 创建匿名公司 (从 JD 侧边栏信息构建, 不用脏的 company_dom)
+    company = Company.build(
+        brand_id=new_bid,
+        jd_dom=repo.read_json(repo.job_dir(job.job_id) / cfg.JOB_RAW_JD_FILE) or {},
+        company_dom={},
+        existing=None,
+    )
+    if not company.name:
+        company.name = job.company_name
+    company.anonymous = True
+    company.data_conflict = False
+    company.notes = ["BOSS 匿名雇主, 原 brand_id 串号已修复, 公司页数据已丢弃"]
+
+    # 更新职位
+    job.company_id = new_bid
+    job.provenance["employer_anonymous"] = True
+    job.provenance["conflict_reassigned_from"] = old_bid
+
+    if not dry_run:
+        repo.save_company(company)
+        repo.save_job(job)
+    return new_bid
+
+
+def fix_conflicts(*, dry_run: bool = False, rebuild_index: bool = True) -> FixReport:
+    """自动修复 brand_id 串号遗留的脏数据。
+
+    三种情况:
+    1. ``anon-{job_id}`` 公司残留 ``data_conflict=True`` → 清掉 (已隔离, 无真实冲突)
+    2. 真·串号 brand_id 下全是匿名雇主 → 每个 job 改挂 ``anon-{job_id}``, 删原公司
+    3. 真·串号 brand_id 下有真实公司名 → 多数投票定名, 清 conflict 标记
+    """
+    report = FixReport()
+    conflicted = _collect_conflict_companies()
+    if not conflicted:
+        log.info("没有 data_conflict=True 的公司, 无需修复")
+        return report
+
+    log.info("发现 %d 个 data_conflict=True 的公司, 开始修复", len(conflicted))
+
+    for comp in conflicted:
+        bid = comp.brand_id
+        comp_name = comp.name or "(未命名公司)"
+
+        # ---- 情况 1: anon-* 的误标 ----
+        if bid.startswith("anon-"):
+            report.anon_false_positives.append((bid, comp_name))
+            comp.data_conflict = False
+            comp.notes = [
+                n for n in comp.notes
+                if not n.startswith("该 brand_id 关联到多个公司名")
+            ]
+            if not dry_run:
+                repo.save_company(comp)
+            continue
+
+        # ---- 情况 2/3: 真·串号 ----
+        jobs = _jobs_by_brand_id(bid)
+        if not jobs:
+            report.skipped.append((bid, comp_name, "无职位引用此 brand_id, 跳过"))
+            continue
+
+        anon_count = sum(1 for j in jobs if _is_anonymous_like(j.company_name))
+        real_count = len(jobs) - anon_count
+
+        if anon_count == len(jobs):
+            # ---- 情况 2: 全是匿名雇主, 改挂 anon-{job_id} ----
+            for job in jobs:
+                _reassign_job_to_anon(job, dry_run=dry_run)
+                report.reassigned_jobs.append(
+                    (job.job_id, job.title, job.company_name)
+                )
+            # 删除脏公司目录
+            report.deleted_companies.append((bid, comp_name))
+            if not dry_run:
+                import shutil
+
+                d = repo.company_dir(bid)
+                if d.exists():
+                    shutil.rmtree(d)
+                    log.info("已删除脏公司目录: %s", d)
+        elif real_count >= anon_count:
+            # ---- 情况 3: 多数是真实公司名, 多数投票 ----
+            from collections import Counter
+
+            real_names = [
+                j.company_name for j in jobs if not _is_anonymous_like(j.company_name)
+            ]
+            winner, votes = Counter(real_names).most_common(1)[0]
+            comp.name = winner
+            comp.data_conflict = False
+            comp.notes = [
+                n for n in comp.notes
+                if not n.startswith("该 brand_id 关联到多个公司名")
+            ]
+            comp.notes.append(
+                f"串号已修复: 多数投票选定 '{winner}' ({votes}/{len(jobs)} 条职位)"
+            )
+            report.resolved_by_majority.append((bid, winner, votes, len(jobs)))
+            if not dry_run:
+                repo.save_company(comp)
+        else:
+            # 匿名占多数但非全部 —— 保守起见按匿名处理
+            for job in jobs:
+                if _is_anonymous_like(job.company_name):
+                    _reassign_job_to_anon(job, dry_run=dry_run)
+                    report.reassigned_jobs.append(
+                        (job.job_id, job.title, job.company_name)
+                    )
+            # 剩余真实职位的公司名冲突无法自动解决
+            remaining = [j for j in jobs if not _is_anonymous_like(j.company_name)]
+            if remaining:
+                if not dry_run:
+                    comp.notes.append(
+                        f"匿名职位已改挂, 剩余 {len(remaining)} 条真实职位保留"
+                    )
+                    repo.save_company(comp)
+                else:
+                    report.skipped.append(
+                        (
+                            bid,
+                            comp_name,
+                            f"匿名已改挂, {len(remaining)} 条真实职位保留冲突标记",
+                        )
+                    )
+
+    if not dry_run and rebuild_index:
+        log.info("重建索引...")
+        index.reindex()
+
+    return report
+
+
 def main() -> None:
     from ..logging_setup import setup
 

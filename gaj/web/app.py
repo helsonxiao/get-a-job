@@ -36,24 +36,46 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 # ---------------------------------------------------------------- SSE 日志桥
 
-_log_queue: asyncio.Queue | None = None
+#: 每个 SSE 连接一个独立队列, 日志广播到所有连接
+_subscribers: set[asyncio.Queue] = set()
 _loop: asyncio.AbstractEventLoop | None = None
 #: 关闭信号: set 后 SSE 流立即退出, 不再阻塞 uvicorn reload
 _shutdown_event: asyncio.Event | None = None
 
 
 def _on_log(payload: dict) -> None:
-    """日志 SINK 回调: 把日志推到 asyncio.Queue (线程安全)。"""
-    global _log_queue, _loop
-    if _log_queue is not None and _loop is not None:
+    """日志 SINK 回调: 把日志广播到所有 SSE 订阅者 (线程安全)。"""
+    if _loop is None or not _subscribers:
+        return
+    try:
+        _loop.call_soon_threadsafe(_broadcast, payload)
+    except Exception:
+        pass
+
+
+def _broadcast(payload: dict) -> None:
+    """在 event loop 中把日志推到所有订阅者队列。"""
+    for q in _subscribers:
         try:
-            _loop.call_soon_threadsafe(_log_queue.put_nowait, payload)
-        except Exception:
-            pass
+            q.put_nowait(payload)
+        except asyncio.QueueFull:
+            pass  # 队列满了就丢, 不阻塞其他订阅者
+
+
+def _subscribe() -> asyncio.Queue:
+    """注册一个新的 SSE 订阅者, 返回其专属队列。"""
+    q: asyncio.Queue = asyncio.Queue(maxsize=500)
+    _subscribers.add(q)
+    return q
+
+
+def _unsubscribe(q: asyncio.Queue) -> None:
+    """取消订阅。"""
+    _subscribers.discard(q)
 
 
 def _attach_log_bridge() -> None:
-    """把日志 SINK 桥接到 SSE 队列。"""
+    """把日志 SINK 桥接到 SSE 广播。"""
     SINK.add(_on_log)
 
 
@@ -106,10 +128,9 @@ app = FastAPI(title="Get A Job", docs_url="/api/docs")
 
 @app.on_event("startup")
 async def _startup() -> None:
-    global _log_queue, _loop, _shutdown_event
+    global _loop, _shutdown_event
     setup()
     cfg.ensure_dirs()
-    _log_queue = asyncio.Queue(maxsize=1000)
     _loop = asyncio.get_event_loop()
     _shutdown_event = asyncio.Event()
     _attach_log_bridge()
@@ -549,31 +570,35 @@ async def api_logs_stream():
     """SSE 实时日志流。"""
 
     async def event_stream():
-        global _log_queue
-        assert _log_queue is not None
         assert _shutdown_event is not None
+        my_queue = _subscribe()
         # 先发一个连接确认
         yield f"data: {json.dumps({'type': 'connected'})}\n\n"
-        while not _shutdown_event.is_set():
-            try:
-                # 用 wait 避免在 shutdown 时还要等满 30s 超时
-                get_task = asyncio.ensure_future(_log_queue.get())
-                done, _ = await asyncio.wait(
-                    {get_task, asyncio.ensure_future(_shutdown_event.wait())},
-                    timeout=30,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                if get_task in done:
-                    payload = get_task.result()
-                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-                else:
-                    get_task.cancel()
-                    if _shutdown_event.is_set():
-                        break
-                    # 心跳
-                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
-            except asyncio.CancelledError:
-                break
+        try:
+            while not _shutdown_event.is_set():
+                try:
+                    get_task = asyncio.ensure_future(my_queue.get())
+                    shutdown_task = asyncio.ensure_future(_shutdown_event.wait())
+                    done, pending = await asyncio.wait(
+                        {get_task, shutdown_task},
+                        timeout=30,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    # 取消未完成的任务, 避免泄漏
+                    for t in pending:
+                        t.cancel()
+                    if get_task in done:
+                        payload = get_task.result()
+                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    else:
+                        if _shutdown_event.is_set():
+                            break
+                        # 心跳
+                        yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                except asyncio.CancelledError:
+                    break
+        finally:
+            _unsubscribe(my_queue)
         # 发送关闭信号, 前端可据此重连
         yield f"data: {json.dumps({'type': 'shutdown'})}\n\n"
 

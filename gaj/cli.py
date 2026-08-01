@@ -8,6 +8,7 @@
     python3 -m gaj web [--port 8765]        # 启动 Web 看板
     python3 -m gaj reindex                  # 重建索引
     python3 -m gaj migrate [--src jobs]     # 迁移老数据
+    python3 -m gaj fix-conflicts [--dry-run]  # 自动修复 brand_id 串号
     python3 -m gaj setup-chrome             # 启动 Chrome CDP 调试模式
     python3 -m gaj check                    # 检查环境
 """
@@ -74,6 +75,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("migrate", help="迁移老数据 (jobs/ → data/jobs/)")
     p.add_argument("--src", default="jobs", help="源目录")
     p.add_argument("--dry-run", action="store_true")
+
+    # ---- fix-conflicts ----
+    p = sub.add_parser("fix-conflicts", help="自动修复 brand_id 串号遗留的脏数据")
+    p.add_argument("--dry-run", action="store_true", help="只看报告, 不落盘")
+    p.add_argument("--no-index", action="store_true", help="跳过索引重建")
 
     # ---- setup-chrome ----
     p = sub.add_parser("setup-chrome", help="启动 Chrome CDP 调试模式")
@@ -173,6 +179,18 @@ def main(argv: list[str] | None = None) -> int:
 
         report = migrate(src=Path(args.src), dry_run=args.dry_run)
         print(report)
+        return 0
+
+    if args.command == "fix-conflicts":
+        from .store.migrate import fix_conflicts
+
+        report = fix_conflicts(
+            dry_run=args.dry_run,
+            rebuild_index=not args.no_index,
+        )
+        print(report.render())
+        if args.dry_run:
+            print("  (dry-run, 未写入任何文件)\n")
         return 0
 
     if args.command == "setup-chrome":
