@@ -11,6 +11,7 @@
     python3 -m gaj fix-conflicts [--dry-run]  # 自动修复 brand_id 串号
     python3 -m gaj setup-chrome             # 启动 Chrome CDP 调试模式
     python3 -m gaj check                    # 检查环境
+    python3 -m gaj agent <command> ...      # 面向 AI 智能体的 JSON 接口
 """
 
 from __future__ import annotations
@@ -88,7 +89,24 @@ def main(argv: list[str] | None = None) -> int:
     # ---- check ----
     sub.add_parser("check", help="检查环境")
 
+    # ---- agent (面向 AI 智能体的 JSON 接口, 详见 AGENT.md) ----
+    p = sub.add_parser(
+        "agent",
+        help="面向 AI 智能体的操作接口 (JSON 输出)",
+        description=(
+            "面向 AI 智能体的操作接口, stdout 只输出 JSON。"
+            "子命令: status / jobs / job / analyze / crawl / daily。"
+            "完整文档见项目根目录 AGENT.md"
+        ),
+    )
+    p.add_argument("agent_args", nargs=argparse.REMAINDER, help="agent 子命令及参数")
+
     args = ap.parse_args(argv)
+
+    if args.command == "agent":
+        from .agent.cli import main as agent_main
+
+        return agent_main(args.agent_args or [])
 
     if args.command == "crawl":
         from .scraper import crawl

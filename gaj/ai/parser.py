@@ -69,6 +69,47 @@ _SINGLE_QUOTE_KEY_RE = re.compile(r"'(\w+)'\s*:")
 _JS_COMMENT_RE = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
 
 
+def _escape_newlines_in_strings(text: str) -> str:
+    """把 JSON 字符串值内部的裸换行/制表符转义成 \\n / \\t。
+
+    LLM 输出的 JSON 里, 长文本字段 (如 deep_analysis_report) 常含真实换行符,
+    这在 JSON 字符串值里是非法的 (必须转义为 \\n)。本函数逐字符扫描,
+    只在双引号字符串内部转义控制字符, 不影响结构外的空白。
+    """
+    out: list[str] = []
+    in_str = False
+    escaped = False
+    for ch in text:
+        if in_str:
+            if escaped:
+                out.append(ch)
+                escaped = False
+                continue
+            if ch == "\\":
+                out.append(ch)
+                escaped = True
+                continue
+            if ch == '"':
+                out.append(ch)
+                in_str = False
+                continue
+            if ch == "\n":
+                out.append("\\n")
+                continue
+            if ch == "\r":
+                out.append("\\r")
+                continue
+            if ch == "\t":
+                out.append("\\t")
+                continue
+            out.append(ch)
+        else:
+            if ch == '"':
+                in_str = True
+            out.append(ch)
+    return "".join(out)
+
+
 def _clean_json_text(text: str) -> str:
     """清洗常见的 JSON 格式问题。"""
     # 去掉 JS 风格注释
@@ -77,6 +118,8 @@ def _clean_json_text(text: str) -> str:
     text = _TRAILING_COMMA_RE.sub(r"\1", text)
     # 单引号键名转双引号 (部分 LLM 会用 JS 对象语法)
     text = _SINGLE_QUOTE_KEY_RE.sub(r'"\1":', text)
+    # 转义字符串值内部的裸换行 (LLM 在 deep_analysis_report 等长文本里常写裸换行)
+    text = _escape_newlines_in_strings(text)
     return text
 
 

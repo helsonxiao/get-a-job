@@ -39,6 +39,7 @@ def get_driver(
     provider: str,
     session: CDPSession | None = None,
     sid: str | None = None,
+    tid: str | None = None,
 ) -> LLMDriver:
     """获取网页版大模型驱动。
 
@@ -46,6 +47,7 @@ def get_driver(
         provider: provider 名称 (deepseek/doubao/tongyi/kimi)
         session: 已有的 CDPSession (复用), None 则自动创建
         sid: 已有的标签页 sessionId (复用), None 则自动创建
+        tid: 已有标签页的 targetId (与 sid 配套), 用于前台切换/焦点恢复
 
     调用此函数前, Chrome 必须已以 CDP 调试模式运行, 且用户已登录目标大模型。
     """
@@ -60,15 +62,27 @@ def get_driver(
         session = create_session()
         own_session = True
 
+    prev_focus: str | None = None
     if sid is None:
-        # 创建专用标签页 (后台打开, 不抢焦点)
+        # 创建标签页前, 先记住用户当前正在看的标签页 (用于结束后切回)
+        if SETTINGS.ai.tab_mode == "foreground":
+            try:
+                prev_focus = session.find_focused_target()
+            except Exception as e:
+                log.debug(f"[{provider}] 记录原焦点标签页失败: {e}")
+
+        # 创建专用标签页 (加载期间保持后台, 真正交互时由 driver 切前台)
         tid, sid = session.create_target(cls.chat_url, background=True)
-        log.info(f"[{provider}] 创建标签页 (后台): {tid}")
+        log.info(
+            f"[{provider}] 创建标签页: {tid} "
+            f"(焦点模式: {SETTINGS.ai.tab_mode})"
+        )
         # 等待页面加载
         import time
         time.sleep(3)
 
-    driver = cls(session, sid)
+    driver = cls(session, sid, tid=tid)
+    driver.prev_focused_tid = prev_focus
 
     # 如果是自己创建的 session, 关闭时需要清理
     if own_session:
@@ -81,6 +95,12 @@ def close_driver(driver: LLMDriver) -> None:
     """关闭驱动 (关闭标签页 + 断开 session)。"""
     session = getattr(driver, "_own_session", None)
     if session:
+        # 先关掉驱动自己创建的聊天标签页, 避免标签页累积
+        try:
+            if getattr(driver, "tid", None):
+                session.close_target(driver.tid)
+        except Exception:
+            pass
         try:
             session.close()
         except Exception:

@@ -149,25 +149,47 @@ def crawl(
         from boss_scraper.cdp_session import DEFAULT_CDP_PORT
         from boss_scraper.crawler import JobCrawler
 
+        from . import crawl_state
+
         port = cdp_port or cfg.SETTINGS.crawl.cdp_port or DEFAULT_CDP_PORT
         # 用临时目录, 不污染 gaj 的 data/jobs
         tmp_dir = str(cfg.RAW_DIR / f"crawl-{time.strftime('%Y%m%dT%H%M%S')}")
+
+        # 覆盖率自适应: 上次采集几乎全是重复职位时, 本次放慢基础节奏,
+        # 避免职位都抓过后高频调用列表 API 被 BOSS 反爬拦截
+        factor = crawl_state.slowdown_factor(list_url)
+        eff_min, eff_max = delay_min * factor, delay_max * factor
+        if factor > 1.0:
+            log.info(f"翻页延迟调整为 {eff_min:.0f}-{eff_max:.0f}s (覆盖率降速)")
 
         crawler = JobCrawler(
             cdp_port=port,
             jobs_dir=tmp_dir,
             max_pages=max_pages,
-            delay_min=delay_min,
-            delay_max=delay_max,
+            delay_min=eff_min,
+            delay_max=eff_max,
             fetch_company=fetch_company,
             on_job_saved=_on_job_saved,
             existing_ids=existing_ids,
+            dup_slowdown=cfg.SETTINGS.crawl.dup_slowdown,
+            dup_stop_pages=cfg.SETTINGS.crawl.dup_stop_pages,
+            slowdown_cap=cfg.SETTINGS.crawl.slowdown_cap,
+            max_jobs_per_session=cfg.SETTINGS.crawl.max_jobs_per_session,
         )
         crawler.crawl_from_url(list_url)
-        result["crawl_stats"] = str(crawler.stats)
+        result["crawl_stats"] = crawler.stats.to_dict()
+        result["crawl_stats_text"] = str(crawler.stats)
         result["crawl_dir"] = tmp_dir
         result["incremental"] = incremental_count
         log.info(f"采集完成: {crawler.stats} (增量入库 {incremental_count} 个)")
+
+        # 记录覆盖率与 URL, 供下次降速决策 / agent daily 复用
+        try:
+            result["crawl_state"] = crawl_state.record_crawl(
+                list_url, crawler.stats.to_dict()
+            )
+        except Exception as exc:
+            log.warning(f"记录采集状态失败 (不影响结果): {exc}")
     except Exception as exc:
         log.error(f"采集失败: {exc}")
         result["error"] = f"采集失败: {exc}"

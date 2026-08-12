@@ -108,25 +108,53 @@ class CrawlStats:
         self.jobs_scraped = 0
         self.jobs_skipped_dup = 0
         self.jobs_failed = 0
+        # 连续"整页全是已抓取职位"的最大页数 (触发降速/提前停止的依据)
+        self.dup_page_streak = 0
+        # 提前停止原因: "covered"=连续重复页判定已覆盖; None=正常结束
+        self.early_stop_reason = None
         self.start_time = None
         self.end_time = None
 
-    def __str__(self):
-        elapsed = 0
+    def elapsed(self):
         if self.start_time and self.end_time:
-            elapsed = self.end_time - self.start_time
-        elif self.start_time:
-            elapsed = time.time() - self.start_time
+            return self.end_time - self.start_time
+        if self.start_time:
+            return time.time() - self.start_time
+        return 0
+
+    def to_dict(self):
+        """机器可读的统计摘要 (供 JSON 输出/采集状态持久化)。"""
+        found = self.total_jobs_found
+        return {
+            "pages": self.total_pages,
+            "jobs_found": found,
+            "jobs_scraped": self.jobs_scraped,
+            "jobs_skipped_dup": self.jobs_skipped_dup,
+            "jobs_failed": self.jobs_failed,
+            # 覆盖率: 发现的职位中有多少是已抓取过的 (1.0 = 全部抓过了)
+            "coverage": round(self.jobs_skipped_dup / found, 3) if found else None,
+            "dup_page_streak_max": self.dup_page_streak,
+            "early_stop_reason": self.early_stop_reason,
+            "elapsed_seconds": round(self.elapsed(), 1),
+        }
+
+    def __str__(self):
+        elapsed = self.elapsed()
         mins, secs = divmod(int(elapsed), 60)
-        return (
-            f"采集统计:\n"
-            f"  耗时: {mins}分{secs}秒\n"
-            f"  翻页数: {self.total_pages}\n"
-            f"  发现职位: {self.total_jobs_found}\n"
-            f"  成功采集: {self.jobs_scraped}\n"
-            f"  跳过(重复): {self.jobs_skipped_dup}\n"
-            f"  失败: {self.jobs_failed}"
-        )
+        lines = [
+            f"采集统计:",
+            f"  耗时: {mins}分{secs}秒",
+            f"  翻页数: {self.total_pages}",
+            f"  发现职位: {self.total_jobs_found}",
+            f"  成功采集: {self.jobs_scraped}",
+            f"  跳过(重复): {self.jobs_skipped_dup}",
+            f"  失败: {self.jobs_failed}",
+        ]
+        if self.dup_page_streak:
+            lines.append(f"  最大连续重复页: {self.dup_page_streak}")
+        if self.early_stop_reason:
+            lines.append(f"  提前停止: {self.early_stop_reason}")
+        return "\n".join(lines)
 
 
 class JobCrawler:
@@ -144,6 +172,15 @@ class JobCrawler:
         debug: 调试模式
         on_job_saved: 单个职位保存后的回调, 签名 (job_dir: str, job_id: str) -> None。
                       适配层用它做增量迁移, 让 Web 端能实时看到新抓的职位。
+        dup_slowdown: 整页全是已抓取职位时, 渐进加大翻页延迟 (2x/4x/8x...),
+                      避免职位都已覆盖时高频调用列表 API 被反爬拦截。
+        dup_stop_pages: 连续多少页全是重复职位即判定搜索结果已覆盖, 提前结束
+                        本次采集。0 表示禁用 (仍翻到 hasMore=False)。
+        slowdown_cap: 降速后翻页延迟的上限 (秒), 防止无限翻倍。
+        max_jobs_per_session: 单次采集最多新抓多少个职位 (硬上限, 到达即提前
+                              结束, early_stop_reason="session_limit")。
+                              None 或 0 表示不限制。用于给智能体调用提供
+                              可预期的运行时长上限。
     """
 
     def __init__(
@@ -157,6 +194,10 @@ class JobCrawler:
         debug=False,
         on_job_saved: Optional[Callable[[str, str], None]] = None,
         existing_ids: Optional[set] = None,
+        dup_slowdown: bool = True,
+        dup_stop_pages: int = 3,
+        slowdown_cap: float = 60.0,
+        max_jobs_per_session: Optional[int] = None,
     ):
         self.cdp_port = cdp_port
         self.jobs_dir = jobs_dir
@@ -168,7 +209,33 @@ class JobCrawler:
         self.on_job_saved = on_job_saved
         # 已采集过的职位 ID 集合 (来自 data/jobs/), 翻页时跳过避免重复抓取
         self.existing_ids = existing_ids or set()
+        self.dup_slowdown = dup_slowdown
+        self.dup_stop_pages = dup_stop_pages
+        self.slowdown_cap = slowdown_cap
+        self.max_jobs_per_session = max_jobs_per_session or None
+        # 当前连续"整页全重复"的页数 (运行时状态)
+        self._dup_streak = 0
         self.stats = CrawlStats()
+
+    def _dup_delay(self):
+        """根据当前连续重复页数计算翻页延迟区间。
+
+        Returns:
+            (delay_min, delay_max, factor) —— 连续整页重复时延迟逐次翻倍
+            (2x/4x/8x...), 上限 slowdown_cap; 无重复时 factor=1。
+        """
+        factor = 1.0
+        if self.dup_slowdown and self._dup_streak > 0:
+            factor = 2.0 ** self._dup_streak
+        d_min = min(self.delay_min * factor, self.slowdown_cap)
+        d_max = min(self.delay_max * factor, self.slowdown_cap * 1.5)
+        return d_min, d_max, factor
+
+    def _session_limit_reached(self) -> bool:
+        """是否已达到单次采集的新职位数量硬上限。"""
+        if not self.max_jobs_per_session:
+            return False
+        return self.stats.jobs_scraped >= self.max_jobs_per_session
 
     def crawl_from_url(self, list_url: str, har_path: Optional[str] = None):
         """从职位列表页 URL 启动采集
@@ -253,6 +320,14 @@ class JobCrawler:
                     log.info(f"已达到最大翻页数 {self.max_pages}, 停止")
                     break
 
+                if self._session_limit_reached():
+                    log.info(
+                        f"已达到单次采集上限 {self.max_jobs_per_session} 个新职位, "
+                        f"提前结束"
+                    )
+                    self.stats.early_stop_reason = "session_limit"
+                    break
+
                 log.info(f"\n{'='*40}")
                 log.info(f"正在采集第 {page} 页...")
                 log.info(f"{'='*40}")
@@ -283,7 +358,16 @@ class JobCrawler:
                     break
 
                 # 逐个处理职位
+                dup_on_page = 0
                 for idx, job_item in enumerate(job_list, 1):
+                    if self._session_limit_reached():
+                        log.info(
+                            f"已达到单次采集上限 {self.max_jobs_per_session} "
+                            f"个新职位, 提前结束"
+                        )
+                        self.stats.early_stop_reason = "session_limit"
+                        break
+
                     encrypt_job_id = job_item.get("encryptJobId", "")
                     job_name = job_item.get("jobName", "")
                     brand_name = job_item.get("brandName", "")
@@ -300,6 +384,7 @@ class JobCrawler:
                     ):
                         log.info(f"  → 已采集过, 跳过")
                         self.stats.jobs_skipped_dup += 1
+                        dup_on_page += 1
                         continue
 
                     # 抓取职位详情
@@ -317,14 +402,47 @@ class JobCrawler:
                         # 出错后等待一下, 避免连续错误
                         time.sleep(random.uniform(2, 5))
 
+                # 会话上限触发的提前结束: 直接跳出翻页循环
+                if self.stats.early_stop_reason == "session_limit":
+                    break
+
+                # --- 覆盖率统计: 本页是否全是已抓取的重复职位 ---
+                new_on_page = len(job_list) - dup_on_page
+                if new_on_page == 0:
+                    self._dup_streak += 1
+                    self.stats.dup_page_streak = max(
+                        self.stats.dup_page_streak, self._dup_streak
+                    )
+                    log.info(
+                        f"第 {page} 页全部是已抓取职位 "
+                        f"(连续重复页: {self._dup_streak})"
+                    )
+                else:
+                    self._dup_streak = 0
+
+                # 连续多页全重复 → 搜索结果已覆盖, 提前结束, 减少对列表 API 的消耗
+                if self.dup_stop_pages and self._dup_streak >= self.dup_stop_pages:
+                    log.info(
+                        f"连续 {self._dup_streak} 页全是已抓取职位, "
+                        f"判定该搜索条件下的职位已覆盖, 提前结束以避免触发反爬"
+                    )
+                    self.stats.early_stop_reason = "covered"
+                    break
+
                 # 判断是否继续翻页
                 if not has_more:
                     log.info(f"第 {page} 页 hasMore=False, 采集完成")
                     break
 
-                # 翻页前随机延迟
+                # 翻页前随机延迟 (连续重复页时渐进放慢: 2x/4x/8x..., 有上限)
                 page += 1
-                random_page_delay(self.delay_min, self.delay_max)
+                d_min, d_max, factor = self._dup_delay()
+                if factor > 1.0:
+                    log.warning(
+                        f"连续重复页 {self._dup_streak}, 翻页降速 {factor:.0f}x: "
+                        f"{d_min:.0f}-{d_max:.0f}s"
+                    )
+                random_page_delay(d_min, d_max)
 
         except KeyboardInterrupt:
             log.warning("\n用户中断采集 (Ctrl+C)")

@@ -44,11 +44,21 @@ class LLMDriver:
     # 登录态检测 (默认用 input_selector)
     login_check_selector: str = ""
 
-    def __init__(self, session: CDPSession, sid: str, config: AIConfig | None = None):
+    def __init__(
+        self,
+        session: CDPSession,
+        sid: str,
+        config: AIConfig | None = None,
+        tid: str | None = None,
+    ):
         self.session = session
         self.sid = sid
         self.config = config or SETTINGS.ai
+        self.tid = tid  # 本驱动标签页的 targetId (可为 None, 如复用外部标签页)
         self._ready = False
+        # 焦点管理: 进入对话前持有焦点的标签页, 结束后恢复
+        self.prev_focused_tid: str | None = None
+        self._in_focus = False
 
     def new_conversation(self) -> None:
         """点击新建对话按钮。fresh_conversation=False 时跳过。
@@ -355,6 +365,81 @@ class LLMDriver:
             )
         time.sleep(0.3)
 
+    # ---------------------------------------------------------------- 标签页焦点管理
+
+    def bring_to_front(self) -> bool:
+        """把本驱动的标签页切到前台。
+
+        后台标签页可能被浏览器节流 (渲染/定时器降速), 导致页面 JS 不执行、
+        一直拿不到回复。切到前台可解除节流。
+        """
+        if not self.tid:
+            return False
+        try:
+            self.session.activate_target(self.tid)
+            return True
+        except Exception as e:
+            log.warning(f"[{self.name}] 激活标签页失败: {e}")
+            return False
+
+    def _enter_focus(self) -> None:
+        """进入对话前的焦点处理 (tab_mode=foreground 时切前台)。
+
+        先尽力记住当前持有焦点的标签页 (用户正在看的页面),
+        再把聊天标签页激活到前台, 处理完成后由 _exit_focus 恢复。
+        """
+        if self.config.tab_mode != "foreground" or self._in_focus:
+            return
+        # 记住用户原来在看哪个标签页 (get_driver 创建标签页前可能已捕获)
+        if self.prev_focused_tid is None:
+            try:
+                self.prev_focused_tid = self.session.find_focused_target(
+                    exclude={self.tid} if self.tid else set()
+                )
+            except Exception as e:
+                log.debug(f"[{self.name}] 记录原焦点标签页失败: {e}")
+        if self.bring_to_front():
+            self._in_focus = True
+            log.info(f"[{self.name}] 标签页已切到前台")
+            time.sleep(1.5)  # 给页面一点时间解除节流/恢复渲染
+
+    def _exit_focus(self) -> None:
+        """对话结束后恢复原来聚焦的标签页, 把焦点还给用户。"""
+        if not self._in_focus:
+            return
+        self._in_focus = False
+        tid = self.prev_focused_tid
+        self.prev_focused_tid = None
+        if not tid:
+            return
+        try:
+            self.session.activate_target(tid)
+            log.info(f"[{self.name}] 已切回原标签页: {tid}")
+        except Exception as e:
+            log.debug(f"[{self.name}] 切回原标签页失败 (可能已被关闭): {e}")
+
+    def _rescue_no_response(self) -> None:
+        """长时间无任何回复时的救援。
+
+        实测后台标签页有概率一直拿不到响应, 手动切 tab 即恢复 ——
+        这里自动完成同样的动作: 切到前台; 若发现输入框还没清空
+        (说明 prompt 根本没发出去), 再补一次发送。
+        """
+        log.warning(
+            f"[{self.name}] 等待 {self.config.no_response_watchdog:.0f}s 仍无回复, "
+            f"启动救援: 切换标签页到前台"
+        )
+        self.bring_to_front()
+        time.sleep(2.0)
+        try:
+            if not self._is_input_cleared():
+                log.warning(f"[{self.name}] 输入框未清空, prompt 可能未发送, 重新尝试发送")
+                if not self._click_send():
+                    self._press_enter()
+                time.sleep(1.5)
+        except Exception as e:
+            log.warning(f"[{self.name}] 救援重发失败: {e}")
+
     # ---------------------------------------------------------------- 轮询
 
     def wait_for_completion(self) -> str:
@@ -378,6 +463,7 @@ class LLMDriver:
         last_text = ""
         no_response_logged = False
         progress_logged_at = 0.0
+        rescued = False
 
         while True:
             elapsed = time.time() - start
@@ -387,6 +473,15 @@ class LLMDriver:
                     f"返回当前文本 ({len(last_text)} 字)"
                 )
                 return last_text
+
+            # 无响应看门狗: 一直拿不到回复时切前台救援 (后台节流/发送未生效)
+            if (
+                not last_text
+                and not rescued
+                and elapsed > self.config.no_response_watchdog
+            ):
+                rescued = True
+                self._rescue_no_response()
 
             # 10 秒还没收到任何回复, 提示一下
             if not last_text and elapsed > 10 and not no_response_logged:
@@ -426,16 +521,25 @@ class LLMDriver:
     # ---------------------------------------------------------------- 完整流程
 
     def ask(self, prompt: str) -> str:
-        """完整流程: 登录检查 → 新建对话 → 发送 → 等待完成。"""
+        """完整流程: 登录检查 → (切前台) → 新建对话 → 发送 → 等待完成 → (切回)。
+
+        tab_mode=foreground (默认) 时, 提问期间聊天标签页会被激活到前台,
+        避免后台标签页被节流导致拿不到响应; 无论成功还是异常, 结束后都会
+        尽力把焦点切回用户原来在看的标签页。
+        """
         if not self._ready:
             if not self.ensure_logged_in():
                 raise RuntimeError(
                     f"[{self.name}] 未登录。请在浏览器里登录 {self.chat_url} 后重试"
                 )
 
-        self.new_conversation()
-        self.send_prompt(prompt)
-        return self.wait_for_completion()
+        self._enter_focus()
+        try:
+            self.new_conversation()
+            self.send_prompt(prompt)
+            return self.wait_for_completion()
+        finally:
+            self._exit_focus()
 
     # ---------------------------------------------------------------- 工具
 

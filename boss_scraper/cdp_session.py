@@ -121,16 +121,21 @@ class CDPSession:
         start_time = time.time()
         max_retries = 1000
         for attempt in range(max_retries):
-            elapsed = time.time() - start_time
-            if elapsed > timeout:
+            remaining = timeout - (time.time() - start_time)
+            if remaining <= 0:
                 raise TimeoutError(
                     f"CDP send({method}) 超时 ({timeout}s), "
                     f"已跳过 {attempt} 条不匹配消息"
                 )
             try:
+                # 按剩余时间设置 socket 超时, 保证单次 recv 不会阻塞超过
+                # 调用方要求的 timeout (建连时的默认 socket 超时是 60s)
+                self.ws.settimeout(remaining)
                 raw = self.ws.recv()
             except _websocket.WebSocketTimeoutException:
-                raise TimeoutError(f"CDP WebSocket recv 超时, method={method}")
+                raise TimeoutError(
+                    f"CDP WebSocket recv 超时 ({timeout}s), method={method}"
+                )
             try:
                 r = json.loads(raw)
             except (json.JSONDecodeError, ValueError):
@@ -271,6 +276,95 @@ class CDPSession:
             log.debug(f"已关闭标签页: {tid}")
         except Exception:
             pass
+
+    def get_targets(self):
+        """列出浏览器中所有 Target (页面/服务/iframe 等)
+
+        Returns:
+            targetInfos 列表, 每项含 targetId/type/url/title 等字段
+        """
+        r = self.send("Target.getTargets")
+        return r["result"].get("targetInfos", [])
+
+    def activate_target(self, tid):
+        """激活标签页 (切到前台, 获得焦点)
+
+        后台标签页可能被浏览器节流 (渲染/定时器降速), 导致页面交互
+        无响应。把标签页切到前台可解除节流。
+        """
+        self.send("Target.activateTarget", {"targetId": tid})
+        log.debug(f"已激活标签页: {tid}")
+
+    def find_focused_target(self, exclude=(), max_probe=10, budget=15.0):
+        """找到当前持有焦点的页面标签页。
+
+        通过逐个探测页面 target 的 document.hasFocus() 实现。
+        用于自动化开始前记住"用户正在看的标签页", 结束后恢复焦点。
+
+        探测是尽力而为的: 单个标签页卡死 (如 JS alert 弹窗会阻塞
+        Runtime.evaluate) 时靠短超时跳过; 总耗时受 budget 限制,
+        保证不会因为标签页过多而长时间挂起调用方。
+
+        Args:
+            exclude: 需要排除的 targetId 集合 (如自动化自己创建的标签页)
+            max_probe: 最多探测多少个候选标签页 (标签很多时避免过慢)
+            budget: 探测总时间预算 (秒), 超过即放弃并返回 None
+
+        Returns:
+            持有焦点的 targetId; 浏览器窗口本身失焦或找不到时返回 None
+        """
+        exclude = set(exclude)
+        try:
+            targets = self.get_targets()
+        except Exception as e:
+            log.debug(f"获取 target 列表失败: {e}")
+            return None
+
+        start = time.time()
+        probed = 0
+        for info in targets:
+            if info.get("type") != "page":
+                continue
+            tid = info.get("targetId", "")
+            url = info.get("url", "")
+            if not tid or tid in exclude:
+                continue
+            if url.startswith(
+                ("devtools://", "chrome://", "chrome-extension://", "about:")
+            ):
+                continue
+            if probed >= max_probe:
+                break
+            if time.time() - start > budget:
+                log.debug(f"焦点探测达到总时间预算 {budget}s, 停止探测")
+                break
+            probed += 1
+
+            sid = None
+            try:
+                r = self.send(
+                    "Target.attachToTarget",
+                    {"targetId": tid, "flatten": True},
+                    timeout=5,
+                )
+                sid = r["result"]["sessionId"]
+                # 短超时: 卡死/弹窗的标签页 eval 可能长时间无响应
+                focused = self.eval_js("document.hasFocus()", sid, timeout=3)
+                if focused:
+                    return tid
+            except Exception as e:
+                log.debug(f"焦点探测失败 ({url[:60]}): {e}")
+            finally:
+                if sid:
+                    try:
+                        self.send(
+                            "Target.detachTarget",
+                            {"sessionId": sid},
+                            timeout=5,
+                        )
+                    except Exception:
+                        pass
+        return None
 
 
 def human_simulate(ws, sid):

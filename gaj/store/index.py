@@ -524,6 +524,7 @@ def _build_where(
     outsourcing: bool | None = None,
     favorite: str = "all",
     ignored: str = "exclude",
+    new_since: str = "",
 ) -> tuple[str, list[Any]]:
     """构造列表筛选的 WHERE 子句与参数, 供 query / count 共用。"""
     where: list[str] = []
@@ -567,6 +568,11 @@ def _build_where(
         where.append("(ignored = 0 OR ignored IS NULL)")
     elif ignored == "only":
         where.append("ignored = 1")
+    if new_since:
+        # first_seen 历史上有 "YYYY-MM-DD HH:MM:SS" 和 ISO "T" 两种格式,
+        # 归一化成 T 再比较, 避免字符串比较出错
+        where.append("REPLACE(first_seen, ' ', 'T') >= ?")
+        params.append(new_since)
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     return clause, params
 
@@ -584,6 +590,7 @@ def query_jobs(
     outsourcing: bool | None = None,
     favorite: str = "all",        # all | only | exclude
     ignored: str = "exclude",     # exclude | all | only
+    new_since: str = "",          # first_seen 不早于该时间 (ISO 字符串)
     sort: str = "best_total",
     desc: bool = True,
     limit: int = 200,
@@ -593,6 +600,7 @@ def query_jobs(
         search=search, cities=cities, statuses=statuses, scored=scored,
         providers=providers, salary_min=salary_min, online_only=online_only,
         outsourcing=outsourcing, favorite=favorite, ignored=ignored,
+        new_since=new_since,
     )
     sort_col = sort if sort in _SORTABLE else "best_total"
     direction = "DESC" if desc else "ASC"
@@ -621,12 +629,14 @@ def count_jobs(
     outsourcing: bool | None = None,
     favorite: str = "all",
     ignored: str = "exclude",
+    new_since: str = "",
 ) -> int:
     """带筛选条件的职位计数, 参数与 query_jobs 一致。"""
     where_clause, params = _build_where(
         search=search, cities=cities, statuses=statuses, scored=scored,
         providers=providers, salary_min=salary_min, online_only=online_only,
         outsourcing=outsourcing, favorite=favorite, ignored=ignored,
+        new_since=new_since,
     )
     sql = "SELECT COUNT(*) FROM jobs" + where_clause
     return conn.execute(sql, params).fetchone()[0]

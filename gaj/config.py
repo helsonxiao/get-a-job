@@ -98,6 +98,16 @@ class CrawlConfig:
     # 已存在的职位是否重新抓取详情页 (False 时只更新 last_seen)
     refresh_existing: bool = False
 
+    # ---- 覆盖率自适应限速 (防止职位都抓过后高频调列表 API 被反爬拦截) ----
+    # 整页全是已抓取职位时, 渐进加大翻页延迟 (2x/4x/8x...)
+    dup_slowdown: bool = True
+    # 连续多少页全重复即判定搜索结果已覆盖, 提前结束本次采集 (0=禁用)
+    dup_stop_pages: int = 3
+    # 降速后翻页延迟上限 (秒)
+    slowdown_cap: float = 60.0
+    # 上次采集覆盖率 >= 0.9 时, 本次基础翻页延迟放大倍数
+    coverage_slowdown_factor: float = 2.0
+
     debug: bool = False
 
 
@@ -155,6 +165,17 @@ class AIConfig:
 
     # 每次打分是否新开一个对话 (避免上下文串味)
     fresh_conversation: bool = True
+
+    # 标签页焦点策略:
+    #   foreground —— 提问期间把聊天标签页切到前台, 完成后自动恢复原来聚焦的
+    #                 标签页。后台标签页可能被浏览器节流导致页面无响应, 这是默认值。
+    #   background —— 全程保持后台, 不打扰用户; 但若 no_response_watchdog 秒内
+    #                 收不到任何回复, 会自动切前台救援。
+    tab_mode: str = "foreground"
+
+    # 无响应看门狗 (秒): 发送后这么久仍没有任何回复文本时, 触发一次救援
+    # (切前台 + 若输入框未清空则重新点发送)。前台模式下同样生效, 兜底发送失败。
+    no_response_watchdog: float = 30.0
 
     headless_note: str = "必须使用已登录的可见 Chrome, 网页版大模型依赖登录态"
 
