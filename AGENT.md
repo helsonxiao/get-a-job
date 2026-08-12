@@ -27,16 +27,19 @@ python3 -m gaj agent <command> [options]
 
 ### 错误码一览
 
-| code | 含义 | 建议动作 |
-|---|---|---|
-| `usage` | 参数错误 | 检查参数，不要原样重试 |
-| `chrome_not_ready` | Chrome CDP 未运行 | 执行 `python3 -m gaj setup-chrome` 后重试；仍失败则通知用户 |
-| `not_logged_in` | 未登录 zhipin.com | 通知用户在 CDP Chrome 窗口里手动登录 |
-| `no_crawl_url` | 没有可用的列表页 URL | 首次需要用户提供 BOSS 筛选页 URL |
-| `job_not_found` | 职位 ID 不存在 | 用 `jobs` 重新查询正确 ID |
-| `crawl_failed` | 采集失败 | 看 `data` 里的详情；可能是反爬拦截，建议隔几小时再试 |
-| `ai_failed` / `timeout` | AI 分析失败 | 可重试 1 次；连续失败换 `--provider` 或通知用户 |
-| `index_error` / `internal` | 内部错误 | 通知用户，附 message |
+| code | 含义 |
+|---|---|
+| `usage` | 参数错误 |
+| `chrome_not_ready` | Chrome CDP 未运行（执行 `python3 -m gaj setup-chrome` 启动） |
+| `not_logged_in` | 未登录 zhipin.com |
+| `no_crawl_url` | 没有可用的列表页 URL（首次需用户提供 BOSS 筛选页 URL） |
+| `job_not_found` | 职位 ID 不存在 |
+| `crawl_failed` | 采集失败（详情在 `data` 里，常见为反爬拦截） |
+| `ai_failed` / `timeout` | AI 分析失败 / 超时 |
+| `index_error` / `internal` | 索引错误 / 内部错误 |
+
+智能体拿到错误码后的处理策略（重试、降级、通知用户）见
+`gaj-agent/SKILL.md`「错误处理策略」。
 
 ## 2. 前置条件
 
@@ -134,31 +137,52 @@ python3 -m gaj agent daily [--url <URL>] [--max-pages 10] \
 返回：`crawl`（采集结果+`new_job_ids`）、`analyzed`（分析结果数组）、
 `analyzed_success`、`warnings`、`digest_markdown`。
 
-## 4. 典型智能体工作流
+## 4. 智能体工作流
 
-### 每日定时任务（推荐模板）
+面向智能体的标准操作流程（每日编排、错误处理策略、调用方超时预算）维护在
+技能包 **`gaj-agent/SKILL.md`** 中（可安装到各智能体），此处不再重复，
+避免两处维护不一致。
 
-```text
-1. 运行 `python3 -m gaj agent status`：
-   - chrome_cdp_ready=false → 运行 setup-chrome，等 5 秒再查一次；
-     仍 false 则通知用户"请启动 Chrome CDP"并结束。
-   - boss_logged_in=false → 通知用户"请在 CDP Chrome 里登录 BOSS直聘"
-     （仍可继续，daily 会跳过采集只分析存量）。
-2. 运行 `python3 -m gaj agent daily --analyze-limit 3`。
-3. 检查返回：
-   - ok=true → 把 data.digest_markdown 发给用户；
-     warnings 非空时一并说明。
-   - ok=false → 按错误码表处理；crawl_failed 建议下午再重试一次。
-4. 如果用户想看某个职位详情：用 jobs 搜索 → job <ID> 取 jd_markdown 和打分。
-```
+未安装技能时的最小流程：`status` 健康检查 → `daily`（或按需单独
+`crawl` / `analyze`）→ 解析信封 `ok` / `error.code` 决策。首次使用需要
+用户提供一个 BOSS直聘筛选页 URL（`crawl --url "<URL>"`），之后系统会记住，
+可省略 `--url`。
 
-### 首次使用
+## 5. 容错与超时保障
 
-需要用户先提供一次 BOSS直聘筛选页 URL（在浏览器里筛好城市/职位/薪资后
-复制地址栏 URL），执行 `python3 -m gaj agent crawl --url "<URL>"`。
-之后系统会记住该 URL，daily/crawl 均可省略 `--url`。
+所有命令都有最外层异常兜底：**任何情况下都会输出 JSON 信封并以退出码结束，
+不会静默挂起**。调用方（智能体）可以放心按信封决策。
 
-## 5. 注意事项
+### 超时上界（最坏情况）
+
+| 命令 | 上界来源 | 量级 |
+|---|---|---|
+| `status` / `jobs` / `job` | 纯本地读索引/文件 | 秒级 |
+| `crawl` | 会话上限 60 个新职位 + `--max-pages` + 连续重复页提前结束；单次 CDP 通信超时 30s，列表 API 每次重试 3 次 | 通常几分钟，最坏约 30 分钟 |
+| `analyze` / `daily` 的 AI 部分 | 每个职位生成超时 300s（超时即返回，不阻塞）；daily 默认只分析 3 个 | 每职位 ≤ 5-6 分钟 |
+
+进程被外部强制终止是安全的：数据逐个职位增量落盘，重跑不会重复抓取
+（已抓的自动跳过）。调用方的超时预算策略见 `gaj-agent/SKILL.md`。
+
+### 内置重试
+
+- 列表页 API：失败自动重试 3 次（退避递增），仍失败则终止本次翻页并给出
+  `crawl_failed`。
+- 大模型发送：按钮点击失败自动改 Enter 键，最多 3 轮；30 秒仍无任何回复时
+  看门狗自动切前台并补发一次。
+- AI 解析失败：原始回复仍会落盘（`ai_<provider>_raw_*.json`），可事后排查，
+  该职位记为失败，不影响其他职位。
+
+### 退出机制
+
+- 采集：三种提前结束——`covered`（连续 3 页全重复，职位已覆盖）、
+  `session_limit`（新职位数达到会话上限 60）、API 连续失败；
+  原因在 `crawl_stats.early_stop_reason` 里可见。
+- AI：生成超时即止损返回；单个职位失败不中断批量流程。
+- `daily`：任何阶段失败都降级为 `warnings` 继续往下走，
+  **始终产出 `digest_markdown`**，不让一次局部失败浪费整个编排。
+
+## 6. 注意事项
 
 - AI 分析依赖**可见的** Chrome（网页版大模型需要登录态，无头模式不行）。
 - 分析期间会短暂抢占浏览器焦点（把大模型标签页切到前台），完成后自动切回
