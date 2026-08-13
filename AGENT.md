@@ -1,12 +1,14 @@
 # GAJ 智能体操作接口 (AGENT.md)
 
 本文档面向 **AI 智能体**（以及想让智能体自动操作本系统的人）。
-所有机器接口统一走：
+所有机器接口统一走（在 get-a-job 仓库根目录，即包含 `gaj/` 与本文件的目录下执行）：
 
 ```bash
-cd /Users/helsonxiao/Codes/get-a-job
 python3 -m gaj agent <command> [options]
 ```
+
+> 智能体侧的仓库定位方式（用户级配置 `~/.gaj-agent/config.json`）见
+> `gaj-agent/SKILL.md`「首次使用配置」。
 
 ## 1. 协议约定
 

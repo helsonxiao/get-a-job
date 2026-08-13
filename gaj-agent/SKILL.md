@@ -1,23 +1,56 @@
 ---
 name: gaj-agent
 description: 通过 `python3 -m gaj agent` JSON CLI 操作 GAJ 个人猎头系统（BOSS直聘职位采集 + 规则/AI 打分），执行每日采集分析、职位查询、AI 打分并生成摘要。当用户要求跑每日职位报告、查询/分析职位、采集 BOSS直聘职位，或定时任务需要调用 GAJ 系统时使用。
-version: 1.1.0
+version: 1.2.0
 ---
 
 # GAJ 智能体操作技能
 
-GAJ 是本机上的个人猎头系统：CDP 驱动 Chrome 采集 BOSS直聘职位，规则引擎 +
-网页版大模型打分。所有操作统一走：
+GAJ 是用户本机上的个人猎头系统：CDP 驱动 Chrome 采集 BOSS直聘职位，规则引擎 +
+网页版大模型打分。所有操作统一走 `python3 -m gaj agent` JSON CLI。
+
+## 首次使用配置（第一次调用必做）
+
+本技能不含任何写死的本机路径，仓库位置从用户级配置
+`~/.gaj-agent/config.json` 读取：
+
+```json
+{ "repo_path": "/绝对路径/get-a-job", "python": "python3" }
+```
+
+每次执行命令前：
+
+1. 读取 `~/.gaj-agent/config.json`。
+2. **文件不存在时**：向用户索取 get-a-job 仓库在本机的绝对路径
+   （根目录下应有 `gaj/` 包和 `AGENT.md`），校验
+   `<repo_path>/gaj/__main__.py` 存在后写入配置文件：
+
+   ```bash
+   mkdir -p ~/.gaj-agent && cat > ~/.gaj-agent/config.json <<'EOF'
+   { "repo_path": "<用户提供的绝对路径>", "python": "python3" }
+   EOF
+   ```
+
+   若用户使用虚拟环境或特定解释器，一并询问并填入 `python`
+   （默认 `python3`）。路径校验不通过时继续向用户确认，不要猜测。
+3. 后续所有命令以配置里的 `repo_path` 为工作目录、`python` 为解释器执行。
+
+配置错误（如仓库被移动）的表现是命令报模块找不到或路径不存在：
+重新向用户索取路径并更新配置文件即可。
+
+## 调用方式
+
+下文中 `<repo_path>` / `<python>` 均取自 `~/.gaj-agent/config.json`：
 
 ```bash
-cd /Users/helsonxiao/Codes/get-a-job && python3 -m gaj agent <command> [options]
+cd <repo_path> && <python> -m gaj agent <command> [options]
 ```
 
 stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 时看
 `error.code` / `error.message`。退出码：0 成功 / 1 失败 / 2 参数错误。
 
-**完整命令参数、错误码清单、系统内部容错机制见项目内
-[AGENT.md](/Users/helsonxiao/Codes/get-a-job/AGENT.md)，需要细节时运行时读它。
+**完整命令参数、错误码清单、系统内部容错机制见仓库内
+`<repo_path>/AGENT.md`，需要细节时运行时读它。
 本技能只定义操作策略，不重复这些内容。**
 
 ## 命令一览
@@ -31,10 +64,25 @@ stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 
 | `crawl` | 增量采集（自动降速、覆盖提前结束） |
 | `daily` | 每日编排：采集 → 挑候选 → AI 分析 → 摘要 |
 
+## 避免重复 AI 打分
+
+调用 `analyze` 前，用 `jobs --scored no_ai` 筛选**没有 AI 打分记录**的职位
+（`ai_count = 0`），避免对已打过分的职位重复分析。
+
+`--scored` 取值：
+
+| 值 | 含义 |
+|---|---|
+| `all` | 全部（默认） |
+| `none` | 规则分和 AI 分都没有 |
+| `rule_only` | 有规则分、无 AI 分 |
+| `ai` | 有 AI 分 |
+| `no_ai` | 无 AI 分（= `none` + `rule_only`，**推荐用于挑未打分职位**） |
+
 ## 每日任务标准流程
 
 1. **健康检查** `status`：
-   - `chrome_cdp_ready=false` → 运行 `python3 -m gaj setup-chrome`，等 5 秒
+   - `chrome_cdp_ready=false` → 运行 `<python> -m gaj setup-chrome`，等 5 秒
      再查一次；仍 false 通知用户"请启动 Chrome CDP"并结束。
      （注意：必须是可见的 Chrome 窗口，无头模式不行）
    - `boss_logged_in=false` → 通知用户在 CDP Chrome 窗口登录 BOSS直聘
@@ -79,7 +127,7 @@ stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 
 - `daily` 始终产出 `digest_markdown`，`warnings` 不阻断流程，局部失败
   不要整体重跑。
 - `ai_failed` 反复出现且 message 含"注入失败/选择器" → 大模型网站改版，
-  通知用户检查 `gaj/browser/llm_driver_deepseek.py`，不要无限重试。
+  通知用户检查 `<repo_path>/gaj/browser/llm_driver_deepseek.py`，不要无限重试。
 - 采集限速是防封号刻意设计，不要为提速绕过或并发多开 crawl。
 
 ## 验证
@@ -87,6 +135,6 @@ stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 
 每次调用确认：进程在预算内退出、stdout 可 `json.loads`、信封含 `ok` 字段：
 
 ```bash
-cd /Users/helsonxiao/Codes/get-a-job && python3 -m gaj agent status \
-  | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['ok'], d['data']['chrome_cdp_ready'])"
+cd <repo_path> && <python> -m gaj agent status \
+  | <python> -c "import json,sys; d=json.load(sys.stdin); print(d['ok'], d['data']['chrome_cdp_ready'])"
 ```
