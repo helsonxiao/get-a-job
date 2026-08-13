@@ -3,7 +3,26 @@
 # 个人数据 (职位/公司/索引/画像/简历等), 整个目录不入库
 data/
 
+# 老版 demo 数据目录 (migrate --src jobs 的默认源), 不入库
+jobs/
+
 logs/
 __pycache__/
 *.pyc
 .DS_Store
+
+# 抓包/网络记录文件, 通常含 cookie/token 等登录态, 严禁入库
+*.har
+*.har.bak
+
+# 环境变量与密钥
+.env
+.env.*
+*.pem
+*.key
+secrets.json
+
+# SQLite 索引数据库 (data/index.db 已被 data/ 覆盖, 这里兜底防误放根目录)
+*.db
+*.sqlite
+*.sqlite3
