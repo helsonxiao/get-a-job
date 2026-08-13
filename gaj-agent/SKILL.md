@@ -1,12 +1,12 @@
 ---
 name: gaj-agent
-description: 通过 `python3 -m gaj agent` JSON CLI 操作 GAJ 个人猎头系统（BOSS直聘职位采集 + 规则/AI 打分），执行每日采集分析、职位查询、AI 打分并生成摘要。当用户要求跑每日职位报告、查询/分析职位、采集 BOSS直聘职位，或定时任务需要调用 GAJ 系统时使用。
-version: 1.2.0
+description: 通过 `python3 -m gaj agent` JSON CLI 操作坑位图鉴（GAJ）个人猎头系统（BOSS直聘职位采集 + 规则/AI 打分），执行每日采集分析、职位查询、AI 打分并生成摘要。当用户要求跑每日职位报告、查询/分析职位、采集 BOSS直聘职位，或定时任务需要调用坑位图鉴系统时使用。
+version: 1.2.1
 ---
 
-# GAJ 智能体操作技能
+# 坑位图鉴智能体操作技能
 
-GAJ 是用户本机上的个人猎头系统：CDP 驱动 Chrome 采集 BOSS直聘职位，规则引擎 +
+坑位图鉴（GAJ）是用户本机上的个人猎头系统：CDP 驱动 Chrome 采集 BOSS直聘职位，规则引擎 +
 网页版大模型打分。所有操作统一走 `python3 -m gaj agent` JSON CLI。
 
 ## 首次使用配置（第一次调用必做）

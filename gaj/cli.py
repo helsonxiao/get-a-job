@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     setup()
     ap = argparse.ArgumentParser(
         prog="gaj",
-        description="Get A Job — 个人猎头系统",
+        description="坑位图鉴 — 个人猎头系统",
     )
     sub = ap.add_subparsers(dest="command", required=True)
 

@@ -127,7 +127,7 @@ def _safe_serialize(obj: Any) -> Any:
 
 # ---------------------------------------------------------------- FastAPI
 
-app = FastAPI(title="Get A Job", docs_url="/api/docs")
+app = FastAPI(title="坑位图鉴", docs_url="/api/docs")
 
 
 @app.on_event("startup")

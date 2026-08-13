@@ -473,7 +473,7 @@ def _build_digest(
     from ..store import repo
 
     today = time.strftime("%Y-%m-%d")
-    lines = [f"## GAJ 每日职位摘要 ({today})", ""]
+    lines = [f"## 坑位图鉴每日职位摘要 ({today})", ""]
 
     if crawl_data:
         cs = crawl_data.get("crawl_stats") or {}
@@ -626,7 +626,7 @@ def main(argv: list[str] | None = None) -> int:
     setup()
     ap = argparse.ArgumentParser(
         prog="gaj agent",
-        description="GAJ 面向 AI 智能体的操作接口 (stdout 只输出 JSON)",
+        description="坑位图鉴（GAJ）面向 AI 智能体的操作接口 (stdout 只输出 JSON)",
     )
     sub = ap.add_subparsers(dest="command", required=True)
 
