@@ -547,6 +547,8 @@ def _build_where(
         where.append("rule_total IS NOT NULL AND ai_count = 0")
     elif scored == "ai":
         where.append("ai_count > 0")
+    elif scored == "no_ai":
+        where.append("ai_count = 0")
     providers = [p for p in providers if p]
     if providers:
         clause = " OR ".join(["ai_providers LIKE ?"] * len(providers))

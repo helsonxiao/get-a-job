@@ -35,7 +35,7 @@ def crawl(
     auto_migrate: bool = True,
     auto_score: bool = True,
     auto_reindex: bool = True,
-    skip_recent_hours: float = 24.0,
+    skip_recent_hours: float | None = None,
 ) -> dict:
     """从 BOSS直聘列表页 URL 启动采集。
 
@@ -51,6 +51,7 @@ def crawl(
         auto_score: 迁移后自动跑规则打分
         auto_reindex: 最后重建索引
         skip_recent_hours: 最近 N 小时内已采集的职位跳过, 避免重复抓取。
+                           None 用配置 SETTINGS.scraper.skip_recent_hours (默认 60 天)。
                            设为 0 表示不跳过 (全量重采)。
 
     Returns:
@@ -61,6 +62,9 @@ def crawl(
     incremental_count = 0
 
     # ---- 构建最近已采集职位 ID 集合, 翻页时跳过 ----
+    if skip_recent_hours is None:
+        from ..config import SETTINGS
+        skip_recent_hours = SETTINGS.crawl.skip_recent_hours
     existing_ids: set[str] = set()
     if skip_recent_hours > 0:
         try:

@@ -636,7 +636,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--search", default="", help="全文搜索 (职位/公司/技能/JD)")
     p.add_argument("--city", default="", help="城市, 逗号分隔多个")
     p.add_argument("--status", default="", help="规则状态: PASS,REVIEW,REJECTED")
-    p.add_argument("--scored", default="all", choices=["all", "none", "rule_only", "ai"])
+    p.add_argument("--scored", default="all", choices=["all", "none", "rule_only", "ai", "no_ai"])
     p.add_argument("--min-salary", type=float, default=None, help="salary_max >= 该值 (K)")
     p.add_argument("--online", action="store_true", help="只看在线职位")
     p.add_argument("--favorite", action="store_true", help="只看收藏")

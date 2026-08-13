@@ -97,6 +97,9 @@ class CrawlConfig:
     fetch_company: bool = True
     # 已存在的职位是否重新抓取详情页 (False 时只更新 last_seen)
     refresh_existing: bool = False
+    # 已采集职位在多少小时内跳过不重抓 (单个岗位 JD 短期内不会频繁改, 设长一点减少重复抓取)
+    # 60 天 = 1440 小时
+    skip_recent_hours: float = 1440.0
 
     # ---- 覆盖率自适应限速 (防止职位都抓过后高频调列表 API 被反爬拦截) ----
     # 整页全是已抓取职位时, 渐进加大翻页延迟 (2x/4x/8x...)

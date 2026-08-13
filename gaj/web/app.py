@@ -181,7 +181,7 @@ async def api_jobs(
     search: str = Query("", description="搜索关键词"),
     city: str = Query("", description="城市, 逗号分隔"),
     status: str = Query("", description="规则状态, 逗号分隔"),
-    scored: str = Query("all", description="all|none|rule_only|ai"),
+    scored: str = Query("all", description="all|none|rule_only|ai|no_ai"),
     provider: str = Query("", description="AI provider, 逗号分隔"),
     salary_min: Optional[float] = Query(None, description="薪资上限最小值 (万)"),
     online: bool = Query(False, description="只看在线"),

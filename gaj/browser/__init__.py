@@ -71,11 +71,13 @@ def get_driver(
             except Exception as e:
                 log.debug(f"[{provider}] 记录原焦点标签页失败: {e}")
 
-        # 创建专用标签页 (加载期间保持后台, 真正交互时由 driver 切前台)
-        tid, sid = session.create_target(cls.chat_url, background=True)
+        # 创建专用标签页: foreground 模式直接前台打开 (避免后台 tab 被浏览器节流卡死);
+        # background 模式才后台创建
+        bg = SETTINGS.ai.tab_mode != "foreground"
+        tid, sid = session.create_target(cls.chat_url, background=bg)
         log.info(
             f"[{provider}] 创建标签页: {tid} "
-            f"(焦点模式: {SETTINGS.ai.tab_mode})"
+            f"(焦点模式: {SETTINGS.ai.tab_mode}, 后台: {bg})"
         )
         # 等待页面加载
         import time
