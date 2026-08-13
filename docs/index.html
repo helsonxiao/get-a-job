@@ -3,7 +3,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>坑位图鉴 — 个人猎头系统</title>
-<meta name="description" content="自动浏览 BOSS直聘，基于简历和偏好打分，持续优化求职策略。开发者用 CLI + Web 工作台，小白用 Skill。">
+<meta name="description" content="自动浏览 BOSS直聘，基于简历和偏好打分，持续优化求职策略。小白安装 Skill 跟 AI 说句话就能用，开发者用 CLI + Web 工作台。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
@@ -65,7 +65,7 @@ body {
   color: var(--fg);
   font-family: var(--font-sans);
   font-size: 15px;
-  line-height: 1.6;
+  line-height: 22px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
@@ -144,6 +144,12 @@ nav.scrolled { border-bottom-color: var(--border-hover); }
   background: var(--primary);
   box-shadow: 0 0 12px rgba(91, 142, 247, 0.5);
 }
+.nav-logo .logo-icon {
+  width: 22px; height: 22px;
+  color: var(--primary);
+  filter: drop-shadow(0 0 8px rgba(91, 142, 247, 0.4));
+  flex-shrink: 0;
+}
 .nav-links {
   display: flex; align-items: center; gap: 24px;
   flex: 1;
@@ -184,19 +190,32 @@ section { padding: 100px 24px; position: relative; }
 }
 .section-title {
   font-size: 36px; font-weight: 700;
-  letter-spacing: -0.03em; line-height: 1.2;
+  letter-spacing: -0.03em; line-height: 44px;
   margin-bottom: 16px;
   color: var(--fg);
 }
 .section-subtitle {
   font-size: 16px; color: var(--fg-2);
-  max-width: 600px; line-height: 1.7;
+  max-width: 600px; line-height: 24px;
   margin-bottom: 48px;
+}
+@media (max-width: 700px) {
+  .section-subtitle { max-width: 100%; }
+  .hero-content { max-width: 100%; }
+  .hero-tagline { max-width: 100%; }
+  .loop-info { max-width: 100%; }
+  footer p { max-width: 100%; }
 }
 @media (max-width: 768px) {
   section { padding: 64px 20px; }
   .section-title { font-size: 28px; }
   .section-subtitle { font-size: 15px; }
+}
+@media (max-width: 400px) {
+  section { padding: 48px 16px; }
+  .section-title { font-size: 24px; }
+  .section-subtitle { font-size: 14px; margin-bottom: 32px; }
+  .section-label { font-size: 11px; }
 }
 
 /* === Hero === */
@@ -243,7 +262,7 @@ section { padding: 100px 24px; position: relative; }
 }
 .hero h1 {
   font-size: 64px; font-weight: 800;
-  letter-spacing: -0.04em; line-height: 1.05;
+  letter-spacing: -0.04em; line-height: 68px;
   margin-bottom: 24px;
   animation: fadeInUp 0.6s ease 0.1s both;
 }
@@ -251,7 +270,7 @@ section { padding: 100px 24px; position: relative; }
 .hero h1 .mono { font-family: var(--font-mono); font-weight: 700; }
 .hero-tagline {
   font-size: 18px; color: var(--fg-2);
-  line-height: 1.7; max-width: 560px; margin: 0 auto 36px;
+  line-height: 26px; max-width: 560px; margin: 0 auto 36px;
   animation: fadeInUp 0.6s ease 0.2s both;
 }
 .hero-actions {
@@ -306,6 +325,17 @@ section { padding: 100px 24px; position: relative; }
   .hero-tagline { font-size: 16px; }
   .hero-stats { gap: 24px; }
   .hero-stat .num { font-size: 22px; }
+  .hero { min-height: auto; padding: 100px 16px 60px; }
+}
+@media (max-width: 400px) {
+  .hero h1 { font-size: 32px; }
+  .hero-tagline { font-size: 14px; }
+  .hero-badge { font-size: 11px; padding: 5px 10px; }
+  .hero-stats { gap: 16px; flex-wrap: wrap; }
+  .hero-stat .num { font-size: 18px; }
+  .hero-stat .label { font-size: 10px; }
+  .hero-actions { flex-direction: column; align-items: stretch; }
+  .hero-actions .btn { justify-content: center; }
 }
 
 /* === Loop Diagram === */
@@ -317,6 +347,7 @@ section { padding: 100px 24px; position: relative; }
 .loop-diagram {
   position: relative;
   width: 460px; height: 460px;
+  max-width: 100%;
   flex-shrink: 0;
 }
 .loop-svg {
@@ -383,7 +414,7 @@ section { padding: 100px 24px; position: relative; }
   font-size: 20px; font-weight: 600; margin-bottom: 16px;
 }
 .loop-info p {
-  color: var(--fg-2); font-size: 14px; line-height: 1.7;
+  color: var(--fg-2); font-size: 14px; line-height: 22px;
   margin-bottom: 20px;
 }
 .loop-list {
@@ -408,10 +439,16 @@ section { padding: 100px 24px; position: relative; }
 .loop-list-item .step-text strong { color: var(--fg); font-weight: 600; }
 
 @media (max-width: 900px) {
-  .loop-diagram { width: 340px; height: 340px; }
-  .loop-node { padding: 6px 10px; font-size: 10px; }
-  .loop-node .node-icon { width: 22px; height: 22px; }
+  .loop-diagram { width: 300px; height: 300px; }
+  .loop-node { padding: 5px 8px; font-size: 9px; }
+  .loop-node .node-icon { width: 20px; height: 20px; }
   .loop-node .node-desc { display: none; }
+  .loop-wrapper { gap: 24px; }
+}
+@media (max-width: 400px) {
+  .loop-diagram { width: 260px; height: 260px; }
+  .loop-node { padding: 4px 6px; font-size: 8px; }
+  .loop-node .node-icon { width: 18px; height: 18px; }
 }
 
 /* === Features Grid === */
@@ -455,7 +492,7 @@ section { padding: 100px 24px; position: relative; }
   color: var(--fg);
 }
 .feature-card p {
-  font-size: 14px; color: var(--fg-2); line-height: 1.7;
+  font-size: 14px; color: var(--fg-2); line-height: 22px;
   margin-bottom: 16px;
 }
 .feature-tags {
@@ -470,6 +507,7 @@ section { padding: 100px 24px; position: relative; }
 }
 @media (max-width: 768px) {
   .features-grid { grid-template-columns: 1fr; }
+  .feature-card { padding: 20px 16px; }
 }
 
 /* === Scoring System === */
@@ -584,7 +622,7 @@ section { padding: 100px 24px; position: relative; }
   margin-bottom: 8px;
 }
 .ai-triggers .ai-text {
-  font-size: 12px; color: var(--fg-2); line-height: 1.6;
+  font-size: 12px; color: var(--fg-2); line-height: 18px;
 }
 
 @media (max-width: 768px) {
@@ -620,7 +658,7 @@ section { padding: 100px 24px; position: relative; }
   letter-spacing: -0.02em;
 }
 .mode-card .mode-desc {
-  font-size: 14px; color: var(--fg-2); line-height: 1.7;
+  font-size: 14px; color: var(--fg-2); line-height: 22px;
   margin-bottom: 24px;
 }
 .mode-card .mode-highlight {
@@ -671,8 +709,12 @@ section { padding: 100px 24px; position: relative; }
 .mini-terminal .term-body {
   padding: 14px;
   font-family: var(--font-mono); font-size: 12px;
-  line-height: 1.8;
+  line-height: 18px;
+  overflow-x: auto;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
+.mini-terminal .term-body > div { white-space: pre-wrap; }
 .mini-terminal .term-body .cmd { color: var(--fg); }
 .mini-terminal .term-body .prompt { color: var(--primary); }
 .mini-terminal .term-body .out { color: var(--fg-3); }
@@ -687,7 +729,10 @@ section { padding: 100px 24px; position: relative; }
   border-radius: var(--radius-md);
   padding: 14px;
   font-family: var(--font-mono); font-size: 12px;
-  line-height: 1.8;
+  line-height: 18px;
+  overflow-x: auto;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 .skill-block .skill-name {
   color: var(--purple); font-weight: 600;
@@ -701,8 +746,74 @@ section { padding: 100px 24px; position: relative; }
 }
 .skill-block .skill-cmd .prompt { color: var(--primary); }
 
+/* === Quickstart block (Agent card) === */
+.quickstart-block {
+  margin-top: 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+}
+.quickstart-title {
+  font-size: 12px; font-weight: 600; color: var(--purple);
+  margin-bottom: 12px;
+  display: flex; align-items: center; gap: 6px;
+}
+.quickstart-title::before {
+  content: ''; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--purple);
+}
+.quickstart-steps {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.qs-step {
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.qs-num {
+  width: 20px; height: 20px; flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--purple-muted);
+  color: var(--purple);
+  font-size: 11px; font-weight: 700;
+  font-family: var(--font-mono);
+  display: flex; align-items: center; justify-content: center;
+  margin-top: 1px;
+}
+.qs-text {
+  font-size: 13px; color: var(--fg-2); line-height: 20px;
+  flex: 1;
+}
+.qs-text code {
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--purple);
+  background: var(--surface-2);
+  padding: 1px 6px; border-radius: var(--radius-sm);
+}
+.qs-text .qs-link {
+  color: var(--primary);
+  text-decoration: none;
+  transition: color var(--transition-normal);
+}
+.qs-text .qs-link:hover { color: var(--primary-hover); text-decoration: underline; }
+.quickstart-repo {
+  margin-top: 14px; padding-top: 14px;
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 12px;
+}
+.quickstart-repo a {
+  color: var(--primary);
+  text-decoration: none;
+  transition: color var(--transition-normal);
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+.quickstart-repo a:hover { color: var(--primary-hover); text-decoration: underline; }
+
 @media (max-width: 768px) {
   .dual-mode { grid-template-columns: 1fr; }
+  .mode-card { padding: 24px 20px; }
+  .mode-card h3 { font-size: 18px; }
 }
 
 /* === CLI Showcase === */
@@ -743,9 +854,13 @@ section { padding: 100px 24px; position: relative; }
 .cli-card .cli-body {
   padding: 14px 16px;
   font-family: var(--font-mono); font-size: 12px;
-  line-height: 1.8;
+  line-height: 18px;
+  overflow-x: auto;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
-.cli-card .cli-body .line { display: flex; gap: 8px; }
+.cli-card .cli-body > div { white-space: pre-wrap; }
+.cli-card .cli-body .line { display: block; }
 .cli-card .cli-body .prompt { color: var(--primary); flex-shrink: 0; }
 .cli-card .cli-body .cmd { color: var(--fg); }
 .cli-card .cli-body .flag { color: var(--orange); }
@@ -819,7 +934,7 @@ section { padding: 100px 24px; position: relative; }
 .json-body {
   padding: 16px;
   font-family: var(--font-mono); font-size: 12px;
-  line-height: 1.7;
+  line-height: 20px;
   overflow-x: auto;
 }
 .json-body .key { color: var(--primary); }
@@ -877,6 +992,30 @@ section { padding: 100px 24px; position: relative; }
   .arch-step:not(:last-child)::after { display: none; }
 }
 
+/* === Architecture cards === */
+.arch-cards {
+  margin-top: 32px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.arch-card {
+  padding: 20px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.arch-card-title {
+  font-size: 13px; font-weight: 600; color: var(--fg);
+  margin-bottom: 8px;
+}
+.arch-card-body {
+  font-size: 12px; color: var(--fg-2); line-height: 18px;
+}
+@media (max-width: 768px) {
+  .arch-cards { grid-template-columns: 1fr; }
+}
+
 /* === Footer === */
 footer {
   padding: 60px 24px 40px;
@@ -893,8 +1032,14 @@ footer .footer-logo .dot {
   width: 10px; height: 10px; border-radius: 3px;
   background: var(--primary);
 }
+footer .footer-logo .logo-icon {
+  width: 22px; height: 22px;
+  color: var(--primary);
+  filter: drop-shadow(0 0 8px rgba(91, 142, 247, 0.4));
+  flex-shrink: 0;
+}
 footer p {
-  font-size: 13px; color: var(--fg-3); line-height: 1.7;
+  font-size: 13px; color: var(--fg-3); line-height: 22px;
   max-width: 480px; margin: 0 auto 24px;
 }
 footer .footer-links {
@@ -1694,6 +1839,10 @@ footer .copyright {
   font-size: 12px; color: var(--fg-3);
   display: flex; align-items: center; gap: 8px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .sshot-caption strong { color: var(--fg-2); font-weight: 600; }
 .sshot-caption .dot-sep { color: var(--fg-4); }
@@ -1704,6 +1853,16 @@ footer .copyright {
 @media (max-width: 768px) {
   .sshot-area { min-height: 240px; }
   .sshot-area.large { min-height: 280px; }
+  .sshot-area.filled { min-height: auto; }
+  .sshot-wrap { width: 100%; }
+  .sshot-frame { max-width: 100%; }
+  .sshot-area img { width: 100%; height: auto; }
+  .sshot-section { padding: 16px 16px 32px; }
+}
+@media (max-width: 400px) {
+  .sshot-section { padding: 12px 12px 24px; }
+  .sshot-bar { padding: 8px 10px; }
+  .sshot-url { font-size: 10px; }
 }
 </style><style>.trae-browser-inspect-overlay{position:fixed;top:0;left:0;width:100%;height:100%;z-index:999997;pointer-events:auto;background:rgba(0,0,0,0)}.trae-browser-inspect-highlight-box{position:absolute;top:0;left:0;z-index:999998;display:none}.trae-browser-inspect-highlight-tag{position:absolute;left:0px;top:0px;height:18px;padding:0 6px;box-sizing:border-box;border-radius:4px;background-color:var(--vscode-icube-colorSuccessHover, "#2FB287");color:var(--vscode-icube-colorSnow, "#fff");font-size:12px;font-weight:400;display:none;align-items:center;z-index:999999}.trae-browser-inspect-highlight-box-show{display:flex}.trae-browser-inspect-select-button.trae-browser-inspect-highlight-box-show{display:flex !important}.trae-browser-inspect-select-button{position:absolute;top:0;left:0;background-color:var(--vscode-icube--bg-bg-base-secondary, "#222427");color:var(--vscode-icube--text-text-default-active, "#F5F9FE");font-size:11px;font-weight:500;border:1px solid var(--vscode-icube--border-neutral-l1, "#E0E2F217");border-radius:6px;padding:0 8px;height:32px;display:none;align-items:center;cursor:pointer;z-index:999999;gap:4px}.trae-browser-inspect-select-button svg,.trae-browser-inspect-select-button span{z-index:1}.trae-browser-inspect-select-highlight-box{background:rgba(0,0,0,0) !important}.trae-browser-inspect-select-highlight-box .trae-browser-inspect-highlight-tag{background-color:var(--vscode-icube--status-success-active, "#1E8B56")}.trae-browser-inspect-comment-card-container{position:fixed;top:0;left:0;z-index:9999999;pointer-events:auto}.trae-browser-inspect-comment-card-container .trae-browser-inspect-comment-card{display:flex;padding-top:0px !important;align-items:center;z-index:9999999 !important;background-color:var(--vscode-icube--bg-bg-menu)}*[contenteditable]{outline:none}.trae-browser-inspect-click-effect{position:fixed;width:40px;height:40px;margin-left:-20px;margin-top:-20px;border-radius:50%;background-color:var(--vscode-icube-colorSuccessHover, #2FB287);pointer-events:none;animation:trae-browser-inspect-ripple 500ms ease-out forwards;z-index:999999}@keyframes trae-browser-inspect-ripple{0%{transform:scale(0.3);opacity:.8}100%{transform:scale(2);opacity:0}}.trae-browser-inspect-ref-box{position:absolute;border:2px solid var(--vscode-icube-colorSuccessHover, "#2FB287");pointer-events:none;z-index:999998;animation:trae-browser-inspect-fadeInOut 2s ease-in-out forwards}.trae-browser-inspect-ref-label{position:absolute;top:-14px;left:0;height:14px;padding:0 4px;box-sizing:border-box;border-radius:2px;background-color:var(--vscode-icube-colorSuccessHover, "#2FB287");color:var(--vscode-icube-colorSnow, "#fff");font-size:9px;font-weight:500;display:flex;align-items:center;white-space:nowrap;z-index:999999}@keyframes trae-browser-inspect-fadeInOut{0%{opacity:0}10%{opacity:1}90%{opacity:1}100%{opacity:0}}.trae-browser-inspect-input-highlight{position:absolute;border:2px solid var(--vscode-icube-colorSuccessHover, "#2FB287");border-radius:4px;pointer-events:none;z-index:999998;box-shadow:0 0 8px var(--vscode-icube-colorSuccessHover, "#2FB287");animation:trae-browser-inspect-input-pulse 600ms ease-out forwards}@keyframes trae-browser-inspect-input-pulse{0%{opacity:0;box-shadow:0 0 0 var(--vscode-icube-colorSuccessHover, "#2FB287")}30%{opacity:1;box-shadow:0 0 12px var(--vscode-icube-colorSuccessHover, "#2FB287")}100%{opacity:0;box-shadow:0 0 0 var(--vscode-icube-colorSuccessHover, "#2FB287")}}.trae-browser-inspect-virtual-cursor{position:fixed;width:20px;height:20px;pointer-events:none;z-index:9999999;opacity:0;transition:opacity .2s ease}.trae-browser-inspect-virtual-cursor.trae-browser-inspect-cursor-visible{opacity:1}.trae-browser-inspect-virtual-cursor.trae-browser-inspect-cursor-idle{animation:trae-browser-inspect-cursor-breathe 2s ease-in-out infinite}.trae-browser-inspect-virtual-cursor svg{width:20px;height:20px;filter:drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))}@keyframes trae-browser-inspect-cursor-breathe{0%,100%{opacity:.7}50%{opacity:1}}.trae-browser-inspect-scroll-indicator{position:fixed;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 16px;border-radius:8px;background-color:rgba(0,0,0,.7);color:#fff;font-size:13px;font-weight:500;pointer-events:none;z-index:999999;animation:trae-browser-inspect-indicator-fade 800ms ease-out forwards;backdrop-filter:blur(4px)}.trae-browser-inspect-scroll-indicator svg{width:16px;height:16px;fill:#fff}.trae-browser-inspect-scroll-indicator.trae-scroll-up{top:12px;left:50%;transform:translateX(-50%)}.trae-browser-inspect-scroll-indicator.trae-scroll-down{bottom:12px;left:50%;transform:translateX(-50%)}.trae-browser-inspect-scroll-indicator.trae-scroll-left{left:12px;top:50%;transform:translateY(-50%)}.trae-browser-inspect-scroll-indicator.trae-scroll-right{right:12px;top:50%;transform:translateY(-50%)}@keyframes trae-browser-inspect-indicator-fade{0%{opacity:0;transform:translateX(-50%) scale(0.9)}15%{opacity:1;transform:translateX(-50%) scale(1)}85%{opacity:1}100%{opacity:0}}.trae-browser-inspect-scroll-indicator.trae-scroll-left,.trae-browser-inspect-scroll-indicator.trae-scroll-right{animation-name:trae-browser-inspect-indicator-fade-y}@keyframes trae-browser-inspect-indicator-fade-y{0%{opacity:0;transform:translateY(-50%) scale(0.9)}15%{opacity:1;transform:translateY(-50%) scale(1)}85%{opacity:1}100%{opacity:0}}.trae-browser-inspect-key-badge{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);padding:8px 20px;border-radius:8px;background-color:rgba(0,0,0,.8);color:#fff;font-size:18px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,monospace;pointer-events:none;z-index:999999;animation:trae-browser-inspect-key-pop 500ms ease-out forwards;backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.15);box-shadow:0 4px 12px rgba(0,0,0,.3);letter-spacing:1px}@keyframes trae-browser-inspect-key-pop{0%{opacity:0;transform:translateX(-50%) translateY(10px) scale(0.9)}20%{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}80%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-10px)}}.trae-browser-inspect-step-badge{position:fixed;top:12px;left:12px;padding:6px 12px;border-radius:6px;background-color:var(--vscode-icube-colorSuccessHover, #2FB287);color:#fff;font-size:12px;font-weight:600;pointer-events:none;z-index:999999;animation:trae-browser-inspect-step-slide 600ms ease-out forwards;box-shadow:0 2px 8px rgba(47,178,135,.3);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.trae-browser-inspect-step-badge.trae-step-old{opacity:.4;transform:translateY(0)}@keyframes trae-browser-inspect-step-slide{0%{opacity:0;transform:translateX(-20px)}20%{opacity:1;transform:translateX(0)}100%{opacity:1;transform:translateX(0)}}.trae-browser-inspect-drag-trail{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999998}.trae-browser-inspect-drag-trail svg{width:100%;height:100%}.trae-browser-inspect-drag-trail .trae-drag-path{fill:none;stroke:var(--vscode-icube-colorSuccessHover, #2FB287);stroke-width:2;stroke-dasharray:8 4;opacity:.6;animation:trae-browser-inspect-dash 600ms linear forwards}.trae-browser-inspect-drag-trail .trae-drag-dot{fill:var(--vscode-icube-colorSuccessHover, #2FB287);filter:drop-shadow(0 0 4px rgba(47, 178, 135, 0.6))}.trae-browser-inspect-drag-trail .trae-drag-endpoint{fill:none;stroke:var(--vscode-icube-colorSuccessHover, #2FB287);stroke-width:2;opacity:.5}@keyframes trae-browser-inspect-dash{0%{stroke-dashoffset:200}100%{stroke-dashoffset:0}}.trae-browser-inspect-drag-trail.trae-drag-fade{animation:trae-browser-inspect-trail-fade 400ms ease-out forwards}@keyframes trae-browser-inspect-trail-fade{0%{opacity:1}100%{opacity:0}}</style><script type="module">(async () => {
   try {
@@ -3590,7 +3749,7 @@ footer .copyright {
 <nav id="nav" class="scrolled">
   <div class="nav-inner">
     <a href="#" class="nav-logo">
-      <span class="logo-dot"></span>坑位图鉴</a>
+      <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>坑位图鉴</a>
     <div class="nav-links">
       <a href="#loop">工作循环</a>
       <a href="#features">核心能力</a>
@@ -3779,7 +3938,7 @@ footer .copyright {
     <div class="reveal visible">
       <div class="section-label">Core Capabilities</div>
       <h2 class="section-title">四大核心能力</h2>
-      <p class="section-subtitle" style="width: 692.18px; height: 54.3906px;">
+      <p class="section-subtitle">
         从自动采集到深度分析，从简历优化到预期校准——每一环都可追溯、可配置、可自动化。
       </p>
     </div>
@@ -3825,11 +3984,12 @@ footer .copyright {
         <div class="feature-icon purple">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A78BFA" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"></path><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"></path></svg>
         </div>
-        <h3>针对性简历优化</h3>
+        <h3>针对性简历优化 <sup style="color: var(--fg-3); font-size: 10px;">实验性</sup></h3>
         <p>
           输入目标岗位 ID，AI 读取 JD 全文和你的主简历，生成针对性优化版本。
           支持 optimize（微调）和 rewrite（重写）两种风格，把岗位关键词
           融入你的真实经历，不造假不夸大。
+          该功能尚为实验性、有待测试优化，欢迎贡献改进。
         </p>
         <div class="feature-tags">
           <span class="feature-tag">JD 全文分析</span>
@@ -4035,11 +4195,49 @@ footer .copyright {
       <div class="section-label">Dual Mode</div>
       <h2 class="section-title">两种使用方式，同一套引擎</h2>
       <p class="section-subtitle">
-        开发者用 CLI + Web 工作台，零词元消耗，完全本地控制。&nbsp;<div>&nbsp;小白或希望通过 Agent 使用的人，安装 Skill 即可让 AI 帮你跑全套流程。
-      </div></p>
+        不懂代码？安装 Skill 跟 AI 说句话就能用。开发者用 CLI + Web 工作台，零词元消耗，完全本地控制。
+      </p>
     </div>
 
     <div class="dual-mode">
+      <!-- Agent Mode (普通用户优先) -->
+      <div class="mode-card agent reveal visible">
+        <div class="mode-label">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>
+          For Everyone
+        </div>
+        <h3>安装 Skill，让 AI 替你跑</h3>
+        <p class="mode-desc">
+          在 AI 助手里安装技能包，用自然语言就能驱动全套流程：
+          "帮我看看今天有什么新职位"、"分析一下这个岗位"、"帮我跑一次每日报告"。
+        </p>
+        <div class="mode-highlight">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path></svg>
+          自然语言驱动 · AI 自主决策
+        </div>
+        <div class="quickstart-block">
+          <div class="quickstart-title">4 步上手</div>
+          <div class="quickstart-steps">
+            <div class="qs-step">
+              <span class="qs-num">1</span>
+              <span class="qs-text">告诉Agent：下载代码仓库 <a href="https://github.com/helsonxiao/get-a-job" target="_blank" rel="noopener" class="qs-link">github.com/helsonxiao/get-a-job</a>，并安装其中的 <code>gaj-agent</code> skill</span>
+            </div>
+            <div class="qs-step">
+              <span class="qs-num">2</span>
+              <span class="qs-text">在 <a href="https://www.zhipin.com/web/geek/jobs" target="_blank" rel="noopener" class="qs-link">BOSS直聘</a> 完成初步筛选（城市、薪资、关键词等），复制筛选后的列表页链接</span>
+            </div>
+            <div class="qs-step">
+              <span class="qs-num">3</span>
+              <span class="qs-text">把链接发给 AI，说"用这个链接帮我采集1页并分析1个岗位"</span>
+            </div>
+            <div class="qs-step">
+              <span class="qs-num">4</span>
+              <span class="qs-text">AI 自动完成采集 → 打分 → 分析</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Developer Mode -->
       <div class="mode-card dev reveal visible">
         <div class="mode-label">
@@ -4071,7 +4269,7 @@ footer .copyright {
           </div>
           <div class="mode-feature">
             <span class="check">$</span>
-            <span><strong style="color: var(--fg);">resume</strong> — 针对岗位生成定制简历</span>
+            <span><strong style="color: var(--fg);">resume</strong> — 针对岗位生成定制简历（实验性）</span>
           </div>
           <div class="mode-feature">
             <span class="check">$</span>
@@ -4092,57 +4290,6 @@ footer .copyright {
             <div><span class="prompt">$</span> <span class="cmd">python3 -m gaj crawl "https://www.zhipin.com/..."</span></div>
             <div class="ok">✓ 采集完成, 耗时 124s</div>
             <div class="out">  打分: 通过 12 / 复核 5 / 淘汰 23</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Agent Mode -->
-      <div class="mode-card agent reveal visible">
-        <div class="mode-label">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>
-          For Everyone
-        </div>
-        <h3>安装 Skill，让 AI 替你跑</h3>
-        <p class="mode-desc">
-          安装 <code style="font-family: var(--font-mono); color: var(--purple);">gaj-agent</code> 技能包到你的 AI 助手，
-          用自然语言就能驱动全套流程："帮我看看今天有什么新职位"、
-          "分析一下这个岗位"、"帮我跑一次每日报告"。
-        </p>
-        <div class="mode-highlight">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path></svg>
-          自然语言驱动 · AI 自主决策
-        </div>
-        <div class="mode-features">
-          <div class="mode-feature">
-            <span class="check" style="color: var(--purple);">+</span>
-            <span><strong style="color: var(--fg);">status</strong> — 健康检查 + 数据概况</span>
-          </div>
-          <div class="mode-feature">
-            <span class="check" style="color: var(--purple);">+</span>
-            <span><strong style="color: var(--fg);">jobs</strong> — 筛选/排序/分页查询</span>
-          </div>
-          <div class="mode-feature">
-            <span class="check" style="color: var(--purple);">+</span>
-            <span><strong style="color: var(--fg);">analyze</strong> — AI 自动打分（单个/批量）</span>
-          </div>
-          <div class="mode-feature">
-            <span class="check" style="color: var(--purple);">+</span>
-            <span><strong style="color: var(--fg);">crawl</strong> — 增量采集，自动降速</span>
-          </div>
-          <div class="mode-feature">
-            <span class="check" style="color: var(--purple);">+</span>
-            <span><strong style="color: var(--fg);">daily</strong> — 一键编排：采集→分析→摘要</span>
-          </div>
-        </div>
-        <div class="skill-block">
-          <div class="skill-name">gaj-agent v1.2.1</div>
-          <div class="skill-desc">通过 JSON CLI 操作坑位图鉴系统，执行每日采集分析、职位查询、AI 打分</div>
-          <div class="skill-cmd">
-            <span class="prompt">$</span>
-            <span>python3 -m gaj agent daily --analyze-limit 3</span>
-          </div>
-          <div style="color: var(--fg-3); margin-top: 6px; font-size: 11px;">
-            → stdout 输出 JSON 信封，digest_markdown 可直接转发给用户
           </div>
         </div>
       </div>
@@ -4349,7 +4496,7 @@ footer .copyright {
 <span class="punct">{</span>
   <span class="key">"ok"</span><span class="punct">:</span> <span class="bool">true</span><span class="punct">,</span>
   <span class="key">"command"</span><span class="punct">:</span> <span class="str">"daily"</span><span class="punct">,</span>
-  <span class="key">"version"</span><span class="punct">:</span> <span class="str">"1.0.0"</span><span class="punct">,</span>
+  <span class="key">"version"</span><span class="punct">:</span> <span class="str">"0.1.0"</span><span class="punct">,</span>
   <span class="key">"data"</span><span class="punct">: {</span>
     <span class="key">"crawl"</span><span class="punct">: {</span>
       <span class="key">"crawl_stats"</span><span class="punct">: {</span>
@@ -4378,7 +4525,7 @@ footer .copyright {
           </div>
         </div>
 
-        <div style="margin-top: 16px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: 12px; color: var(--fg-2); line-height: 1.7;">
+        <div style="margin-top: 16px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: 12px; color: var(--fg-2); line-height: 20px;">
           <strong style="color: var(--fg);">容错保障：</strong>
           所有命令都有最外层异常兜底，任何情况下都会输出 JSON 信封并以退出码结束，不会静默挂起。
           数据逐个职位增量落盘，超时 kill 后重跑不会重复抓取。
@@ -4455,18 +4602,18 @@ footer .copyright {
       </div>
     </div>
 
-    <div style="margin-top: 32px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;" class="reveal visible">
-      <div style="padding: 20px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg);">
-        <div style="font-size: 13px; font-weight: 600; color: var(--fg); margin-bottom: 8px;">数据隐私</div>
-        <div style="font-size: 12px; color: var(--fg-2); line-height: 1.6;">所有数据存储在 data/ 目录，已 gitignore。简历、画像、职位数据永不离开本机。</div>
+    <div class="arch-cards reveal visible">
+      <div class="arch-card">
+        <div class="arch-card-title">数据隐私</div>
+        <div class="arch-card-body">所有数据存储在 data/ 目录，已 gitignore。简历、画像、职位数据永不离开本机。</div>
       </div>
-      <div style="padding: 20px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg);">
-        <div style="font-size: 13px; font-weight: 600; color: var(--fg); margin-bottom: 8px;">多模型支持</div>
-        <div style="font-size: 12px; color: var(--fg-2); line-height: 1.6;">DeepSeek、豆包、通义千问、Kimi，通过网页版驱动，不消耗 API 额度。</div>
+      <div class="arch-card">
+        <div class="arch-card-title">多模型支持</div>
+        <div class="arch-card-body">DeepSeek、豆包、通义千问、Kimi，通过网页版驱动，不消耗 API 额度。</div>
       </div>
-      <div style="padding: 20px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg);">
-        <div style="font-size: 13px; font-weight: 600; color: var(--fg); margin-bottom: 8px;">防封号设计</div>
-        <div style="font-size: 12px; color: var(--fg-2); line-height: 1.6;">采集限速刻意保守，连续重复页翻页延迟翻倍，覆盖率 ≥90% 自动加倍延迟。</div>
+      <div class="arch-card">
+        <div class="arch-card-title">防封号设计</div>
+        <div class="arch-card-body">采集限速刻意保守，连续重复页翻页延迟翻倍，覆盖率 ≥90% 自动加倍延迟。</div>
       </div>
     </div>
   </div>
@@ -4475,10 +4622,10 @@ footer .copyright {
 <!-- === Footer === -->
 <footer>
   <div class="footer-logo">
-    <span class="dot"></span>
+    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
     坑位图鉴</div>
   <p>自动浏览 BOSS直聘，基于简历和偏好打分，持续优化求职策略。<br>
-    开发者用 CLI + Web 工作台，小白用 Skill。Agent Loop，自我进化。
+    小白安装 Skill 跟 AI 说句话就能用，开发者用 CLI + Web 工作台。Agent Loop，自我进化。
   </p>
   <div class="footer-links">
     <a href="#hero">首页</a>

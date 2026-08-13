@@ -18,11 +18,11 @@ python3 -m gaj agent <command> [options]
 - 信封格式：
 
 ```json
-{"ok": true,  "command": "status", "version": "1.0.0", "data": { ... }}
+{"ok": true,  "command": "status", "version": "0.1.0", "data": { ... }}
 ```
 
 ```json
-{"ok": false, "command": "crawl",  "version": "1.0.0",
+{"ok": false, "command": "crawl",  "version": "0.1.0",
  "error": {"code": "chrome_not_ready", "message": "Chrome CDP 未运行..."},
  "data": { ... }}
 ```
@@ -99,7 +99,8 @@ python3 -m gaj agent analyze --job <ID> [--provider deepseek] [--deep]
 python3 -m gaj agent analyze --auto [--limit 5] [--provider deepseek]
 ```
 
-调用网页版大模型（默认 deepseek，可选 doubao/tongyi/kimi）。
+调用网页版大模型（默认 deepseek，可选 doubao/tongyi/kimi；
+目前仅 deepseek 支持较成熟，其它 provider 为实验性，有待测试改进）。
 返回每个职位的 `total_score`（0-10）、`status`、`recommendation`、
 `dimension_scores`、`deep_analysis_report`。
 

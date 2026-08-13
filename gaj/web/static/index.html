@@ -496,7 +496,7 @@
           <div class="sjs-actions" x-show="scrolled">
             <button class="primary" @click="triggerAiScore()" :disabled="taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)"><i data-lucide="bot"></i><span>打分</span></button>
             <button @click="triggerAiScore(true)" :disabled="taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)"><i data-lucide="file-text"></i><span>深度</span></button>
-            <button @click="triggerResume()" :disabled="taskRunning('resume-' + selectedJobId + '-' + aiProvider)"><i data-lucide="file-text"></i><span>简历</span></button>
+            <button title="实验性功能：简历优化尚未充分测试，欢迎反馈改进" @click="triggerResume()" :disabled="taskRunning('resume-' + selectedJobId + '-' + aiProvider)"><i data-lucide="file-text"></i><span>简历</span></button>
             <button @click="toggleFavorite(selectedJobId, !detail.job.favorite)" :class="{primary: detail.job.favorite}"><i data-lucide="star" :fill="detail.job.favorite ? 'currentColor' : 'none'"></i><span x-text="detail.job.favorite ? '已藏' : '收藏'"></span></button>
             <button @click="toggleIgnore(selectedJobId, !detail.job.ignored)" :class="{primary: detail.job.ignored}"><i data-lucide="eye-off"></i><span x-text="detail.job.ignored ? '已忽略' : '忽略'"></span></button>
             <button class="danger" @click="if(confirm('确认删除职位「' + detail.job.title + '」? 此操作不可恢复')) deleteJob(selectedJobId)"><i data-lucide="trash-2"></i><span>删除</span></button>
@@ -527,7 +527,7 @@
               <span x-show="taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)">打分中</span>
             </button>
             <button @click="triggerAiScore(true)" :disabled="taskRunning('ai-score-' + selectedJobId + '-' + aiProvider)"><i data-lucide="file-text"></i><span>深度</span></button>
-            <button @click="triggerResume()" :disabled="taskRunning('resume-' + selectedJobId + '-' + aiProvider)"><i data-lucide="file-text"></i><span>简历</span></button>
+            <button title="实验性功能：简历优化尚未充分测试，欢迎反馈改进" @click="triggerResume()" :disabled="taskRunning('resume-' + selectedJobId + '-' + aiProvider)"><i data-lucide="file-text"></i><span>简历</span></button>
             <button @click="toggleFavorite(selectedJobId, !detail.job.favorite)" :class="{primary: detail.job.favorite}"><i data-lucide="star" :fill="detail.job.favorite ? 'currentColor' : 'none'"></i><span x-text="detail.job.favorite ? '已藏' : '收藏'"></span></button>
             <button @click="toggleIgnore(selectedJobId, !detail.job.ignored)" :class="{primary: detail.job.ignored}"><i data-lucide="eye-off"></i><span x-text="detail.job.ignored ? '已忽略' : '忽略'"></span></button>
             <button class="danger" @click="if(confirm('确认删除职位「' + detail.job.title + '」? 此操作不可恢复')) deleteJob(selectedJobId)"><i data-lucide="trash-2"></i><span>删除</span></button>

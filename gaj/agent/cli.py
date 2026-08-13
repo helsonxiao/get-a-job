@@ -32,7 +32,7 @@ from ..logging_setup import get_logger, setup
 
 log = get_logger("agent")
 
-VERSION = "1.0.0"
+VERSION = "0.1.0"
 
 EXIT_OK = 0
 EXIT_FAIL = 1

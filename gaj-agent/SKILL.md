@@ -1,7 +1,7 @@
 ---
 name: gaj-agent
 description: 通过 `python3 -m gaj agent` JSON CLI 操作坑位图鉴（GAJ）个人猎头系统（BOSS直聘职位采集 + 规则/AI 打分），执行每日采集分析、职位查询、AI 打分并生成摘要。当用户要求跑每日职位报告、查询/分析职位、采集 BOSS直聘职位，或定时任务需要调用坑位图鉴系统时使用。
-version: 1.2.1
+version: 0.1.0
 ---
 
 # 坑位图鉴智能体操作技能
@@ -102,7 +102,9 @@ stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 
 - **输入类**（`usage` / `no_crawl_url` / `job_not_found`）：不要原样重试。
   修正参数、向用户要列表页 URL、用 `jobs` 重查正确 ID。
 - **任务类**（`crawl_failed` / `ai_failed` / `timeout`）：重试 1 次；
-  `ai_failed` 连续失败可换 `--provider doubao/tongyi/kimi` 再试；
+  `ai_failed` 连续失败可换 `--provider doubao/tongyi/kimi` 再试
+  （注意：目前仅 deepseek 支持较成熟，其它 provider 为实验性，
+  失败率可能更高，换用后仍失败就停止并通知用户）；
   `crawl_failed` 多为反爬拦截，隔几小时再试。
 - **内部类**（`internal` / `index_error`）：通知用户，附 `error.message`。
 
