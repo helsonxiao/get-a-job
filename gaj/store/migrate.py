@@ -15,16 +15,11 @@
 
 迁移是**只读老目录 + 只写 data/**, 不删不改 jobs/, 可以反复重跑。
 
-用法::
-
-    python -m gaj.store.migrate                 # 迁移 + 重建索引
-    python -m gaj.store.migrate --dry-run       # 只看报告, 不落盘
-    python -m gaj.store.migrate --src jobs      # 指定源目录
+本模块由 scraper/adapter.py 在采集时自动调用, 无独立 CLI 入口。
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
 from collections import defaultdict
@@ -731,33 +726,3 @@ def fix_conflicts(*, dry_run: bool = False, rebuild_index: bool = True) -> FixRe
         index.reindex()
 
     return report
-
-
-def main() -> None:
-    from ..logging_setup import setup
-
-    setup()
-    ap = argparse.ArgumentParser(description="迁移老 jobs/ 数据到 data/")
-    ap.add_argument("--src", default=None, help="老数据目录, 默认 <项目根>/jobs")
-    ap.add_argument("--dry-run", action="store_true", help="只打印报告, 不写入")
-    ap.add_argument("--no-index", action="store_true", help="跳过索引重建")
-    ap.add_argument(
-        "--assume-city",
-        default="",
-        help="地址缺失时的城市兜底值 (会在 provenance.city_source 标记为 assumed)",
-    )
-    args = ap.parse_args()
-
-    report = migrate(
-        Path(args.src).expanduser().resolve() if args.src else None,
-        dry_run=args.dry_run,
-        rebuild_index=not args.no_index,
-        assume_city=args.assume_city,
-    )
-    print(report.render())
-    if args.dry_run:
-        print("  (dry-run, 未写入任何文件)\n")
-
-
-if __name__ == "__main__":
-    main()

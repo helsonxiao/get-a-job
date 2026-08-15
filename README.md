@@ -13,7 +13,7 @@
 > driver（doubao / tongyi / kimi）有待测试与改进。
 > **简历优化为实验性功能**，尚未充分测试与优化，欢迎贡献改进。
 
-- **开发者** 用 CLI + Web 工作台
+- **开发者** 用 CLI + Web 图鉴
 - **小白** 用 Skill（自然语言驱动，Agent Loop 自我进化）
 
 ## 核心能力
@@ -21,7 +21,7 @@
 - **增量采集** — CDP 驱动 Chrome 复用已登录会话，模拟自然浏览节奏，连续重复页自动提前结束
 - **规则打分** — 基于个人画像（薪资/城市/技术栈/价值观权重）的本地规则引擎，四维评分 + 硬性淘汰
 - **AI 打分** — 驱动网页版大模型（DeepSeek / 豆包 / 通义 / Kimi）做深度分析，不消耗 API 额度
-- **Web 工作台** — FastAPI 看板，职位列表 / 详情 / 调分 / 忽略，支持热重载，代码开放可用任意 Agent 自定义
+- **Web 图鉴** — FastAPI 应用，职位列表 / 详情 / 调分 / 忽略，支持热重载，代码开放可用任意 Agent 自定义
 - **Agent 接口** — `python3 -m gaj agent` 统一 JSON CLI，智能体可直接 `json.loads` 决策
 
 ## 快速开始
@@ -43,7 +43,7 @@ python3 -m gaj setup-chrome
 python3 -m gaj crawl "<BOSS直聘筛选页URL>"
 python3 -m gaj score --all
 
-# 6. 启动 Web 看板
+# 6. 启动 Web 图鉴
 python3 -m gaj web
 # → http://127.0.0.1:8765
 ```
@@ -60,7 +60,7 @@ gaj/
   ├── browser/   # 网页版大模型驱动（CDP 注入 + 轮询）
   ├── scraper/   # 采集适配层 + 覆盖率状态
   ├── store/     # 文件型存储 + SQLite 索引（可重建）
-  ├── web/       # FastAPI 工作台
+  ├── web/       # FastAPI Web 图鉴
   ├── resume/    # 针对性简历生成（实验性）
   └── agent/     # 面向智能体的 JSON CLI
 gaj-agent/       # Skill 包（可安装到各智能体）

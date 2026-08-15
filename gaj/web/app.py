@@ -1,4 +1,4 @@
-"""FastAPI Web 应用 —— 职位看板 + AI 打分控制台。
+"""FastAPI Web 应用 —— Web 图鉴 + AI 打分控制台。
 
 路由总览:
   GET  /                    首页 (单页应用)

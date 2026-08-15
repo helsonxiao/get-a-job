@@ -5,9 +5,8 @@
     python3 -m gaj score [--all|--job ID]   # 规则打分
     python3 -m gaj ai-score --job ID [--provider deepseek]
     python3 -m gaj resume --job ID          # 生成针对性简历
-    python3 -m gaj web [--port 8765]        # 启动 Web 看板
+    python3 -m gaj web [--port 8765]        # 启动 Web 图鉴
     python3 -m gaj reindex                  # 重建索引
-    python3 -m gaj migrate [--src jobs]     # 迁移老数据
     python3 -m gaj fix-conflicts [--dry-run]  # 自动修复 brand_id 串号
     python3 -m gaj setup-chrome             # 启动 Chrome CDP 调试模式
     python3 -m gaj check                    # 检查环境
@@ -69,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--list", action="store_true", help="列出已有定制简历")
 
     # ---- web ----
-    p = sub.add_parser("web", help="启动 Web 看板")
+    p = sub.add_parser("web", help="启动 Web 图鉴")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--reload", action="store_true", default=True, help="代码变更自动重启 (默认开启)")
@@ -77,11 +76,6 @@ def main(argv: list[str] | None = None) -> int:
 
     # ---- reindex ----
     sub.add_parser("reindex", help="重建索引")
-
-    # ---- migrate ----
-    p = sub.add_parser("migrate", help="迁移老数据 (jobs/ → data/jobs/)")
-    p.add_argument("--src", default="jobs", help="源目录")
-    p.add_argument("--dry-run", action="store_true")
 
     # ---- fix-conflicts ----
     p = sub.add_parser("fix-conflicts", help="自动修复 brand_id 串号遗留的脏数据")
@@ -198,15 +192,6 @@ def main(argv: list[str] | None = None) -> int:
 
         out = index.reindex()
         print(f"✓ 索引重建: {out['jobs']} 职位, {out['companies']} 公司, {out['seconds']}s")
-        return 0
-
-    if args.command == "migrate":
-        from pathlib import Path
-
-        from .store.migrate import migrate
-
-        report = migrate(src=Path(args.src), dry_run=args.dry_run)
-        print(report)
         return 0
 
     if args.command == "fix-conflicts":

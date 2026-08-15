@@ -98,7 +98,7 @@ stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 
   岗位，否则报 `usage`。
 - 返回 `data.mode = "company"`，含 `company_score_ai`、`worth_joining`、
   `business_analysis` 等词条字段；把摘要讲给用户听即可，完整词条
-  用户可在工作台公司抽屉里查看。
+  用户可在 Web 图鉴公司抽屉里查看。
 
 ## 每日任务标准流程
 
