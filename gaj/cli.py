@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     # ---- crawl ----
     p = sub.add_parser("crawl", help="从 BOSS 列表页 URL 爬取")
     p.add_argument("url", help="BOSS直聘筛选过的列表页 URL")
-    p.add_argument("--max-pages", type=int, default=None, help="最大翻页数")
+    p.add_argument("--max-pages", type=int, default=10, help="最大翻页数 (默认 10)")
     p.add_argument("--no-company", action="store_true", help="不抓公司详情页")
     p.add_argument("--no-score", action="store_true", help="不自动打分")
 
@@ -92,14 +92,17 @@ def main(argv: list[str] | None = None) -> int:
     # ---- agent (面向 AI 智能体的 JSON 接口, 详见 AGENT.md) ----
     p = sub.add_parser(
         "agent",
-        help="面向 AI 智能体的操作接口 (JSON 输出)",
-        description=(
-            "面向 AI 智能体的操作接口, stdout 只输出 JSON。"
-            "子命令: status / jobs / job / analyze / crawl / daily。"
-            "完整文档见项目根目录 AGENT.md"
-        ),
+        add_help=False,
+        help="面向 AI 智能体的操作接口 (JSON 输出, -h 查看完整命令说明)",
     )
-    p.add_argument("agent_args", nargs=argparse.REMAINDER, help="agent 子命令及参数")
+    p.add_argument("agent_args", nargs=argparse.REMAINDER, help="agent 子命令及参数 (加 -h 查看完整说明)")
+
+    # agent -h / agent --help → 转给 agent 自己的 parser (带完整 epilog)
+    raw = argv if argv is not None else sys.argv[1:]
+    if len(raw) >= 2 and raw[0] == "agent" and raw[1] in ("-h", "--help"):
+        from .agent.cli import main as agent_main
+
+        return agent_main(["-h"])
 
     args = ap.parse_args(argv)
 

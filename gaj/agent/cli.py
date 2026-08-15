@@ -360,11 +360,15 @@ def cmd_analyze(args) -> int:
         )
 
     if getattr(args, "company", None):
-        # 公司级 AI 评价 (图鉴词条): 纯手动触发, 全量落盘历史
+        # 公司级 AI 评价 (图鉴词条): 手动触发, 有保鲜期缓存
         from ..ai.company_runner import analyze_company
 
         try:
-            out = analyze_company(args.company, args.provider)
+            out = analyze_company(
+                args.company, args.provider,
+                force=getattr(args, "force", False),
+                max_age_days=args.max_age_days,
+            )
         except FileNotFoundError as exc:
             return _err("analyze", "company_not_found", str(exc))
         except ValueError as exc:
@@ -378,6 +382,8 @@ def cmd_analyze(args) -> int:
                 "total": 1,
                 "success": 1 if out["success"] else 0,
                 "failed": 0 if out["success"] else 1,
+                "cached": out.get("cached", False),
+                "cache_reason": out.get("cache_reason", ""),
                 "results": [_compact_company_out(out)],
             },
         )
@@ -723,6 +729,57 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="gaj agent",
         description="坑位图鉴（GAJ）面向 AI 智能体的操作接口 (stdout 只输出 JSON)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+命令说明:
+  status   健康检查与数据概况。返回 chrome_cdp_ready/boss_logged_in/providers、
+           职位统计(total/rule_scored/ai_scored/ai_pending/favorites)、
+           backlog(unscored/stale_total/stale_context_changed/stale_expired)、
+           last_crawl(URL/时间/覆盖率/early_stop_reason)。
+           任何自动化流程的第一步。
+
+  jobs     查询职位列表。返回 total + jobs[]，每项含 job_id/title/company_name/
+           salary_raw/rule_status/rule_total/latest_ai_total/best_total/score/url。
+           支持 --search/--city/--status/--scored/--min-salary/--online/--favorite/
+           --include-ignored/--new-within-hours/--sort/--asc/--limit/--offset。
+
+  job      单个职位全量详情。返回 job(归一化字段)/jd_markdown(清洗 JD 全文)/
+           rule_score(规则打分及触发的规则)/ai_scores(历史 AI 打分，倒序)/
+           company(公司资料)。分析/改写简历时用 jd_markdown。
+
+  analyze  AI 分析打分。三种互斥模式:
+           --job <ID>     单职位深度分析，返回 total_score(0-10)/status/
+                          recommendation/dimension_scores/deep_analysis_report。
+           --auto         走 backlog 打分队列(自带去重与冷却)，不重复打已打且
+                          未过时的分。--pool: backfill=补历史未打分, rescore=重打
+                          过时分, all=两者合并(默认)。--dry-run 只看候选名单。
+           --company <ID> 公司级 AI 尽调(图鉴词条)，返回 business_analysis/
+                          tech_stack_profile/hiring_urgency/worth_joining/
+                          highlights/risks/interview_strategy/company_score_ai。
+                          默认 180 天保鲜期, 未过期且上下文未变则跳过大模型调用
+                          (cached=true)。--force 强制重评。
+           --provider: deepseek(默认,成熟)/doubao/tongyi/kimi(实验性)。
+           --deep: 生成深度分析报告。
+
+  crawl    增量采集 BOSS直聘职位。已抓过的自动跳过。连续整页全重复时翻页间隔
+           逐次拉长(上限 60s)，连续 3 页全重复即提前结束(early_stop=covered)。
+           新职位达 60 个也会停止(early_stop=session_limit)。
+           续翻: covered时若上次有 last_dup_page 记录, 跳到那里再试几页,
+           有新职位则继续, 全重复才真停(下次从更后页续翻)。
+           返回 crawl_stats(含 last_dup_page/resume_used) + migrated + scored。
+           首次需 --url 提供 BOSS 筛选页 URL，之后记住可省略。
+
+  daily    每日编排: 采集→AI分析→摘要，一条命令完成日常流程。
+           始终产出 digest_markdown，局部失败不阻断(warnings 里可见)。
+           新岗位不足时预算自动流向 backlog 补历史欠分。
+           返回 crawl(含 new_job_ids)/analyzed[]/analyzed_success/
+           warnings/digest_markdown。
+
+错误码: usage/chrome_not_ready/not_logged_in/no_crawl_url/job_not_found/
+       crawl_failed/ai_failed/timeout/index_error/internal
+退出码: 0=成功 1=失败 2=参数错误
+超时预算: status/jobs/job 30s, crawl 最坏 30min, daily 建议 45min
+""",
     )
     sub = ap.add_subparsers(dest="command", required=True)
 
@@ -732,7 +789,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--search", default="", help="全文搜索 (职位/公司/技能/JD)")
     p.add_argument("--city", default="", help="城市, 逗号分隔多个")
     p.add_argument("--status", default="", help="规则状态: PASS,REVIEW,REJECTED")
-    p.add_argument("--scored", default="all", choices=["all", "none", "rule_only", "ai", "no_ai"])
+    p.add_argument("--scored", default="all", choices=["all", "none", "rule_only", "ai", "no_ai"],
+                   help="打分状态: all/none/rule_only/ai/no_ai")
     p.add_argument("--min-salary", type=float, default=None, help="salary_max >= 该值 (K)")
     p.add_argument("--online", action="store_true", help="只看在线职位")
     p.add_argument("--favorite", action="store_true", help="只看收藏")
@@ -740,46 +798,46 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--new-within-hours", type=float, default=None, help="只看最近 N 小时新发现")
     p.add_argument("--sort", default="best_total", help="排序字段 (best_total/rule_total/last_seen/...)")
     p.add_argument("--asc", action="store_true", help="升序")
-    p.add_argument("--limit", type=int, default=20)
-    p.add_argument("--offset", type=int, default=0)
+    p.add_argument("--limit", type=int, default=20, help="返回条数上限 (默认 20)")
+    p.add_argument("--offset", type=int, default=0, help="分页偏移")
 
-    p = sub.add_parser("job", help="单个职位详情")
+    p = sub.add_parser("job", help="单个职位详情 (jd_markdown + 规则/AI 打分 + 公司资料)")
     p.add_argument("id", help="职位 ID (encryptJobId)")
 
-    p = sub.add_parser("analyze", help="AI 分析打分")
-    p.add_argument("--job", metavar="ID", help="单个职位")
-    p.add_argument("--company", metavar="BRAND_ID", help="公司级 AI 评价 (图鉴词条, 手动触发)")
+    p = sub.add_parser("analyze", help="AI 分析打分 (--job/--auto/--company 三选一)")
+    p.add_argument("--job", metavar="ID", help="单个职位深度分析")
+    p.add_argument("--company", metavar="BRAND_ID", help="公司级 AI 尽调 (图鉴词条, 需该公司有岗位)")
     p.add_argument(
         "--auto", action="store_true",
-        help="自动挑选候选: 补历史未打分 + 重打已过时的分 (backlog 队列)",
+        help="走 backlog 打分队列 (自带去重与冷却，不重复打已打且未过时的分)",
     )
     p.add_argument(
         "--pool", default="", choices=["", "backfill", "rescore", "all"],
-        help="--auto 时的候选池: backfill=只补历史未打分, rescore=只重打过分,"
-             " all=两者合并 (默认 all)",
+        help="--auto 候选池: backfill=补历史未打分, rescore=重打已过时的分, all=合并 (默认 all)",
     )
-    p.add_argument("--provider", default="deepseek", help="deepseek/doubao/tongyi/kimi")
-    p.add_argument("--deep", action="store_true", help="深度分析")
-    p.add_argument("--limit", type=int, default=5, help="--auto 时最多分析几个")
+    p.add_argument("--provider", default="deepseek", help="deepseek(成熟)/doubao/tongyi/kimi(实验性)")
+    p.add_argument("--deep", action="store_true", help="生成深度分析报告")
+    p.add_argument("--limit", type=int, default=5, help="--auto 时最多分析几个 (默认 5)")
     p.add_argument("--min-rule-score", type=float, default=None, help="规则分下限, 低于不打")
-    p.add_argument("--cooldown-hours", type=float, default=None, help="重打冷却 (小时)")
-    p.add_argument("--max-age-days", type=float, default=None, help="分数保鲜期 (天)")
+    p.add_argument("--cooldown-hours", type=float, default=None, help="重打冷却 (小时, 默认 72)")
+    p.add_argument("--max-age-days", type=float, default=None, help="分数保鲜期 (天, 岗位默认 90, 公司默认 180)")
     p.add_argument("--include-rejected", action="store_true", help="包含 REJECTED 岗位")
     p.add_argument("--dry-run", action="store_true", help="只返回候选名单, 不调用大模型")
+    p.add_argument("--force", action="store_true", help="强制重新评价, 跳过保鲜期缓存 (--company 适用)")
 
     p = sub.add_parser("crawl", help="增量采集 (自动降速/覆盖提前结束)")
     p.add_argument("--url", default="", help="BOSS 列表页 URL (缺省用上次记住的)")
-    p.add_argument("--max-pages", type=int, default=None)
-    p.add_argument("--no-company", action="store_true")
-    p.add_argument("--no-score", action="store_true")
+    p.add_argument("--max-pages", type=int, default=10, help="最大翻页数 (默认 10)")
+    p.add_argument("--no-company", action="store_true", help="不抓公司详情页")
+    p.add_argument("--no-score", action="store_true", help="不自动规则打分")
 
-    p = sub.add_parser("daily", help="每日编排: 采集→AI分析→摘要")
+    p = sub.add_parser("daily", help="每日编排: 采集→AI分析→摘要 (定时任务首选)")
     p.add_argument("--url", default="", help="BOSS 列表页 URL (缺省用上次记住的)")
-    p.add_argument("--max-pages", type=int, default=10)
+    p.add_argument("--max-pages", type=int, default=10, help="最大翻页数 (默认 10)")
     p.add_argument("--no-crawl", action="store_true", help="跳过采集, 只分析存量")
-    p.add_argument("--analyze-limit", type=int, default=3, help="AI 分析的职位数")
-    p.add_argument("--provider", default="deepseek")
-    p.add_argument("--deep", action="store_true")
+    p.add_argument("--analyze-limit", type=int, default=3, help="AI 分析的职位数 (默认 3)")
+    p.add_argument("--provider", default="deepseek", help="deepseek/doubao/tongyi/kimi")
+    p.add_argument("--deep", action="store_true", help="生成深度分析报告")
 
     try:
         args = ap.parse_args(argv)

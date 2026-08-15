@@ -49,56 +49,45 @@ cd <repo_path> && <python> -m gaj agent <command> [options]
 stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 时看
 `error.code` / `error.message`。退出码：0 成功 / 1 失败 / 2 参数错误。
 
-**完整命令参数、错误码清单、系统内部容错机制见仓库内
-`<repo_path>/AGENT.md`，需要细节时运行时读它。
-本技能只定义操作策略，不重复这些内容。**
+**可用命令及参数请运行 `<python> -m gaj agent -h` 查看，以 CLI 实际输出为准。**
+本技能不重复罗列参数，只定义操作策略与注意事项。
 
-## 命令一览
+## AI 打分与去重
 
-| 命令 | 用途 |
-|---|---|
-| `status` | 健康检查 + 数据概况（**任何流程的第一步**） |
-| `jobs` | 查询职位列表（筛选/排序/分页） |
-| `job <ID>` | 单职位详情（JD 全文 + 规则分 + AI 分） |
-| `analyze` | AI 打分（`--job` 单个 / `--auto` backlog 批量 / `--company` 公司级评价） |
-| `crawl` | 增量采集（自动降速、覆盖提前结束） |
-| `daily` | 每日编排：采集 → 挑候选 → AI 分析 → 摘要 |
+系统内置 **backlog 打分队列**，自带去重与冷却保护，无需手动筛选未打分职位：
 
-## 避免重复 AI 打分
+- `analyze --auto`：走 backlog 队列，默认 `--pool all`（补历史未打分 +
+  重打已过时的分），不会重复打已打过分且未过时的岗位。
+  - `--pool backfill`：只补从未 AI 打分的岗位
+  - `--pool rescore`：只重打已过时的分（画像/规则变了或超保鲜期）
+  - `--dry-run`：只看候选名单不调用大模型，**先 dry-run 再决定要不要真打**
+- `daily` 内部已集成 backlog 调度，新岗位不足时预算自动流向补历史欠分。
 
-调用 `analyze` 前，用 `jobs --scored no_ai` 筛选**没有 AI 打分记录**的职位
-（`ai_count = 0`），避免对已打过分的职位重复分析。
+手动查未打分职位仍可用 `jobs --scored no_ai`，但 `--auto` 本身已覆盖此逻辑。
 
-`--scored` 取值：
+## 公司尽调（图鉴词条）
 
-| 值 | 含义 |
-|---|---|
-| `all` | 全部（默认） |
-| `none` | 规则分和 AI 分都没有 |
-| `rule_only` | 有规则分、无 AI 分 |
-| `ai` | 有 AI 分 |
-| `no_ai` | 无 AI 分（= `none` + `rule_only`，**推荐用于挑未打分职位**） |
+`analyze --company <brand_id>` 对公司整体做 AI 尽调评价，输出图鉴词条：
+业务分析、技术栈画像、招聘紧迫度、值不值得去、亮点/风险、面试策略、
+AI 独立评分（`company_score_ai` 0-10）。结果 append-only 落盘，可反复跑
+覆盖更新。
 
-`--auto` 现在是 backlog 队列（`--pool backfill` 补历史未打分 /
-`--pool rescore` 重打已过时的分 / 默认 `all`），自带去重与冷却保护，
-不会重复打已打过分且未过时的岗位。先 `--dry-run` 看候选名单再决定
-要不要真打。参数细节见 AGENT.md 3.4。
+**保鲜期缓存**：默认 180 天内的评价且上下文未变会跳过大模型调用
+（返回 `cached=true`），公司信息变化慢，大半年不重评也没问题。
+`--force` 强制重评，`--max-age-days` 覆盖保鲜期。
 
-## 公司级评价（图鉴词条）
+**获取 brand_id**：`jobs --search <公司名>` 结果的 `company_id` 字段，
+或 `job <ID>` 详情里的 `job.company_id`。
 
-`analyze --company <brand_id>` 对公司整体做 AI 评价（业务分析、
-技术栈画像、招聘紧迫度、值不值得去），落盘为 append-only 历史，
-与岗位打分数据对称。
+需要 Chrome CDP 就绪（同样走网页版大模型）。公司名下至少要有一个岗位，
+否则报 `usage`。
 
-- **纯手动触发**：只在用户明确想了解某家公司时调用。不要放进
-  定时任务，不要与岗位打分一起批量跑——它不进 backlog、不自动调度。
-- **获取 brand_id**：`jobs --search <公司名>` 结果的 `company_id`
-  字段，或 `job <ID>` 详情里的 `job.company_id`。
-- 需要 Chrome CDP 就绪（同样走网页版大模型）。公司名下至少要有一个
-  岗位，否则报 `usage`。
-- 返回 `data.mode = "company"`，含 `company_score_ai`、`worth_joining`、
-  `business_analysis` 等词条字段；把摘要讲给用户听即可，完整词条
-  用户可在 Web 图鉴公司抽屉里查看。
+返回 `data.mode = "company"`，含全部词条字段；把摘要讲给用户听即可，
+完整词条用户可在 Web 图鉴公司抽屉里查看。
+
+**自动化场景**：在 `daily` 或 `analyze --auto` 跑完岗位打分后，可对用户
+关注的公司（如高分岗位所在公司、收藏的公司）追加 `analyze --company`
+生成尽调词条，一并在摘要中呈现，帮助用户从公司维度做决策。
 
 ## 每日任务标准流程
 
@@ -143,6 +132,11 @@ stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 
 
 ## 操作注意
 
+- **控制采集量**：`crawl` 和 `daily` 默认 `--max-pages 10`，没必要一次性
+  把所有页面爬完。连续 3 页全重复会自动停止（`early_stop_reason=covered`），
+  但系统有续翻机制：记住上次停止的页码（`last_dup_page`），下次前几页
+  全重复时跳到那里再试几页，有新职位就继续，全重复才真停。多次运行
+  逐步覆盖全部页面，最新职位优先（前几页），旧职位也不会一直采不到。
 - 分析期间大模型标签页会短暂切到前台、完成后自动切回，属正常行为；
   若用户正在高频使用浏览器，避免在高峰时段排 `daily`。
 - 首次采集需要用户提供 BOSS 筛选页 URL（报 `no_crawl_url` 时索取），

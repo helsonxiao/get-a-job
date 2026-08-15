@@ -102,3 +102,22 @@ def slowdown_factor(url: str, *, threshold: float = 0.9) -> float:
 def last_crawl_url() -> str:
     """最近一次采集使用的列表页 URL (没有则返回空串)。"""
     return load_state().get("last_url", "") or ""
+
+
+def get_last_dup_page(url: str) -> int:
+    """获取该搜索条件上次因连续重复页提前停止时的页码 (没有返回 0)。"""
+    sig = search_signature(url)
+    run = (load_state().get("runs") or {}).get(sig)
+    if not run:
+        return 0
+    return run.get("last_dup_page", 0) or 0
+
+
+def save_last_dup_page(url: str, page: int) -> None:
+    """记录该搜索条件因连续重复页停止时的页码, 供下次续翻。"""
+    state = load_state()
+    sig = search_signature(url)
+    run = state.setdefault("runs", {}).setdefault(sig, {})
+    run["last_dup_page"] = page
+    save_state(state)
+    log.info(f"last_dup_page={page} 已记录 (sig={sig})")

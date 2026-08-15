@@ -166,6 +166,9 @@ def crawl(
         if factor > 1.0:
             log.info(f"翻页延迟调整为 {eff_min:.0f}-{eff_max:.0f}s (覆盖率降速)")
 
+        # 续翻: 上次因连续重复页停止时的页码, 本次前几页全重复时跳到那里再试
+        resume_page = crawl_state.get_last_dup_page(list_url)
+
         crawler = JobCrawler(
             cdp_port=port,
             jobs_dir=tmp_dir,
@@ -179,6 +182,7 @@ def crawl(
             dup_stop_pages=cfg.SETTINGS.crawl.dup_stop_pages,
             slowdown_cap=cfg.SETTINGS.crawl.slowdown_cap,
             max_jobs_per_session=cfg.SETTINGS.crawl.max_jobs_per_session,
+            resume_page=resume_page,
         )
         crawler.crawl_from_url(list_url)
         result["crawl_stats"] = crawler.stats.to_dict()
@@ -192,6 +196,15 @@ def crawl(
             result["crawl_state"] = crawl_state.record_crawl(
                 list_url, crawler.stats.to_dict()
             )
+            # 续翻页码持久化: 仅当 crawler 显式修改过 last_dup_page 时才写
+            # - covered 停止: 写入页码, 下次续翻
+            # - hasMore=False 翻到底: 写入 0, 清除之前的锚点
+            # 避免 session_limit / max_pages 等场景下初始值 0 误清有效锚点
+            stats_dict = crawler.stats.to_dict()
+            if stats_dict.get("last_dup_page_dirty"):
+                crawl_state.save_last_dup_page(
+                    list_url, stats_dict["last_dup_page"]
+                )
         except Exception as exc:
             log.warning(f"记录采集状态失败 (不影响结果): {exc}")
     except Exception as exc:

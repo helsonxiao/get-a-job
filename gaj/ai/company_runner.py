@@ -9,6 +9,7 @@
 
 与岗位打分的差异 (用户已拍板):
   - 纯手动触发, 不做任何自动调度, 不进 backlog, 不与岗位打分抢预算
+  - 有保鲜期缓存: 默认 180 天内且上下文未变则跳过, --force 可强制重评
 """
 
 from __future__ import annotations
@@ -138,6 +139,35 @@ def parse_company_response(raw_text: str, provider: str, brand_id: str = "") -> 
     return normalize_company_analysis(obj, provider=provider, brand_id=brand_id)
 
 
+# ---------------------------------------------------------------- 缓存检查
+
+
+def _is_fresh(score: dict, max_age_days: float) -> tuple[bool, str]:
+    """检查公司级评价是否仍在保鲜期内。
+
+    Returns:
+        (is_fresh, reason): is_fresh=True 时 reason 为空; False 时说明原因。
+    """
+    import time as _time
+
+    created = score.get("created_at", "")
+    if not created:
+        return False, "no_created_at"
+    try:
+        ct = _time.strptime(created, "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return False, "bad_created_at"
+    age_days = (_time.time() - _time.mktime(ct)) / 86400
+    if age_days > max_age_days:
+        return False, f"expired ({age_days:.0f}d > {max_age_days:.0f}d)"
+    # 上下文指纹变了 → 需要重评
+    from ..core.context import compute_context_fingerprint
+
+    if score.get("context_fingerprint") != compute_context_fingerprint():
+        return False, "context_changed"
+    return True, ""
+
+
 # ---------------------------------------------------------------- 执行
 
 
@@ -148,8 +178,13 @@ def analyze_company(
     driver=None,
     profile: Profile | None = None,
     save_raw: bool = True,
+    force: bool = False,
+    max_age_days: float | None = None,
 ) -> dict:
     """用网页版大模型对一家公司做评价 (图鉴词条)。纯手动触发。
+
+    保鲜期缓存: 默认 180 天内且上下文未变则跳过大模型调用, 直接返回上次结果。
+    force=True 强制重评。max_age_days 可覆盖默认保鲜期。
 
     Returns:
         dict: {
@@ -160,9 +195,37 @@ def analyze_company(
             "raw_response": str,
             "error": str | None,
             "elapsed": float,
+            "cached": bool,       # True 表示命中缓存未调用大模型
+            "cache_reason": str,  # 命中缓存时为空, 未命中时说明原因
         }
     """
     started = time.time()
+    ttl = max_age_days if max_age_days is not None else cfg.SETTINGS.ai.company_score_ttl_days
+
+    # 保鲜期缓存检查 (force 跳过)
+    cache_reason = ""
+    if not force:
+        latest = repo.latest_company_ai_score(brand_id, provider)
+        if latest:
+            is_fresh, reason = _is_fresh(latest, ttl)
+            if is_fresh:
+                log.info(
+                    f"[company:{brand_id}] 评价在保鲜期内 ({ttl:.0f}d), 跳过大模型调用"
+                )
+                return {
+                    "success": True,
+                    "brand_id": brand_id,
+                    "provider": provider,
+                    "result": latest,
+                    "raw_response": "",
+                    "error": None,
+                    "elapsed": round(time.time() - started, 1),
+                    "cached": True,
+                    "cache_reason": "",
+                }
+            cache_reason = reason
+            log.info(f"[company:{brand_id}] 评价需重评: {reason}")
+
     company = repo.load_company(brand_id)
     if not company:
         raise FileNotFoundError(f"公司不存在: {brand_id}")
@@ -236,6 +299,8 @@ def analyze_company(
         "raw_response": raw_response,
         "error": error,
         "elapsed": elapsed,
+        "cached": False,
+        "cache_reason": cache_reason,
     }
 
 

@@ -112,6 +112,12 @@ class CrawlStats:
         self.dup_page_streak = 0
         # 提前停止原因: "covered"=连续重复页判定已覆盖; None=正常结束
         self.early_stop_reason = None
+        # covered 停止时的页码 (供下次续翻)
+        self.last_dup_page = 0
+        # last_dup_page 是否被显式修改过 (区分初始值 0 vs 翻到底重置为 0)
+        self.last_dup_page_dirty = False
+        # 是否执行过续翻
+        self.resume_used = False
         self.start_time = None
         self.end_time = None
 
@@ -135,6 +141,9 @@ class CrawlStats:
             "coverage": round(self.jobs_skipped_dup / found, 3) if found else None,
             "dup_page_streak_max": self.dup_page_streak,
             "early_stop_reason": self.early_stop_reason,
+            "last_dup_page": self.last_dup_page,
+            "last_dup_page_dirty": self.last_dup_page_dirty,
+            "resume_used": self.resume_used,
             "elapsed_seconds": round(self.elapsed(), 1),
         }
 
@@ -154,6 +163,8 @@ class CrawlStats:
             lines.append(f"  最大连续重复页: {self.dup_page_streak}")
         if self.early_stop_reason:
             lines.append(f"  提前停止: {self.early_stop_reason}")
+        if self.resume_used:
+            lines.append(f"  续翻: 已使用 (停止于第 {self.last_dup_page} 页)")
         return "\n".join(lines)
 
 
@@ -198,6 +209,8 @@ class JobCrawler:
         dup_stop_pages: int = 3,
         slowdown_cap: float = 60.0,
         max_jobs_per_session: Optional[int] = None,
+        resume_page: int = 0,
+        resume_probe_pages: int = 3,
     ):
         self.cdp_port = cdp_port
         self.jobs_dir = jobs_dir
@@ -213,6 +226,11 @@ class JobCrawler:
         self.dup_stop_pages = dup_stop_pages
         self.slowdown_cap = slowdown_cap
         self.max_jobs_per_session = max_jobs_per_session or None
+        # 续翻: 前几页全重复时, 跳到 resume_page 再试 resume_probe_pages 页
+        self.resume_page = resume_page
+        self.resume_probe_pages = resume_probe_pages
+        self._resumed = False
+        self._resume_dup_streak = 0
         # 当前连续"整页全重复"的页数 (运行时状态)
         self._dup_streak = 0
         self.stats = CrawlStats()
@@ -420,18 +438,41 @@ class JobCrawler:
                 else:
                     self._dup_streak = 0
 
-                # 连续多页全重复 → 搜索结果已覆盖, 提前结束, 减少对列表 API 的消耗
+                # 连续多页全重复 → 搜索结果已覆盖, 提前结束
                 if self.dup_stop_pages and self._dup_streak >= self.dup_stop_pages:
+                    # 续翻策略: 前几页全重复时, 跳到上次停止的页码再试几页
+                    # 避免最新职位在前几页 (优先翻), 也避免旧职位在后面一直采不到
+                    if (
+                        self.resume_page > 0
+                        and not self._resumed
+                        and (not self.max_pages or self.resume_page <= self.max_pages)
+                    ):
+                        self._resumed = True
+                        self.stats.resume_used = True
+                        self._dup_streak = 0
+                        log.info(
+                            f"前 {self.dup_stop_pages} 页全是已抓取职位, "
+                            f"跳到第 {self.resume_page} 页续翻 (上次停止处)"
+                        )
+                        page = self.resume_page - 1  # 底部 page += 1 后正好到 resume_page
+                        # 续翻后用正常节奏, 不带降速
+                        random_page_delay(self.delay_min, self.delay_max)
+                        continue
                     log.info(
                         f"连续 {self._dup_streak} 页全是已抓取职位, "
                         f"判定该搜索条件下的职位已覆盖, 提前结束以避免触发反爬"
                     )
                     self.stats.early_stop_reason = "covered"
+                    self.stats.last_dup_page = page
+                    self.stats.last_dup_page_dirty = True
                     break
 
                 # 判断是否继续翻页
                 if not has_more:
                     log.info(f"第 {page} 页 hasMore=False, 采集完成")
+                    # 真正翻到底了, 之前续翻的锚点失效, 下次从头开始
+                    self.stats.last_dup_page = 0
+                    self.stats.last_dup_page_dirty = True
                     break
 
                 # 翻页前随机延迟 (连续重复页时渐进放慢: 2x/4x/8x..., 有上限)

@@ -189,6 +189,9 @@ class AIConfig:
     # 重打冷却 (小时): 同一岗位冷却期内不重复进重打队列
     rescore_cooldown_hours: float = 72.0
 
+    # 公司级评价保鲜期 (天): 公司信息变化慢, 大半年不重新评价也没问题
+    company_score_ttl_days: float = 180.0
+
     headless_note: str = "必须使用已登录的可见 Chrome, 网页版大模型依赖登录态"
 
 
