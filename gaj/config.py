@@ -43,6 +43,8 @@ RULE_SCORE_FILE = "rule.json"
 COMPANY_FILE = "company.json"
 COMPANY_INTRO_FILE = "intro.md"
 COMPANY_RAW_FILE = "raw_company_dom.json"
+# 公司级 AI 评价落盘目录 (与岗位侧 scores/ 对称, append-only 历史)
+COMPANY_SCORES_DIR = "scores"
 
 MASTER_RESUME = "master.md"
 
@@ -180,7 +182,47 @@ class AIConfig:
     # (切前台 + 若输入框未清空则重新点发送)。前台模式下同样生效, 兜底发送失败。
     no_response_watchdog: float = 30.0
 
+    # ---- 打分 backlog (补分/重打分调度, 见 gaj/ai/backlog.py) ----
+    # AI 分数保鲜期 (天): 超过即视为过期, 进入重打分队列。
+    # 打分是低频行为, 定太短会制造还不完的过期债, 所以默认给长。
+    stale_ttl_days: float = 90.0
+    # 重打冷却 (小时): 同一岗位冷却期内不重复进重打队列
+    rescore_cooldown_hours: float = 72.0
+
     headless_note: str = "必须使用已登录的可见 Chrome, 网页版大模型依赖登录态"
+
+
+@dataclass
+class GuideConfig:
+    """公司图鉴 (公司聚合分) 配置。
+
+    company_score = 头部加权均值 + 活跃度修正 + 信息完整度加成,
+    公式结构锁定在 design/图鉴进化方案.md, 这里只放可调系数。
+    """
+
+    # 等级徽章阈值 (S/A/B/C, 降序), company_score >= 阈值 即该档
+    rank_tiers: tuple[float, float, float] = (8.5, 7.0, 5.5)
+
+    # 头部加权: 取公司名下岗位 best_total 前 3 个, 权重 0.5/0.3/0.2
+    # (不足 3 个时按实际个数归一化)
+    head_weights: tuple[float, float, float] = (0.5, 0.3, 0.2)
+
+    # ---- 活跃度修正 (整体夹在 ±activity_cap 内) ----
+    # 在线岗位占比偏离 50% 的部分 × 该系数
+    online_ratio_factor: float = 0.4
+    # 最近 last_seen 新鲜度: ≤14 天 +fresh_bonus_high, ≤45 天 +fresh_bonus_low,
+    # 更久 -fresh_penalty
+    fresh_window_high_days: float = 14.0
+    fresh_window_low_days: float = 45.0
+    fresh_bonus_high: float = 0.3
+    fresh_bonus_low: float = 0.1
+    fresh_penalty: float = 0.2
+    activity_cap: float = 0.5
+
+    # ---- 信息完整度加成 ----
+    # 有公司简介 / 经营范围 各加一份, 激励图鉴"解锁"
+    info_bonus_each: float = 0.15
+    info_bonus_cap: float = 0.3
 
 
 @dataclass
@@ -188,6 +230,7 @@ class Settings:
     crawl: CrawlConfig = field(default_factory=CrawlConfig)
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
     ai: AIConfig = field(default_factory=AIConfig)
+    guide: GuideConfig = field(default_factory=GuideConfig)
 
 
 SETTINGS = Settings()

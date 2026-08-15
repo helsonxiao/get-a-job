@@ -16,6 +16,7 @@
     jobs                      查询职位列表 (筛选/排序/分页)
     job <ID>                  单个职位全量详情 (JD + 打分)
     analyze --job ID|--auto   AI 分析打分
+    analyze --company BRAND_ID  公司级 AI 评价 (图鉴词条, 手动)
     crawl [--url URL]         增量采集 (自动降速/提前结束)
     daily [--url URL]         每日编排: 采集 → 挑候选 → AI 分析 → 摘要
 """
@@ -119,7 +120,7 @@ def _ai_error_code(exc: Exception) -> str:
 
 
 _JOB_FIELDS = (
-    "job_id", "title", "company_name", "city", "district", "salary_raw",
+    "job_id", "title", "company_name", "company_id", "city", "district", "salary_raw",
     "salary_mid", "salary_max", "exp_min", "exp_max", "edu_raw", "skills",
     "rule_status", "rule_total", "latest_ai_provider", "latest_ai_total",
     "best_total", "ai_count", "ai_needed", "favorite", "online",
@@ -151,7 +152,7 @@ def _compact_ai_score(item: dict) -> dict:
 def _compact_score_out(d: dict) -> dict:
     """score_with_ai 输出的紧凑视图。"""
     r = d.get("result") or {}
-    return {
+    out = {
         "job_id": d.get("job_id"),
         "success": bool(d.get("success")),
         "provider": d.get("provider"),
@@ -160,6 +161,33 @@ def _compact_score_out(d: dict) -> dict:
         "recommendation": r.get("recommendation"),
         "dimension_scores": r.get("dimension_scores"),
         "deep_analysis_report": r.get("deep_analysis_report") or None,
+        "error": d.get("error"),
+        "elapsed": d.get("elapsed"),
+    }
+    if d.get("pool"):
+        out["pool"] = d.get("pool")
+    if d.get("reason"):
+        out["reason"] = d.get("reason")
+    return out
+
+
+def _compact_company_out(d: dict) -> dict:
+    """analyze_company 输出的紧凑视图 (不带 raw_response)。"""
+    r = d.get("result") or {}
+    return {
+        "brand_id": d.get("brand_id"),
+        "success": bool(d.get("success")),
+        "provider": d.get("provider"),
+        "company_score_ai": r.get("company_score_ai"),
+        "worth_joining": r.get("worth_joining"),
+        "worth_joining_reason": r.get("worth_joining_reason"),
+        "hiring_urgency": r.get("hiring_urgency"),
+        "business_analysis": r.get("business_analysis") or None,
+        "tech_stack_profile": r.get("tech_stack_profile") or None,
+        "highlights": r.get("highlights"),
+        "risks": r.get("risks"),
+        "interview_strategy": r.get("interview_strategy"),
+        "business_keywords": r.get("business_keywords"),
         "error": d.get("error"),
         "elapsed": d.get("elapsed"),
     }
@@ -220,6 +248,14 @@ def cmd_status(args) -> int:
             }
     except Exception as e:
         data["jobs"] = {"error": str(e)}
+
+    # 打分 backlog: 未打分可补 / 已过时需重打
+    try:
+        from ..ai.backlog import backlog_stats
+
+        data["backlog"] = backlog_stats()
+    except Exception as e:
+        data["backlog"] = {"error": str(e)}
 
     state = crawl_state.load_state()
     sig = state.get("last_signature") or ""
@@ -310,13 +346,40 @@ def cmd_job(args) -> int:
 
 
 def cmd_analyze(args) -> int:
-    if not args.job and not args.auto:
-        return _err("analyze", "usage", "请指定 --job ID 或 --auto", exit_code=EXIT_USAGE)
+    if not args.job and not args.auto and not getattr(args, "company", None):
+        return _err(
+            "analyze", "usage",
+            "请指定 --job ID / --auto / --company BRAND_ID",
+            exit_code=EXIT_USAGE,
+        )
 
     if not _chrome_ready():
         return _err(
             "analyze", "chrome_not_ready",
             "Chrome CDP 未运行。请先执行: python3 -m gaj setup-chrome",
+        )
+
+    if getattr(args, "company", None):
+        # 公司级 AI 评价 (图鉴词条): 纯手动触发, 全量落盘历史
+        from ..ai.company_runner import analyze_company
+
+        try:
+            out = analyze_company(args.company, args.provider)
+        except FileNotFoundError as exc:
+            return _err("analyze", "company_not_found", str(exc))
+        except ValueError as exc:
+            return _err("analyze", "usage", str(exc), exit_code=EXIT_USAGE)
+        except Exception as exc:
+            return _err("analyze", _ai_error_code(exc), str(exc))
+        return _ok(
+            "analyze",
+            {
+                "mode": "company",
+                "total": 1,
+                "success": 1 if out["success"] else 0,
+                "failed": 0 if out["success"] else 1,
+                "results": [_compact_company_out(out)],
+            },
         )
 
     if args.job:
@@ -343,13 +406,48 @@ def cmd_analyze(args) -> int:
             },
         )
 
-    # --auto: 批量打规则引擎标记需要 AI 介入的职位
+    # --auto: backlog 队列驱动 (补历史欠分 + 重打过分)
+    from ..ai.backlog import pick_backlog
+
+    pool = getattr(args, "pool", None) or "all"
+    try:
+        candidates = pick_backlog(
+            pool,
+            limit=args.limit,
+            min_rule_score=args.min_rule_score,
+            include_rejected=args.include_rejected,
+            cooldown_hours=args.cooldown_hours,
+            max_age_days=args.max_age_days,
+        )
+    except Exception as exc:
+        return _err("analyze", "internal", f"挑选打分候选失败: {exc}")
+
+    if args.dry_run:
+        return _ok(
+            "analyze",
+            {
+                "dry_run": True,
+                "pool": pool,
+                "count": len(candidates),
+                "candidates": candidates,
+                "note": "dry-run: 仅返回候选名单, 未调用大模型",
+            },
+        )
+
+    if not candidates:
+        return _ok(
+            "analyze",
+            {
+                "total": 0, "success": 0, "failed": 0, "skipped": 0,
+                "results": [],
+                "note": f"pool={pool} 没有可打分的候选 (可能都已打分且未过时)",
+            },
+        )
+
     from ..ai.runner import batch_score
 
     try:
-        out = batch_score(
-            args.provider, only_triggered=True, limit=args.limit, deep=args.deep
-        )
+        out = batch_score(args.provider, deep=args.deep, candidates=candidates)
     except Exception as exc:
         return _err("analyze", _ai_error_code(exc), str(exc))
 
@@ -442,18 +540,16 @@ def _pick_candidates(new_ids: list[str], limit: int) -> list[str]:
         seen.add(jid)
 
     if len(picked) < limit:
+        # 新岗不足时补历史欠分: 走完整 backfill 队列
+        # (规则标记需 AI 介入的排前, 其次按规则分降序清欠)
         try:
-            with index.session() as conn:
-                back = conn.execute(
-                    "SELECT job_id FROM jobs"
-                    " WHERE ai_needed = 1 AND ai_count = 0"
-                    "   AND (ignored = 0 OR ignored IS NULL)"
-                    " ORDER BY (rule_total IS NULL), rule_total DESC"
-                    " LIMIT ?",
-                    (limit - len(picked),),
-                ).fetchall()
-            for r in back:
-                jid = r["job_id"]
+            from ..ai.backlog import pick_backlog
+
+            back = pick_backlog(
+                "backfill", limit=limit - len(picked), prefer_triggered=True
+            )
+            for c in back:
+                jid = c.get("job_id")
                 if jid and jid not in seen:
                     picked.append(jid)
                     seen.add(jid)
@@ -652,10 +748,24 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("analyze", help="AI 分析打分")
     p.add_argument("--job", metavar="ID", help="单个职位")
-    p.add_argument("--auto", action="store_true", help="自动挑选规则引擎标记需 AI 介入的职位")
+    p.add_argument("--company", metavar="BRAND_ID", help="公司级 AI 评价 (图鉴词条, 手动触发)")
+    p.add_argument(
+        "--auto", action="store_true",
+        help="自动挑选候选: 补历史未打分 + 重打已过时的分 (backlog 队列)",
+    )
+    p.add_argument(
+        "--pool", default="", choices=["", "backfill", "rescore", "all"],
+        help="--auto 时的候选池: backfill=只补历史未打分, rescore=只重打过分,"
+             " all=两者合并 (默认 all)",
+    )
     p.add_argument("--provider", default="deepseek", help="deepseek/doubao/tongyi/kimi")
     p.add_argument("--deep", action="store_true", help="深度分析")
     p.add_argument("--limit", type=int, default=5, help="--auto 时最多分析几个")
+    p.add_argument("--min-rule-score", type=float, default=None, help="规则分下限, 低于不打")
+    p.add_argument("--cooldown-hours", type=float, default=None, help="重打冷却 (小时)")
+    p.add_argument("--max-age-days", type=float, default=None, help="分数保鲜期 (天)")
+    p.add_argument("--include-rejected", action="store_true", help="包含 REJECTED 岗位")
+    p.add_argument("--dry-run", action="store_true", help="只返回候选名单, 不调用大模型")
 
     p = sub.add_parser("crawl", help="增量采集 (自动降速/覆盖提前结束)")
     p.add_argument("--url", default="", help="BOSS 列表页 URL (缺省用上次记住的)")

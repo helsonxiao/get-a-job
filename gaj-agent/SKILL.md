@@ -1,6 +1,6 @@
 ---
 name: gaj-agent
-description: 通过 `python3 -m gaj agent` JSON CLI 操作坑位图鉴（GAJ）个人猎头系统（BOSS直聘职位采集 + 规则/AI 打分），执行每日采集分析、职位查询、AI 打分并生成摘要。当用户要求跑每日职位报告、查询/分析职位、采集 BOSS直聘职位，或定时任务需要调用坑位图鉴系统时使用。
+description: 通过 `python3 -m gaj agent` JSON CLI 操作坑位图鉴（GAJ）个人猎头系统（BOSS直聘职位采集 + 规则/AI 打分），执行每日采集分析、职位查询、AI 打分（岗位级与公司级评价）并生成摘要。当用户要求跑每日职位报告、查询/分析职位、评价某家公司、采集 BOSS直聘职位，或定时任务需要调用坑位图鉴系统时使用。
 version: 0.1.0
 ---
 
@@ -60,7 +60,7 @@ stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 
 | `status` | 健康检查 + 数据概况（**任何流程的第一步**） |
 | `jobs` | 查询职位列表（筛选/排序/分页） |
 | `job <ID>` | 单职位详情（JD 全文 + 规则分 + AI 分） |
-| `analyze` | AI 打分（`--job` 单个 / `--auto` 批量） |
+| `analyze` | AI 打分（`--job` 单个 / `--auto` backlog 批量 / `--company` 公司级评价） |
 | `crawl` | 增量采集（自动降速、覆盖提前结束） |
 | `daily` | 每日编排：采集 → 挑候选 → AI 分析 → 摘要 |
 
@@ -78,6 +78,27 @@ stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 
 | `rule_only` | 有规则分、无 AI 分 |
 | `ai` | 有 AI 分 |
 | `no_ai` | 无 AI 分（= `none` + `rule_only`，**推荐用于挑未打分职位**） |
+
+`--auto` 现在是 backlog 队列（`--pool backfill` 补历史未打分 /
+`--pool rescore` 重打已过时的分 / 默认 `all`），自带去重与冷却保护，
+不会重复打已打过分且未过时的岗位。先 `--dry-run` 看候选名单再决定
+要不要真打。参数细节见 AGENT.md 3.4。
+
+## 公司级评价（图鉴词条）
+
+`analyze --company <brand_id>` 对公司整体做 AI 评价（业务分析、
+技术栈画像、招聘紧迫度、值不值得去），落盘为 append-only 历史，
+与岗位打分数据对称。
+
+- **纯手动触发**：只在用户明确想了解某家公司时调用。不要放进
+  定时任务，不要与岗位打分一起批量跑——它不进 backlog、不自动调度。
+- **获取 brand_id**：`jobs --search <公司名>` 结果的 `company_id`
+  字段，或 `job <ID>` 详情里的 `job.company_id`。
+- 需要 Chrome CDP 就绪（同样走网页版大模型）。公司名下至少要有一个
+  岗位，否则报 `usage`。
+- 返回 `data.mode = "company"`，含 `company_score_ai`、`worth_joining`、
+  `business_analysis` 等词条字段；把摘要讲给用户听即可，完整词条
+  用户可在工作台公司抽屉里查看。
 
 ## 每日任务标准流程
 
@@ -105,7 +126,7 @@ stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 
   `ai_failed` 连续失败可换 `--provider doubao/tongyi/kimi` 再试
   （注意：目前仅 deepseek 支持较成熟，其它 provider 为实验性，
   失败率可能更高，换用后仍失败就停止并通知用户）；
-  `crawl_failed` 多为反爬拦截，隔几小时再试。
+  `crawl_failed` 多为服务端临时拦截，隔几小时再试。
 - **内部类**（`internal` / `index_error`）：通知用户，附 `error.message`。
 
 **同一错误码连续出现两次 = 需要人工介入，通知用户而不是继续重试。**
@@ -130,7 +151,7 @@ stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 
   不要整体重跑。
 - `ai_failed` 反复出现且 message 含"注入失败/选择器" → 大模型网站改版，
   通知用户检查 `<repo_path>/gaj/browser/llm_driver_deepseek.py`，不要无限重试。
-- 采集限速是防封号刻意设计，不要为提速绕过或并发多开 crawl。
+- 采集节奏模拟人工浏览，不要为提速改动节奏逻辑或并发多开 crawl。
 
 ## 验证
 

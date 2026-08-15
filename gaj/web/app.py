@@ -10,6 +10,12 @@
   POST /api/jobs/{id}/resume      触发简历生成
   POST /api/score-all       批量规则打分
   POST /api/reindex         重建索引
+  GET  /api/companies       公司图鉴列表 (sort=score|jobs|salary 三榜)
+  GET  /api/companies/facets      图鉴概况与筛选选项
+  GET  /api/companies/{id}  公司详情 (资料 + 统计 + 名下岗位)
+  POST /api/companies/{id}/favorite  公司级"想去"收藏
+  POST /api/companies/{id}/ai-analyze  公司级 AI 评价 (纯手动触发)
+  DELETE /api/companies/{id}/ai-scores/{file}  删除一条公司级 AI 评价
   GET  /api/logs/stream     SSE 实时日志流
   GET  /api/providers       可用 AI provider 列表
 """
@@ -236,8 +242,21 @@ async def api_job_detail(job_id: str) -> dict:
     rule_score = repo.load_rule_score(job_id)
     ai_scores = repo.list_ai_scores(job_id)
     jd_text = repo.read_text(repo.job_dir(job_id) / cfg.JOB_JD_TEXT)
+    job_dict = job.to_dict()
+    # 补充索引派生字段 (文件真相源里没有, 详情页徽章要用)
+    with index.session() as conn:
+        row = conn.execute(
+            "SELECT ai_stale, ai_stale_reason, ai_count, ai_needed"
+            " FROM jobs WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+    if row:
+        job_dict["ai_stale"] = bool(row["ai_stale"])
+        job_dict["ai_stale_reason"] = row["ai_stale_reason"] or ""
+        job_dict["ai_count"] = row["ai_count"] or 0
+        job_dict["ai_needed"] = bool(row["ai_needed"])
     return {
-        "job": job.to_dict(),
+        "job": job_dict,
         "company": company.to_dict() if company else None,
         "rule_score": rule_score,
         "ai_scores": ai_scores,
@@ -459,6 +478,124 @@ async def api_providers() -> dict:
         return {"providers": available_providers()}
     except Exception:
         return {"providers": ["deepseek", "doubao", "tongyi", "kimi"]}
+
+
+# ---------------------------------------------------------------- 公司图鉴
+
+
+@app.get("/api/companies/facets")
+async def api_company_facets() -> dict:
+    """图鉴顶栏概况 (已鉴定/已解锁/想去数) + 行业/阶段筛选选项。"""
+    with index.session() as conn:
+        return index.company_facets(conn)
+
+
+@app.get("/api/companies")
+async def api_companies(
+    q: str = Query("", description="公司名搜索"),
+    industry: str = Query(""),
+    stage: str = Query(""),
+    city: str = Query(""),
+    favorite: str = Query("all", description="all|only"),
+    scored_only: bool = Query(False, description="只看有公司分的"),
+    include_excluded: bool = Query(False, description="含匿名/串号公司"),
+    sort: str = Query("score", description="score|jobs|salary|best|updated"),
+    desc: bool = Query(True),
+    limit: int = Query(100, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """公司图鉴列表。三榜即时切换: sort=score(分数榜)/jobs(招聘力度榜)/salary(薪资榜)。"""
+    with index.session() as conn:
+        items = index.query_companies(
+            conn, q=q, industry=industry, stage=stage, city=city,
+            favorite=favorite, include_excluded=include_excluded,
+            scored_only=scored_only, sort=sort, desc=desc,
+            limit=limit, offset=offset,
+        )
+        total = index.count_companies(
+            conn, q=q, industry=industry, stage=stage, city=city,
+            favorite=favorite, include_excluded=include_excluded,
+            scored_only=scored_only,
+        )
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@app.get("/api/companies/{brand_id}")
+async def api_company_detail(brand_id: str) -> dict:
+    """公司详情: 完整资料 + 聚合统计 + 名下岗位 (按分排序)。"""
+    company = repo.load_company(brand_id)
+    if not company:
+        raise HTTPException(404, f"公司不存在: {brand_id}")
+    with index.session() as conn:
+        stats = conn.execute(
+            "SELECT * FROM company_stats WHERE brand_id = ?", (brand_id,)
+        ).fetchone()
+        job_rows = conn.execute(
+            "SELECT * FROM jobs WHERE company_id = ?"
+            " ORDER BY favorite DESC, (best_total IS NULL), best_total DESC,"
+            " last_seen DESC",
+            (brand_id,),
+        ).fetchall()
+        dims_avg = index.company_dims_avg(conn, brand_id)
+    jobs = [index._row_to_dict(r) for r in job_rows]
+    return {
+        "company": company.to_dict(),
+        "stats": dict(stats) if stats else None,
+        "dims_avg": dims_avg,
+        "jobs": jobs,
+        "job_count": len(jobs),
+        "ai_scores": repo.list_company_ai_scores(brand_id),
+    }
+
+
+@app.post("/api/companies/{brand_id}/favorite")
+async def api_set_company_favorite(brand_id: str, body: dict = Body(...)) -> dict:
+    """切换"想去"状态 (公司级收藏)。body: {"favorite": true/false}"""
+    if repo.load_company(brand_id) is None:
+        raise HTTPException(404, f"公司不存在: {brand_id}")
+    fav = bool(body.get("favorite", False))
+    final = repo.set_company_favorite(brand_id, fav)
+    with index.session() as conn:
+        index.set_company_favorite(conn, brand_id, fav)
+    return {"ok": True, "brand_id": brand_id, "favorite": final}
+
+
+@app.post("/api/companies/{brand_id}/ai-analyze")
+async def api_company_ai_analyze(
+    brand_id: str,
+    provider: str = Query("deepseek"),
+) -> dict:
+    """触发公司级 AI 评价 (纯手动, 后台执行, 通过 SSE 看进度)。
+
+    与岗位打分对称: 全量落盘到 data/companies/<brand_id>/scores/,
+    append-only 历史; 不做任何自动调度。
+    """
+    if repo.load_company(brand_id) is None:
+        raise HTTPException(404, f"公司不存在: {brand_id}")
+
+    from ..ai.company_runner import analyze_company
+
+    task_key = f"company-analyze-{brand_id}-{provider}"
+    with _task_lock:
+        if task_key in _running_tasks and _running_tasks[task_key]["status"] == "running":
+            return {"task": task_key, "status": "already_running"}
+
+    _run_in_thread(analyze_company, task_key, brand_id=brand_id, provider=provider)
+    return {"task": task_key, "status": "started"}
+
+
+@app.delete("/api/companies/{brand_id}/ai-scores/{file_name}")
+async def api_delete_company_ai_score(brand_id: str, file_name: str) -> dict:
+    """删除指定的公司级 AI 评价文件。file_name 形如 ai_deepseek_20260814T123456.json"""
+    if repo.load_company(brand_id) is None:
+        raise HTTPException(404, f"公司不存在: {brand_id}")
+    try:
+        ok = repo.delete_company_ai_score(brand_id, file_name)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if not ok:
+        raise HTTPException(404, f"AI 评价文件不存在: {file_name}")
+    return {"ok": True, "brand_id": brand_id, "file": file_name}
 
 
 # ---------------------------------------------------------------- 规则与画像配置

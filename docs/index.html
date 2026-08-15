@@ -3905,7 +3905,7 @@ footer .copyright {
         <div class="loop-list">
           <div class="loop-list-item">
             <div class="step-num">1</div>
-            <div class="step-text"><strong>采集</strong>：CDP 驱动 Chrome 增量爬取 BOSS直聘，自适应降速防封号，连续 3 页全重复即判定已覆盖</div>
+            <div class="step-text"><strong>采集</strong>：CDP 驱动 Chrome 增量浏览 BOSS直聘，模拟自然翻页节奏，连续 3 页全重复即判定已覆盖</div>
           </div>
           <div class="loop-list-item">
             <div class="step-num">2</div>
@@ -3947,14 +3947,14 @@ footer .copyright {
         </div>
         <h3>自动采集 BOSS直聘</h3>
         <p>
-          Chrome CDP 调试模式驱动真实浏览器，增量爬取职位列表和详情。
-          自适应降速：连续整页重复时翻页延迟翻倍，连续 3 页全重复即提前结束。
-          已抓职位自动跳过，采集覆盖率 ≥90% 时自动加倍基础延迟。
+          Chrome CDP 调试模式驱动真实浏览器，增量浏览职位列表和详情。
+          自然访问节奏：连续整页重复时翻页间隔拉长，连续 3 页全重复即提前结束。
+          已抓职位自动跳过，采集覆盖率 ≥90% 时放慢基础节奏。
         </p>
         <div class="feature-tags">
           <span class="feature-tag">CDP</span>
           <span class="feature-tag">增量采集</span>
-          <span class="feature-tag">自适应降速</span>
+          <span class="feature-tag">自然节奏</span>
           <span class="feature-tag">覆盖率追踪</span>
         </div>
       </div>
@@ -4244,12 +4244,13 @@ footer .copyright {
         <h3>CLI + Web 工作台</h3>
         <p class="mode-desc">
           所有功能都通过 <code style="font-family: var(--font-mono); color: var(--primary);">python3 -m gaj</code> 命令行调用。
-          Web 工作台提供可视化看板，支持热重载。不消耗任何 AI 词元——
-          规则打分纯本地，AI 打分用的是网页版大模型的免费额度。
+          Web 工作台提供可视化看板，支持热重载——改完前端代码刷新即生效。
+          代码完全开放，可用任意 AI Agent 自定义页面形态和功能。
+          不消耗任何 AI 词元——规则打分纯本地，AI 打分用的是网页版大模型的免费额度。
         </p>
         <div class="mode-highlight">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
-          零词元消耗 · 完全本地控制
+          零词元消耗 · 热重载 · 代码开放可定制
         </div>
         <div class="mode-features">
           <div class="mode-feature">
@@ -4317,7 +4318,7 @@ footer .copyright {
         </div>
         <div class="cli-body">
           <div class="line"><span class="prompt">$</span> <span class="cmd">python3 -m gaj crawl</span> <span class="arg">"https://zhipin.com/..."</span></div>
-          <div class="line"><span class="comment"># 自适应降速，连续3页全重复即提前结束</span></div>
+          <div class="line"><span class="comment"># 自然访问节奏，连续3页全重复即提前结束</span></div>
           <div class="line"><span class="prompt">$</span> <span class="cmd">python3 -m gaj crawl</span> <span class="arg">"URL"</span> <span class="flag">--max-pages</span> <span class="arg">10</span></div>
           <div class="out">✓ 采集完成, 耗时 124s</div>
           <div class="out">  迁移: 47 职位, 12 公司</div>
@@ -4353,13 +4354,11 @@ footer .copyright {
           <span class="cli-tag purple">网页版大模型</span>
         </div>
         <div class="cli-body">
-          <div class="line"><span class="prompt">$</span> <span class="cmd">python3 -m gaj ai-score</span> <span class="flag">--batch</span> <span class="flag">--provider</span> <span class="arg">deepseek</span></div>
-          <div class="line"><span class="comment"># 只打规则引擎标记"需AI介入"的职位</span></div>
+          <div class="line"><span class="prompt">$</span> <span class="cmd">python3 -m gaj ai-score</span> <span class="flag">--job</span> <span class="arg">JOB_ID</span> <span class="flag">--provider</span> <span class="arg">deepseek</span></div>
+          <div class="line"><span class="comment"># 逐个职位深度分析，驱动网页版大模型</span></div>
           <div class="ai">→ DeepSeek 网页版分析中...</div>
-          <div class="out">  职位 1/5: 高级前端工程师</div>
           <div class="ok">  ✓ total_score: 8.2  recommend: 推荐</div>
-          <div class="out">  职位 2/5: 全栈开发工程师</div>
-          <div class="ok">  ✓ total_score: 6.5  recommend: 待定</div>
+          <div class="out">  财务 8 / 成长 9 / 资源 7 / WLB 8</div>
         </div>
       </div>
 
@@ -4609,8 +4608,12 @@ footer .copyright {
         <div class="arch-card-body">DeepSeek、豆包、通义千问、Kimi，通过网页版驱动，不消耗 API 额度。</div>
       </div>
       <div class="arch-card">
-        <div class="arch-card-title">防封号设计</div>
-        <div class="arch-card-body">采集限速刻意保守，连续重复页翻页延迟翻倍，覆盖率 ≥90% 自动加倍延迟。</div>
+        <div class="arch-card-title">自然节奏浏览</div>
+        <div class="arch-card-body">采集节奏模拟人工浏览，连续重复页拉长翻页间隔，覆盖率 ≥90% 放慢基础节奏。</div>
+      </div>
+      <div class="arch-card">
+        <div class="arch-card-title">代码开放 · 热重载</div>
+        <div class="arch-card-body">Web 工作台前后端均支持热重载，代码完全开放，可用任意 AI Agent 自定义页面形态与功能。</div>
       </div>
     </div>
   </div>

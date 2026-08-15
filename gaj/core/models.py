@@ -50,6 +50,9 @@ class Company:
     anonymous: bool = False
     #: 同一 brand_id 关联到多个不同公司名 —— 说明抓取时页面串号了
     data_conflict: bool = False
+    #: 用户标记"想去" (想去清单), 与公司收藏接口一致
+    favorite: bool = False
+    favorited_at: str = ""
     notes: list[str] = field(default_factory=list)
     first_seen: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)

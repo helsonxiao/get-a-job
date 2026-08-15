@@ -150,6 +150,10 @@ def score_with_ai(
             result["provider"] = provider
             result["deep_analysis_report"] = result.get("deep_analysis_report", "")
             result["raw_response"] = raw_response
+            # 记录打分时的上下文指纹, 供日后判断"这个分是在什么预期下打的"
+            from ..core.context import compute_context_fingerprint
+
+            result["context_fingerprint"] = compute_context_fingerprint()
             repo.save_ai_score(job_id, provider, result)
             log.info(
                 f"[{job_id}] AI 打分完成: {result['status']} "
@@ -233,11 +237,16 @@ def batch_score(
     limit: int | None = None,
     deep: bool = False,
     profile: Profile | None = None,
+    candidates: list[dict] | None = None,
 ) -> dict:
     """批量 AI 打分。
 
     默认只处理规则引擎标记需要 AI 介入的职位。
     复用同一个 driver 实例, 避免反复创建/关闭标签页。
+
+    Args:
+        candidates: backlog 挑选出的候选 (见 gaj/ai/backlog.py)。
+            提供时忽略 only_triggered/limit, 按候选列表打分。
 
     Returns:
         dict: {total, success, failed, skipped, details: [...]}
@@ -246,12 +255,23 @@ def batch_score(
     stats = {"total": 0, "success": 0, "failed": 0, "skipped": 0}
     details: list[dict] = []
 
-    candidates = list(_iter_ai_candidates(only_triggered=only_triggered, limit=limit))
-    if not candidates:
+    meta_by_id: dict[str, dict] = {}
+    if candidates is not None:
+        pairs: list[tuple[Job, dict]] = []
+        for c in candidates:
+            job = repo.load_job(c["job_id"])
+            if not job:
+                log.warning(f"[{c.get('job_id')}] backlog 候选不存在, 跳过")
+                continue
+            meta_by_id[job.job_id] = c
+            pairs.append((job, _get_rule_result(job.job_id) or {}))
+    else:
+        pairs = list(_iter_ai_candidates(only_triggered=only_triggered, limit=limit))
+    if not pairs:
         log.info("没有需要 AI 打分的职位")
         return {**stats, "details": details}
 
-    log.info(f"批量 AI 打分: {len(candidates)} 个职位, provider={provider}")
+    log.info(f"批量 AI 打分: {len(pairs)} 个职位, provider={provider}")
 
     # 复用 driver
     driver = None
@@ -261,24 +281,31 @@ def batch_score(
         driver = get_driver(provider)
     except Exception as exc:
         log.error(f"无法创建浏览器驱动: {exc}")
-        for job, _ in candidates:
+        for job, _ in pairs:
             stats["total"] += 1
             stats["failed"] += 1
-            details.append({
-                "job_id": job.job_id, "success": False, "error": str(exc),
-            })
+            item = {"job_id": job.job_id, "success": False, "error": str(exc)}
+            meta = meta_by_id.get(job.job_id)
+            if meta:
+                item["pool"] = meta.get("pool")
+                item["reason"] = meta.get("reason")
+            details.append(item)
         return {**stats, "details": details}
 
     try:
-        for job, rule in candidates:
+        for job, rule in pairs:
             stats["total"] += 1
             log.info(
-                f"[{stats['total']}/{len(candidates)}] {job.title} @ {job.company_name}"
+                f"[{stats['total']}/{len(pairs)}] {job.title} @ {job.company_name}"
             )
             try:
                 out = score_with_ai(
                     job.job_id, provider, deep=deep, driver=driver, profile=prof,
                 )
+                meta = meta_by_id.get(job.job_id)
+                if meta:
+                    out["pool"] = meta.get("pool")
+                    out["reason"] = meta.get("reason")
                 if out["success"]:
                     stats["success"] += 1
                 else:

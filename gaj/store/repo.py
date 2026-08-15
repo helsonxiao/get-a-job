@@ -260,6 +260,18 @@ def load_company(brand_id: str) -> Company | None:
     return Company.from_dict(data) if data else None
 
 
+def set_company_favorite(brand_id: str, favorite: bool) -> bool:
+    """标记/取消"想去"。写入 company.json, 返回最终状态。"""
+    path = company_dir(brand_id) / cfg.COMPANY_FILE
+    data = read_json(path)
+    if not data:
+        return False
+    data["favorite"] = bool(favorite)
+    data["favorited_at"] = time.strftime("%Y-%m-%dT%H:%M:%S") if favorite else ""
+    write_json(path, data)
+    return data["favorite"]
+
+
 def iter_companies() -> Iterator[Company]:
     if not cfg.COMPANIES_DIR.exists():
         return
@@ -281,6 +293,58 @@ def company_is_fresh(brand_id: str, max_age_days: int) -> bool:
     except (ValueError, TypeError):
         return False
     return (time.time() - updated) < max_age_days * 86400
+
+
+# ---------------------------------------------------------------- 公司级 AI 评价
+
+
+def company_scores_dir(brand_id: str) -> Path:
+    return company_dir(brand_id) / cfg.COMPANY_SCORES_DIR
+
+
+def save_company_ai_score(brand_id: str, provider: str, payload: dict) -> Path:
+    """落盘一条公司级 AI 评价 (append-only, 文件名带时间戳, 与岗位侧对称)。"""
+    d = company_scores_dir(brand_id)
+    d.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%dT%H%M%S")
+    path = d / f"ai_{safe_dirname(provider)}_{stamp}.json"
+    write_json(path, payload)
+    return path
+
+
+def list_company_ai_scores(brand_id: str) -> list[dict]:
+    """按时间倒序返回该公司的全部 AI 评价记录。"""
+    d = company_scores_dir(brand_id)
+    if not d.exists():
+        return []
+    out: list[dict] = []
+    for p in sorted(d.glob("ai_*.json"), reverse=True):
+        data = read_json(p)
+        if isinstance(data, dict):
+            data.setdefault("_file", p.name)
+            out.append(data)
+    return out
+
+
+def latest_company_ai_score(brand_id: str, provider: str | None = None) -> dict | None:
+    for item in list_company_ai_scores(brand_id):
+        if provider is None or item.get("provider") == provider:
+            return item
+    return None
+
+
+def delete_company_ai_score(brand_id: str, file_name: str) -> bool:
+    """删除指定公司级 AI 评价文件。file_name 必须形如 ai_*.json, 防路径穿越。"""
+    if not file_name.startswith("ai_") or not file_name.endswith(".json"):
+        raise ValueError(f"非法的 AI 评价文件名: {file_name}")
+    if "/" in file_name or "\\" in file_name or ".." in file_name:
+        raise ValueError(f"非法的 AI 评价文件名: {file_name}")
+    path = company_scores_dir(brand_id) / file_name
+    if not path.exists():
+        return False
+    path.unlink()
+    log.info(f"已删除公司级 AI 评价: {path}")
+    return True
 
 
 # ---------------------------------------------------------------- 打分

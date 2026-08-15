@@ -36,7 +36,7 @@ python3 -m gaj agent <command> [options]
 | `not_logged_in` | 未登录 zhipin.com |
 | `no_crawl_url` | 没有可用的列表页 URL（首次需用户提供 BOSS 筛选页 URL） |
 | `job_not_found` | 职位 ID 不存在 |
-| `crawl_failed` | 采集失败（详情在 `data` 里，常见为反爬拦截） |
+| `crawl_failed` | 采集失败（详情在 `data` 里，常见为服务端临时拦截） |
 | `ai_failed` / `timeout` | AI 分析失败 / 超时 |
 | `index_error` / `internal` | 索引错误 / 内部错误 |
 
@@ -61,7 +61,9 @@ python3 -m gaj agent status
 
 返回：`chrome_cdp_ready` / `boss_logged_in` / `providers` / 职位统计
 （total、rule_scored、ai_scored、**ai_pending** 待 AI 分析数、favorites）/
-`last_crawl`（上次采集 URL、时间、覆盖率、是否提前结束）。
+**backlog**（打分待办：`unscored` 可补分的历史未打分岗位数、`stale_total`
+需重打分数、`stale_context_changed` 其中因预期变化过时的、`stale_expired`
+其中超过保鲜期的）/ `last_crawl`（上次采集 URL、时间、覆盖率、是否提前结束）。
 
 **任何自动化流程的第一步都应该是它**，根据返回决定后续动作。
 
@@ -95,8 +97,14 @@ python3 -m gaj agent job <encryptJobId>
 # 单个职位
 python3 -m gaj agent analyze --job <ID> [--provider deepseek] [--deep]
 
-# 自动挑选规则引擎标记"需要 AI 介入"的职位批量分析
-python3 -m gaj agent analyze --auto [--limit 5] [--provider deepseek]
+# backlog 队列批量: 补历史未打分 + 重打已过时的分 (默认 pool=all)
+python3 -m gaj agent analyze --auto [--limit 5] [--provider deepseek] \
+    [--pool backfill|rescore|all] [--dry-run] \
+    [--min-rule-score 6] [--max-age-days 90] [--cooldown-hours 72] \
+    [--include-rejected]
+
+# 公司级 AI 评价 (图鉴词条, 纯手动触发)
+python3 -m gaj agent analyze --company <brand_id> [--provider deepseek]
 ```
 
 调用网页版大模型（默认 deepseek，可选 doubao/tongyi/kimi；
@@ -104,8 +112,32 @@ python3 -m gaj agent analyze --auto [--limit 5] [--provider deepseek]
 返回每个职位的 `total_score`（0-10）、`status`、`recommendation`、
 `dimension_scores`、`deep_analysis_report`。
 
-> 注意：每次分析耗时约 1-5 分钟（网页版生成），批量时自动加提问间隔。
+**backlog 队列语义**（`--auto`）：
+
+- `--pool backfill`：只补"有规则分、从未 AI 打分、未忽略"的岗位
+  （规则分降序、收藏优先、越老越优先清欠）。
+- `--pool rescore`：只重打"分数已过时"的岗位——画像/规则配置变了
+  （`context_changed`）或分数超过保鲜期（`expired`，默认 90 天）。
+  同一岗位冷却期内（默认 72h）不重复重打。
+- `--pool all`（默认）：两者合并。
+- `--dry-run`：只返回候选名单（`candidates` 含每个岗位的入队理由
+  `reason`），不调用大模型。**先 dry-run 看名单再决定要不要真打**。
+
+> 注意：`--auto` 的默认行为已从旧的"无去重重扫所有标记需 AI 介入的岗位"
+> **收敛**为本 backlog 队列（不会重复打已打过分、未过时的岗位）。想近似
+> 旧行为用 `--pool all --include-rejected`。
+> 每次分析耗时约 1-5 分钟（网页版生成），批量时自动加提问间隔。
 > 分析期间 DeepSeek 标签页会被切到前台，完成后自动切回原来的标签页。
+
+**公司级评价语义**（`--company`）：输入 = 公司资料（简介/经营范围）+
+名下全部岗位的 JD 摘要与已有打分；输出 = 图鉴"词条"：`business_analysis`
+（业务解读）、`tech_stack_profile`、`hiring_urgency`、`worth_joining`、
+`highlights`/`risks`/`interview_strategy`、`company_score_ai`（0-10，AI 独立
+评价，不影响聚合公司分）。结果 append-only 落盘
+`data/companies/<brand_id>/scores/ai_<provider>_<时间戳>.json`，与岗位打分
+对称：保留原始回复、写入 `context_fingerprint`。**纯手动触发**——不进
+backlog、不做自动调度，仅在用户想了解某家公司时按需调用；该公司名下必须
+至少有一个岗位。返回信封 `data.mode="company"`。
 
 ### 3.5 `crawl` — 增量采集
 
@@ -133,7 +165,8 @@ python3 -m gaj agent daily [--url <URL>] [--max-pages 10] \
 
 1. 增量采集（自动降速/提前结束；未登录时跳过采集并给出 warning）；
 2. 从本次新抓职位里挑候选（优先规则引擎标记需 AI 介入的，其次高分），
-   不足则补历史待办，共 `--analyze-limit` 个；
+   不足则走 **backfill 队列**补历史欠分（新岗位稀缺时预算自动流向
+   未打分的存量岗位），共 `--analyze-limit` 个；
 3. 用同一个浏览器驱动逐个 AI 分析；
 4. 生成 `digest_markdown` —— 可直接转发给用户的每日摘要。
 
@@ -192,7 +225,7 @@ python3 -m gaj agent daily [--url <URL>] [--max-pages 10] \
   你原来在看的标签页。若想完全不抢焦点，可把 `gaj/config.py` 里
   `AIConfig.tab_mode` 改为 `"background"`（代价是后台节流时靠看门狗救援，
   响应可能更慢）。
-- 采集限速是刻意保守的（防封号优先级 > 速度），不要为提速绕过降速逻辑。
+- 采集节奏模拟人工浏览，不要为提速改动节奏逻辑或并发多开 crawl。
 - 数据都在 `data/` 下（已被 gitignore），`data/crawl_state.json` 记录
   采集覆盖率状态，删除无害。
 - 选择器可能随大模型网站改版失效；`analyze` 连续失败且报"输入框注入失败"

@@ -16,6 +16,16 @@ function app() {
     selectMode: false, selectedIds: [], batchDeleting: false,
     reparseFile: '', reparseExpand: '',
     toasts: [], _toastSeq: 0,
+    // ---- 公司图鉴 ----
+    showGuide: false,
+    guide: {
+      facets: null, items: [], total: 0, loading: false,
+      q: '', industry: '', stage: '', favorite: 'all',
+      sort: 'score',            // score(分数榜) | jobs(招聘力度榜) | salary(薪资榜)
+      mode: 'cards',            // cards | quadrant | compare
+    },
+    companyDetail: null, companyDetailLoading: false,
+    compareIds: [], compareDetails: {},
 
     async init() {
       await this.loadStats();
@@ -318,6 +328,22 @@ function app() {
       }
     },
 
+    // 分数轨迹 sparkline: 按 created_at 升序的 AI total_score 折线
+    sparklineData(scores) {
+      const valid = (scores || [])
+        .filter(s => s.status !== 'PARSE_FAILED' && s.total_score != null)
+        .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+      const w = 240, h = 56, pad = 10;
+      const n = valid.length;
+      const dots = valid.map((s, i) => ({
+        x: n === 1 ? w / 2 : pad + (i / (n - 1)) * (w - pad * 2),
+        y: h - 8 - (Math.max(0, Math.min(10, s.total_score)) / 10) * (h - 16),
+        v: s.total_score,
+        t: s.created_at || '',
+      }));
+      return { w, h, dots, points: dots.map(d => d.x.toFixed(1) + ',' + d.y.toFixed(1)).join(' ') };
+    },
+
     async saveManualOverride() {
       if (!this.selectedJobId) return;
       const total = this.manualEdit.total;
@@ -546,6 +572,12 @@ function app() {
         await this.loadStats();
         if (this.selectedJobId) await this.selectJob(this.selectedJobId);
         await this.loadJobs();
+        if (this.showGuide) {
+          await this.loadGuide();
+          if (this.companyDetail) await this.openCompany(this.companyDetail.company.brand_id);
+          for (const id of this.compareIds) delete this.compareDetails[id];
+          if (this.guide.mode === 'compare') this.loadCompareDetails();
+        }
       }
       // 动态调整轮询间隔: 有任务在跑时 2s, 稳态 5s
       const hasRunning = Object.values(cur).some(t => t.status === 'running');
@@ -561,6 +593,7 @@ function app() {
       if (key === 'score-all') return '规则打分';
       if (key === 'reindex') return '重建索引';
       if (key.startsWith('ai-score-')) return 'AI 打分';
+      if (key.startsWith('company-analyze-')) return '公司 AI 评价';
       if (key.startsWith('resume-')) return '简历生成';
       return '任务';
     },
@@ -583,6 +616,236 @@ function app() {
           });
         } catch(e) {}
       };
+    },
+
+    // ---- 公司图鉴 ----
+
+    openGuide() {
+      this.showGuide = true;
+      this.showConfig = false;
+      this.showResume = false;
+      if (!this.guide.facets) this.loadGuide();
+    },
+
+    async loadGuide() {
+      this.guide.loading = true;
+      const facets = await this.api('/api/companies/facets');
+      if (facets) this.guide.facets = facets;
+      await this.loadGuideItems();
+      this.guide.loading = false;
+    },
+
+    async loadGuideItems() {
+      const g = this.guide;
+      const p = new URLSearchParams();
+      if (g.q) p.set('q', g.q);
+      if (g.industry) p.set('industry', g.industry);
+      if (g.stage) p.set('stage', g.stage);
+      if (g.favorite === 'only') p.set('favorite', 'only');
+      p.set('sort', g.sort);
+      p.set('limit', '200');
+      const d = await this.api('/api/companies?' + p.toString());
+      if (d) { this.guide.items = d.items || []; this.guide.total = d.total || 0; }
+      return d;
+    },
+
+    setGuideSort(s) { this.guide.sort = s; this.loadGuideItems(); },
+
+    setGuideMode(m) {
+      this.guide.mode = m;
+      if (m === 'compare') this.loadCompareDetails();
+    },
+
+    guideUnlocked(c) { return (c.ai_scored_count || 0) > 0; },
+
+    tierClass(tier) {
+      return {S: 'tier-s', A: 'tier-a', B: 'tier-b', C: 'tier-c'}[tier] || '';
+    },
+
+    async openCompany(brandId) {
+      this.companyDetailLoading = true;
+      this.companyDetail = null;
+      const d = await this.api('/api/companies/' + encodeURIComponent(brandId));
+      if (d) this.companyDetail = d;
+      this.companyDetailLoading = false;
+    },
+
+    closeCompany() { this.companyDetail = null; this.companyDetailLoading = false; },
+
+    async toggleCompanyFavorite(brandId, fav) {
+      const d = await this.api('/api/companies/' + encodeURIComponent(brandId) + '/favorite', 'POST', {favorite: fav});
+      if (d && d.ok) {
+        const item = this.guide.items.find(c => c.brand_id === brandId);
+        if (item) item.favorite = d.favorite ? 1 : 0;
+        if (this.companyDetail && this.companyDetail.company.brand_id === brandId) {
+          this.companyDetail.company.favorite = d.favorite;
+        }
+        const f = await this.api('/api/companies/facets');
+        if (f) this.guide.facets = f;
+        // 想去清单视图里取消收藏 → 直接从列表移除
+        if (this.guide.favorite === 'only' && !d.favorite) {
+          this.guide.items = this.guide.items.filter(c => c.brand_id !== brandId);
+        }
+        this.toast(d.favorite ? '已加入想去清单' : '已移出想去清单', 'success');
+      } else {
+        this.toast('操作失败, 请重试', 'error');
+      }
+    },
+
+    toggleCompare(brandId) {
+      if (this.compareIds.includes(brandId)) {
+        this.compareIds = this.compareIds.filter(id => id !== brandId);
+        delete this.compareDetails[brandId];
+      } else {
+        if (this.compareIds.length >= 4) { this.toast('最多对比 4 家公司', 'warning'); return; }
+        this.compareIds = [...this.compareIds, brandId];
+        if (this.guide.mode === 'compare') this.loadCompareDetails();
+      }
+    },
+
+    async loadCompareDetails() {
+      for (const id of this.compareIds) {
+        if (!this.compareDetails[id]) {
+          const d = await this.api('/api/companies/' + encodeURIComponent(id));
+          if (d) this.compareDetails[id] = d;
+        }
+      }
+    },
+
+    async appraiseCompany(c) {
+      // 剪影卡"去鉴定": 对公司最佳岗位发起 AI 打分, 联动打分 backlog
+      if (!c.top_job_id) { this.toast('这家公司暂无可鉴定的岗位', 'warning'); return; }
+      const p = new URLSearchParams({provider: this.aiProvider});
+      const d = await this.api('/api/jobs/' + encodeURIComponent(c.top_job_id) + '/ai-score?' + p.toString(), 'POST');
+      if (d) {
+        this.toast('AI 鉴定已启动: ' + (c.top_job_title || c.top_job_id), 'success');
+        this.logCollapsed = false;
+      } else {
+        this.toast('启动 AI 鉴定失败', 'error');
+      }
+    },
+
+    openJobFromCompany(jobId) {
+      this.closeCompany();
+      this.showGuide = false;
+      this.selectJob(jobId);
+    },
+
+    async analyzeCompany(brandId) {
+      // 公司级 AI 评价 (图鉴词条): 纯手动触发, 全量落盘历史
+      const p = new URLSearchParams({ provider: this.aiProvider });
+      const d = await this.api('/api/companies/' + encodeURIComponent(brandId) + '/ai-analyze?' + p.toString(), 'POST');
+      if (d && d.status === 'started') {
+        this.toast('公司 AI 评价已启动, 进度见日志面板', 'success');
+        this.logCollapsed = false;
+      } else if (d && d.status === 'already_running') {
+        this.toast('这家公司正在评价中', 'warning');
+      } else {
+        this.toast('启动公司评价失败', 'error');
+      }
+    },
+
+    async deleteCompanyAiScore(file) {
+      if (!this.companyDetail) return;
+      if (!confirm('确认删除这条公司级 AI 评价?')) return;
+      const brandId = this.companyDetail.company.brand_id;
+      const d = await this.api('/api/companies/' + encodeURIComponent(brandId) + '/ai-scores/' + encodeURIComponent(file), 'DELETE');
+      if (d && d.ok) {
+        this.companyDetail.ai_scores = (this.companyDetail.ai_scores || []).filter(s => s._file !== file);
+        this.toast('公司 AI 评价已删除', 'success');
+      } else {
+        this.toast('删除失败, 请重试', 'error');
+      }
+    },
+
+    // ---- 象限图 (内联 SVG, 不引图表库) ----
+
+    quadrantData() {
+      const pts = [];
+      const unknown = [];
+      for (const c of this.guide.items) {
+        if (c.company_score == null) continue;
+        if (c.salary_mid_avg == null) { unknown.push(c); continue; }
+        pts.push(c);
+      }
+      const xMax = Math.max(20, ...pts.map(c => c.salary_mid_avg)) * 1.1;
+      return {pts, unknown, xMax};
+    },
+
+    quadrantXY(c, xMax) {
+      // viewBox 760x440, 绘图区 x:[60,730] y:[20,390]
+      return {
+        x: 60 + (c.salary_mid_avg / xMax) * 670,
+        y: 390 - (c.company_score / 10) * 370,
+      };
+    },
+
+    quadrantXTicks(xMax) {
+      const step = xMax > 60 ? 20 : 10;
+      const out = [];
+      for (let v = step; v <= xMax; v += step) out.push(v);
+      return out;
+    },
+
+    bubbleR(c) { return 7 + Math.min(13, (c.job_count || 1) * 1.6); },
+
+    // SVG 内部不能用 <template x-for> (HTML 解析器会把它移出 svg, 导致循环变量 undefined),
+    // 所以网格/气泡/散点都拼成字符串走 x-html 渲染, 点击用事件委托
+    _esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[ch]));
+    },
+
+    quadrantGridSvg(qd) {
+      let out = '';
+      for (const v of this.quadrantXTicks(qd.xMax)) {
+        const x = (60 + (v / qd.xMax) * 670).toFixed(1);
+        out += `<line x1="${x}" y1="390" x2="${x}" y2="20" class="qgrid"></line>`
+             + `<text x="${x}" y="410" class="qaxis" text-anchor="middle">${v}</text>`;
+      }
+      for (const v of [2, 4, 6, 8, 10]) {
+        const y = 390 - v * 37;
+        out += `<line x1="60" y1="${y}" x2="730" y2="${y}" class="qgrid"></line>`
+             + `<text x="48" y="${y + 4}" class="qaxis" text-anchor="end">${v}</text>`;
+      }
+      return out;
+    },
+
+    quadrantBubblesSvg(qd) {
+      return qd.pts.map(c => {
+        const p = this.quadrantXY(c, qd.xMax);
+        const title = this._esc(
+          c.name + ' · 分 ' + (c.company_score != null ? c.company_score.toFixed(1) : '?')
+          + ' · 均薪 ' + c.salary_mid_avg.toFixed(1) + '万 · ' + (c.job_count || 0) + '岗');
+        return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${this.bubbleR(c).toFixed(1)}" `
+             + `class="qbubble ${this.tierClass(c.rank_tier)}" data-brand="${this._esc(c.brand_id)}">`
+             + `<title>${title}</title></circle>`;
+      }).join('');
+    },
+
+    quadrantClick(e) {
+      const t = e.target.closest ? e.target.closest('circle[data-brand]') : null;
+      if (t) this.openCompany(t.getAttribute('data-brand'));
+    },
+
+    sparkDotsSvg(sp) {
+      return sp.dots.map(pt =>
+        `<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="3.2" class="spark-dot">`
+        + `<title>${this._esc(pt.t)} · ${pt.v.toFixed(1)}/10</title></circle>`).join('');
+    },
+
+    // ---- 雷达图 ----
+
+    radarPoints(dims, cx, cy, r) {
+      if (!dims) return '';
+      const axes = ['finance', 'growth', 'resource', 'wlb'];
+      const vec = [[0, -1], [1, 0], [0, 1], [-1, 0]];  // 上/右/下/左
+      return axes.map((k, i) => {
+        const v = Math.max(0, Math.min(10, dims[k] || 0));
+        const t = (v / 10) * r;
+        return (cx + vec[i][0] * t) + ',' + (cy + vec[i][1] * t);
+      }).join(' ');
     },
 
     prevPage() { if (this.filters.offset > 0) { this.filters.offset -= 50; this.loadJobs(); } },

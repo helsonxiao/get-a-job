@@ -250,6 +250,146 @@ def build_scoring_prompt(
     return "\n\n---\n\n".join(sections)
 
 
+# ---------------------------------------------------------------- 公司级评价提示词
+
+
+COMPANY_OUTPUT_SCHEMA = """\
+请严格按照以下 JSON 格式输出, 不要在 JSON 外面加任何文字:
+
+```json
+{
+  "company_score_ai": 7.5,
+  "business_analysis": "200~400 字: 这家公司是做什么的, 主营业务与商业模式解读, 业务前景判断",
+  "tech_stack_profile": "100~200 字: 从岗位 JD 推断的技术栈与工程文化画像",
+  "hiring_urgency": "急招 | 常规 | 缓慢",
+  "hiring_urgency_reason": "判断招聘紧迫度的依据 (岗位数量/重复出现/薪资诚意等)",
+  "worth_joining": "强烈推荐 | 值得考虑 | 需谨慎 | 不建议",
+  "worth_joining_reason": "200 字以内: 结合求职者画像给出结论和理由",
+  "highlights": ["值得去的理由 1", "值得去的理由 2"],
+  "risks": ["风险点/顾虑 1", "风险点/顾虑 2"],
+  "interview_strategy": ["如果去面试, 应该重点准备什么"],
+  "business_keywords": ["业务关键词 1", "业务关键词 2"]
+}
+```
+
+字段说明:
+- company_score_ai: 你对这家公司的综合评分 (0~10), 基于业务质量、岗位匹配度、招聘信号
+- business_analysis: 图鉴的"词条"正文, 要言之有物, 避免空话套话
+- hiring_urgency: 急招=多岗位同时开放或重复出现且薪资有诚意; 缓慢=仅零星岗位
+- worth_joining: 四选一的简短结论, 必须结合求职者画像
+- highlights/risks/interview_strategy: 各列 2~5 条
+- business_keywords: 3~8 个最能代表这家公司业务的关键词
+"""
+
+
+def _format_company_job_digest(
+    job: "Job",
+    rule: dict | None,
+    ai_scores: list[dict],
+    jd_text: str = "",
+) -> str:
+    """单个岗位的摘要: 标题 + 薪资 + 已有打分 + JD 片段。"""
+    salary = job.salary or {}
+    lines = [
+        f"#### {job.title}"
+        + ("" if job.online else " (已下线)"),
+        f"- 薪资: {salary.get('raw', '未知')}; 城市: {job.city or '未知'}"
+        f"; 经验: {(job.experience or {}).get('raw', '不限')}",
+    ]
+    if job.skills:
+        lines.append(f"- 技能标签: {', '.join(job.skills[:12])}")
+    if rule:
+        lines.append(
+            f"- 规则打分: {rule.get('status', '?')} {rule.get('total_score', '?')}/10"
+        )
+    for s in ai_scores[:2]:
+        lines.append(
+            f"- AI 打分 ({s.get('provider', '?')}): {s.get('status', '?')}"
+            f" {s.get('total_score', '?')}/10 — {s.get('recommendation', '')}"
+        )
+    jd_snippet = (jd_text or "").strip()
+    if jd_snippet:
+        lines.append(f"- JD 摘要:\n{_truncate(jd_snippet, 600)}")
+    return "\n".join(lines)
+
+
+def build_company_analysis_prompt(
+    company: "Company",
+    jobs: list["Job"],
+    profile: "Profile",
+    job_context: dict[str, dict] | None = None,
+    *,
+    max_jobs: int = 10,
+) -> str:
+    """构建公司级 AI 评价提示词。
+
+    Args:
+        company: 公司对象
+        jobs: 名下全部岗位 (调用方无需预筛选, 这里会做数量截断)
+        profile: 用户画像 (worth_joining 结论要结合画像)
+        job_context: {job_id: {"rule": dict|None, "ai_scores": [...], "jd_text": str}}
+            每个岗位的已有打分与 JD 文本; 缺省则只列岗位基本信息
+        max_jobs: 提示词里最多列多少个岗位 (优先在线、分数高的)
+    """
+    job_context = job_context or {}
+
+    sections: list[str] = []
+    sections.append(
+        "你是一位资深的职业顾问和猎头, 正在帮求职者做一家公司的尽职调查。\n"
+        "请基于公司资料与它在招的全部岗位, 输出一份公司级评价 (图鉴词条)。\n"
+        "要求: 业务解读要具体, 不要泛泛而谈; 结论要结合求职者画像; 有依据, 不编造。"
+    )
+
+    # ---- 1. 求职者画像 ----
+    sections.append("## 求职者画像\n\n" + profile.summary_for_ai())
+
+    # ---- 2. 公司资料 ----
+    co_lines = [f"### 公司: {company.name or '未知'}"]
+    if company.industry:
+        co_lines.append(f"- 行业: {company.industry}")
+    if company.stage:
+        co_lines.append(f"- 融资阶段: {company.stage}")
+    if company.scale_raw:
+        co_lines.append(f"- 规模: {company.scale_raw}")
+    if company.nature:
+        co_lines.append(f"- 性质: {company.nature}")
+    if company.founded:
+        co_lines.append(f"- 成立: {company.founded}")
+    if company.hours_per_day:
+        co_lines.append(f"- 公示工时: {company.hours_per_day} 小时/天")
+    if company.intro:
+        co_lines.append(f"- 公司简介:\n{_truncate(company.intro, 1200)}")
+    if company.business_scope:
+        co_lines.append(f"- 经营范围:\n{_truncate(company.business_scope, 600)}")
+    sections.append("\n".join(co_lines))
+
+    # ---- 3. 名下岗位 ----
+    ordered = sorted(
+        jobs,
+        key=lambda j: (
+            0 if j.online else 1,
+            -float((j.salary or {}).get("max_10k") or 0),
+        ),
+    )[:max_jobs]
+    job_blocks = []
+    for j in ordered:
+        ctx = job_context.get(j.job_id) or {}
+        job_blocks.append(
+            _format_company_job_digest(
+                j, ctx.get("rule"), ctx.get("ai_scores") or [], ctx.get("jd_text", "")
+            )
+        )
+    more = len(jobs) - len(ordered)
+    header = f"## 名下岗位 (共 {len(jobs)} 个" + (f", 以下列出 {len(ordered)} 个" if more > 0 else "") + ")"
+    sections.append(header + "\n\n" + "\n\n".join(job_blocks)
+                    + (f"\n\n(另有 {more} 个岗位未列出)" if more > 0 else ""))
+
+    # ---- 4. 输出要求 ----
+    sections.append("## 输出要求\n\n" + COMPANY_OUTPUT_SCHEMA)
+
+    return "\n\n---\n\n".join(sections)
+
+
 # ---------------------------------------------------------------- 简历提示词
 
 

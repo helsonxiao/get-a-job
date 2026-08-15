@@ -3,7 +3,7 @@
 用法:
     python3 -m gaj crawl <url>              # 从 BOSS 列表页 URL 爬取
     python3 -m gaj score [--all|--job ID]   # 规则打分
-    python3 -m gaj ai-score [--job ID|--batch] [--provider deepseek]
+    python3 -m gaj ai-score --job ID [--provider deepseek]
     python3 -m gaj resume --job ID          # 生成针对性简历
     python3 -m gaj web [--port 8765]        # 启动 Web 看板
     python3 -m gaj reindex                  # 重建索引
@@ -47,11 +47,17 @@ def main(argv: list[str] | None = None) -> int:
 
     # ---- ai-score ----
     p = sub.add_parser("ai-score", help="AI 打分 (网页版大模型)")
-    p.add_argument("--job", metavar="ID", help="单个职位")
-    p.add_argument("--batch", action="store_true", help="批量 (只打需 AI 介入的)")
+    p.add_argument("--job", metavar="ID", required=True, help="单个职位")
     p.add_argument("--provider", default="deepseek")
     p.add_argument("--deep", action="store_true", help="深度分析")
-    p.add_argument("--limit", type=int, default=None)
+    p.add_argument(
+        "--pool", default="", choices=["", "backfill", "rescore", "all"],
+        help="走打分 backlog: backfill=补历史未打分, rescore=重打过分, all=合并",
+    )
+    p.add_argument("--min-rule-score", type=float, default=None, help="规则分下限")
+    p.add_argument("--cooldown-hours", type=float, default=None, help="重打冷却 (小时)")
+    p.add_argument("--max-age-days", type=float, default=None, help="分数保鲜期 (天)")
+    p.add_argument("--include-rejected", action="store_true", help="包含 REJECTED")
     p.add_argument("--dry-run", action="store_true", help="只构建提示词不调用")
 
     # ---- resume ----
@@ -152,19 +158,23 @@ def main(argv: list[str] | None = None) -> int:
         from .ai.cli import main as ai_main
 
         cli_args = []
-        if args.dry_run:
-            cli_args.extend(["--dry-run", "--job", args.job or ""])
-        elif args.batch:
-            cli_args.extend(["--batch", "--provider", args.provider])
-            if args.limit:
-                cli_args.extend(["--limit", str(args.limit)])
-        elif args.job:
-            cli_args.extend(["--job", args.job, "--provider", args.provider])
-            if args.deep:
-                cli_args.append("--deep")
-        else:
-            print("请指定 --job 或 --batch", file=sys.stderr)
-            return 1
+        # backlog 透传参数
+        if args.pool:
+            cli_args += ["--pool", args.pool]
+        if args.min_rule_score is not None:
+            cli_args += ["--min-rule-score", str(args.min_rule_score)]
+        if args.cooldown_hours is not None:
+            cli_args += ["--cooldown-hours", str(args.cooldown_hours)]
+        if args.max_age_days is not None:
+            cli_args += ["--max-age-days", str(args.max_age_days)]
+        if args.include_rejected:
+            cli_args.append("--include-rejected")
+
+        cli_args.append("--dry-run" if args.dry_run else "--job")
+        cli_args.append(args.job)
+        if args.deep:
+            cli_args.append("--deep")
+        cli_args += ["--provider", args.provider]
         return ai_main(cli_args)
 
     if args.command == "resume":

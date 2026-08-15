@@ -8,9 +8,8 @@
     python -m gaj.ai.cli --job <job_id> --provider deepseek
     python -m gaj.ai.cli --job <job_id> --provider deepseek --deep
 
-    # 批量打分 (默认只处理规则引擎标记需要 AI 介入的)
-    python -m gaj.ai.cli --batch --provider deepseek
-    python -m gaj.ai.cli --batch --provider doubao --limit 20
+    # 查看 backlog 候选名单 (不调用大模型)
+    python -m gaj.ai.cli --dry-run --pool all
 
     # 查看可用 provider
     python -m gaj.ai.cli --list-providers
@@ -29,15 +28,21 @@ log = get_logger("ai.cli")
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="AI 打分 (网页版大模型)")
     ap.add_argument("--job", metavar="JOB_ID", help="单个职位 AI 打分")
-    ap.add_argument("--batch", action="store_true", help="批量打分")
     ap.add_argument("--provider", default="deepseek", help="大模型 provider")
     ap.add_argument("--deep", action="store_true", help="生成深度分析报告")
-    ap.add_argument("--limit", type=int, default=None, help="批量打分上限")
     ap.add_argument(
-        "--all", action="store_true",
-        help="批量时不过滤 ai_intervention_needed, 所有职位都打",
+        "--pool", default="", choices=["", "backfill", "rescore", "all"],
+        help="走打分 backlog 队列: backfill=补历史未打分, rescore=重打过分,"
+             " all=两者合并。配合 --dry-run 查看候选名单",
     )
-    ap.add_argument("--dry-run", action="store_true", help="只构建提示词, 不调用大模型")
+    ap.add_argument("--min-rule-score", type=float, default=None, help="规则分下限, 低于不打")
+    ap.add_argument("--cooldown-hours", type=float, default=None, help="重打冷却 (小时)")
+    ap.add_argument("--max-age-days", type=float, default=None, help="分数保鲜期 (天)")
+    ap.add_argument("--include-rejected", action="store_true", help="包含 REJECTED 岗位")
+    ap.add_argument(
+        "--dry-run", action="store_true",
+        help="只构建提示词/挑候选, 不调用大模型 (--job 看提示词, --pool 看候选名单)",
+    )
     ap.add_argument("--list-providers", action="store_true", help="列出可用 provider")
     args = ap.parse_args(argv)
 
@@ -47,9 +52,27 @@ def main(argv: list[str] | None = None) -> int:
         print("可用 provider:", ", ".join(available_providers()))
         return 0
 
+    if args.dry_run and args.pool and not args.job:
+        from .backlog import pick_backlog
+
+        cands = pick_backlog(
+            args.pool,
+            min_rule_score=args.min_rule_score,
+            include_rejected=args.include_rejected,
+            cooldown_hours=args.cooldown_hours,
+            max_age_days=args.max_age_days,
+        )
+        print(f"pool={args.pool} 候选 {len(cands)} 个:")
+        for c in cands:
+            print(
+                f"  [{c['pool']}] {c['job_id']}  rule={c['rule_total']}"
+                f"  {c['title']} @ {c['company_name']}  ({c['reason']})"
+            )
+        return 0
+
     if args.dry_run:
         if not args.job:
-            print("--dry-run 需要配合 --job 使用", file=sys.stderr)
+            print("--dry-run 需要 --job 或 --pool", file=sys.stderr)
             return 1
         from .runner import build_prompt
 
@@ -87,24 +110,6 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"\n✗ 失败: {out['error']}", file=sys.stderr)
             return 1
-
-    if args.batch:
-        from .runner import batch_score
-
-        out = batch_score(
-            args.provider,
-            only_triggered=not args.all,
-            limit=args.limit,
-            deep=args.deep,
-        )
-        print(
-            f"\n批量打分完成: 成功 {out['success']} / 失败 {out['failed']} / 共 {out['total']}"
-        )
-        for d in out["details"]:
-            mark = "✓" if d.get("success") else "✗"
-            err = d.get("error", "")
-            print(f"  {mark} {d['job_id']}  {err}")
-        return 0 if out["failed"] == 0 else 1
 
     ap.print_help()
     return 0
