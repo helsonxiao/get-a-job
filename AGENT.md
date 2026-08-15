@@ -4,7 +4,7 @@
 
 | 文档 | 定位 | 读者 |
 |---|---|---|
-| **AGENT.md**（本文） | 应用场景与容错机制：使用案例、重试/降级/超时策略、注意事项 | 开发者、想了解系统行为细节的智能体 |
+| **AGENT.md**（本文） | 应用场景与容错机制：8 个使用案例、重试/降级/超时策略、注意事项 | 开发者、想了解系统行为细节的智能体 |
 | **gaj-agent/SKILL.md** | 操作策略：首次配置、每日流程编排、错误处理决策树、超时预算 | 可安装到各智能体的技能包 |
 
 命令的参数、返回字段、错误码、退出码等信息已内置于 CLI help text，
@@ -72,6 +72,82 @@ python3 -m gaj agent analyze --auto --dry-run
 # 2. 确认后真打
 python3 -m gaj agent analyze --auto --limit 5
 ```
+
+### 场景五：首次采集
+
+第一次使用系统，需要先完成环境准备并采集第一批职位：
+
+```bash
+# 1. 启动 Chrome CDP 调试模式
+python3 -m gaj setup-chrome
+
+# 2. 在弹出的 Chrome 窗口里登录 zhipin.com
+#    （登录后在地址栏能看到登录态即可，不需要手动操作）
+
+# 3. 去 BOSS 直聘筛选页（选好城市/关键词/薪资范围），
+#    复制浏览器地址栏的 URL，用它来发起首次采集
+python3 -m gaj agent crawl --url "https://www.zhipin.com/web/geek/job?query=前端&city=苏州"
+
+# 4. 采集完成后批量打规则分
+python3 -m gaj agent status   # 确认数据已入库
+python3 -m gaj agent analyze --auto --limit 5  # 先打 5 个试试
+
+# 5. 之后想看 Web 图鉴
+python3 -m gaj web   # 浏览器访问 http://127.0.0.1:8765
+```
+
+首次采集的 URL 会被系统记住，后续 `crawl` / `daily` 不再需要 `--url`。
+换城市或换关键词时，重新带 `--url` 即可覆盖。
+
+### 场景六：过期重评（画像 / 规则变了）
+
+用户修改了画像权重或硬性规则后，之前的打分会标记为"上下文已变"，
+可以通过 rescore 模式批量重打：
+
+```bash
+# 1. 先看有多少过期待重评的
+python3 -m gaj agent analyze --auto --pool rescore --dry-run
+
+# 2. 确认后批量重打（只打过期的，不碰未过期的）
+python3 -m gaj agent analyze --auto --pool rescore --limit 10
+```
+
+`--pool all`（默认）会同时补历史未打分 + 重打过期的，一步到位。
+岗位级打分有 90 天保鲜期，超过 90 天也会自动进入过期队列。
+
+### 场景七：Backlog 巡检
+
+不确定有多少职位待打分、有多少已过期时，用 `status` + `dry-run` 摸底：
+
+```bash
+# 1. 看系统概况：backlog 里有几个未打分 / 几个已过期
+python3 -m gaj agent status
+# → data.backlog: {unscored: 12, stale_total: 3, ...}
+
+# 2. 看具体是哪些职位
+python3 -m gaj agent analyze --auto --dry-run
+# → data.candidates[] 列出全部候选 job_id + 原因(backfill/stale)
+
+# 3. 决定打多少，一次打完
+python3 -m gaj agent analyze --auto --limit 20
+```
+
+### 场景八：Web 图鉴浏览
+
+命令行适合自动化，想可视化浏览 / 对比 / 配置时用 Web 图鉴：
+
+```bash
+# 启动 Web 图鉴（前后端热重载，改代码不用重启）
+python3 -m gaj web --port 8765
+
+# 浏览器打开 http://127.0.0.1:8765
+# - 职位列表 Tab：筛选 / 排序 / 忽略 / 查看详情
+# - 公司图鉴 Tab：卡片墙 / 象限气泡图 / 并排雷达对比 / 公司详情抽屉
+# - 配置 Tab：编辑画像 / 权重预设 / 规则阈值 / 硬性底线
+```
+
+Web 图鉴纯前端 + 本地后端，不消耗任何 AI 词元。
+在公司图鉴 Tab 里可以手动触发公司级 AI 尽调（走网页版大模型）。
 
 ## 容错与超时保障
 

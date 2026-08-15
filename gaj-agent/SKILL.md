@@ -52,6 +52,10 @@ stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 
 **可用命令及参数请运行 `<python> -m gaj agent -h` 查看，以 CLI 实际输出为准。**
 本技能不重复罗列参数，只定义操作策略与注意事项。
 
+> **想了解有哪些使用场景和案例？** 见仓库根目录 `AGENT.md` 的「应用场景与案例」
+> 小节，覆盖了每日报告、搜索分析、公司尽调、批量补打分、首次采集、过期重评、
+> Backlog 巡检、Web 图鉴浏览共 8 个典型用法，可直接复制命令运行。
+
 ## AI 打分与去重
 
 系统内置 **backlog 打分队列**，自带去重与冷却保护，无需手动筛选未打分职位：
@@ -105,7 +109,8 @@ AI 独立评分（`company_score_ai` 0-10）。结果 append-only 落盘，可�
 
 ## 错误处理策略
 
-按 `error.code` 类别决策（各错误码含义见 AGENT.md）：
+按 `error.code` 类别决策（全部错误码列表见 `<python> -m gaj agent -h`
+底部「错误码」行；`-h` 输出是权威信源）：
 
 - **环境类**（`chrome_not_ready` / `not_logged_in`）：尝试修复一次
   （setup-chrome / 提示登录）后重试；仍失败 → 通知用户，停止。
