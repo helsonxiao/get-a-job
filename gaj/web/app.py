@@ -16,6 +16,7 @@
   POST /api/companies/{id}/favorite  公司级"想去"收藏
   POST /api/companies/{id}/ai-analyze  公司级 AI 评价 (纯手动触发)
   DELETE /api/companies/{id}/ai-scores/{file}  删除一条公司级 AI 评价
+  POST /api/companies/{id}/ai-reparse  人工编辑公司级 AI 原始回复后重新解析
   GET  /api/logs/stream     SSE 实时日志流
   GET  /api/providers       可用 AI provider 列表
 """
@@ -596,6 +597,49 @@ async def api_delete_company_ai_score(brand_id: str, file_name: str) -> dict:
     if not ok:
         raise HTTPException(404, f"AI 评价文件不存在: {file_name}")
     return {"ok": True, "brand_id": brand_id, "file": file_name}
+
+
+@app.post("/api/companies/{brand_id}/ai-reparse")
+async def api_company_ai_reparse(brand_id: str, body: dict = Body(...)) -> dict:
+    """人工编辑公司级 AI 原始回复后重新解析并保存。
+
+    body: {"raw_text": "...", "provider": "deepseek"}
+    与岗位侧 /api/jobs/{id}/ai-reparse 对称: 解析成功则追加保存为新文件,
+    并刷新 company_stats (因为 company_score_ai 可能进入图鉴分数)。
+    解析失败返回 422, 不写入文件。
+    """
+    if repo.load_company(brand_id) is None:
+        raise HTTPException(404, f"公司不存在: {brand_id}")
+    raw_text = (body or {}).get("raw_text", "").strip()
+    provider = (body or {}).get("provider", "unknown")
+    if not raw_text:
+        raise HTTPException(400, "raw_text 不能为空")
+
+    from ..ai.company_runner import parse_company_response
+
+    result = parse_company_response(raw_text, provider=provider, brand_id=brand_id)
+    if not result:
+        raise HTTPException(422, "解析失败: 无法从编辑后的文本中提取 JSON")
+    result["raw_response"] = raw_text
+    # 记录评价时的上下文指纹, 与自动评价流程保持一致
+    try:
+        from ..core.context import compute_context_fingerprint
+
+        result["context_fingerprint"] = compute_context_fingerprint()
+    except Exception:
+        pass
+    path = repo.save_company_ai_score(brand_id, provider, result)
+    log.info(
+        f"人工重新解析公司评价成功: {brand_id} ({provider}) ->"
+        f" {result['worth_joining']} {result['company_score_ai']}/10 -> {path.name}"
+    )
+    # 刷新公司聚合统计: company_score_ai 可能影响图鉴分数 (头部加权无候选时回退)
+    try:
+        with index.session() as conn:
+            index.refresh_company_stats(conn, [brand_id])
+    except Exception as exc:
+        log.warning(f"刷新公司统计失败: {exc}")
+    return {"ok": True, "brand_id": brand_id, "result": result}
 
 
 # ---------------------------------------------------------------- 规则与画像配置

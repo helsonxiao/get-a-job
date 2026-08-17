@@ -940,6 +940,44 @@ input::placeholder { color: var(--gaj-foreground-3); }
   outline: none;
 }
 .ai-score-section .raw-edit-textarea:focus { border-color: var(--gaj-primary); }
+/* 公司抽屉里的原始回复编辑框 (与岗位侧样式保持一致) */
+.company-drawer .parse-failed-box { margin-top: 8px; }
+.company-drawer .raw-edit-textarea {
+  width: 100%;
+  min-height: 200px;
+  max-height: 500px;
+  background: var(--gaj-surface);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-md);
+  padding: 10px;
+  font-family: var(--gaj-font-mono);
+  font-size: var(--gaj-font-size-sm);
+  line-height: 1.5;
+  color: var(--gaj-foreground);
+  resize: vertical;
+  outline: none;
+}
+.company-drawer .raw-edit-textarea:focus { border-color: var(--gaj-primary); }
+.company-drawer .cd-raw-toggle {
+  font-size: var(--gaj-font-size-xs);
+  padding: 4px 10px;
+  background: var(--gaj-surface-2);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-sm);
+  color: var(--gaj-foreground-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.company-drawer .cd-raw-toggle:hover { border-color: var(--gaj-primary); color: var(--gaj-primary); }
+.company-drawer .cd-raw-toggle svg { width: 14px; height: 14px; }
+.company-drawer .cd-parse-failed-box {
+  border: 1px solid var(--gaj-state-warning);
+  border-radius: var(--gaj-radius-md);
+  padding: 10px;
+  background: rgba(255, 180, 0, .06);
+}
 
 /* === Manual Override === */
 .manual-override-box {

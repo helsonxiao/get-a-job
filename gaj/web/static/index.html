@@ -1117,62 +1117,116 @@
               <div class="cd-ai-meta">
                 <span class="badge ai" x-text="companyDetail.ai_scores[0].provider || '?'"></span>
                 <span x-text="companyDetail.ai_scores[0].created_at"></span>
-                <span class="cd-ai-worth" x-text="companyDetail.ai_scores[0].worth_joining"></span>
-                <span class="cd-ai-score"
-                      x-text="(companyDetail.ai_scores[0].company_score_ai != null ? companyDetail.ai_scores[0].company_score_ai.toFixed(1) : '?') + ' /10'"></span>
+                <template x-if="companyDetail.ai_scores[0].status === 'PARSE_FAILED'">
+                  <span class="badge" style="background:var(--gaj-state-warning-muted, rgba(255,180,0,.15));color:var(--gaj-state-warning);border:1px solid var(--gaj-state-warning)">解析失败</span>
+                </template>
+                <template x-if="companyDetail.ai_scores[0].status !== 'PARSE_FAILED'">
+                  <span class="cd-ai-worth" x-text="companyDetail.ai_scores[0].worth_joining"></span>
+                </template>
+                <template x-if="companyDetail.ai_scores[0].status !== 'PARSE_FAILED'">
+                  <span class="cd-ai-score"
+                        x-text="(companyDetail.ai_scores[0].company_score_ai != null ? companyDetail.ai_scores[0].company_score_ai.toFixed(1) : '?') + ' /10'"></span>
+                </template>
                 <button class="cd-ai-del" style="margin-left:auto;"
                         @click="deleteCompanyAiScore(companyDetail.ai_scores[0]._file)" title="删除这条评价">
                   <i data-lucide="trash-2"></i>
                 </button>
               </div>
-              <div class="cd-ai-body" x-text="companyDetail.ai_scores[0].business_analysis"></div>
-              <div class="cd-ai-body" x-show="companyDetail.ai_scores[0].tech_stack_profile">
-                <strong>技术栈画像:</strong> <span x-text="companyDetail.ai_scores[0].tech_stack_profile"></span>
-              </div>
-              <div class="cd-ai-line">
-                <span class="cd-ai-k">招聘紧迫度</span>
-                <span class="cd-ai-v" x-text="companyDetail.ai_scores[0].hiring_urgency + (companyDetail.ai_scores[0].hiring_urgency_reason ? ' — ' + companyDetail.ai_scores[0].hiring_urgency_reason : '')"></span>
-              </div>
-              <div class="cd-ai-line" x-show="companyDetail.ai_scores[0].worth_joining_reason">
-                <span class="cd-ai-k">结论理由</span>
-                <span class="cd-ai-v" x-text="companyDetail.ai_scores[0].worth_joining_reason"></span>
-              </div>
-              <div class="cd-ai-line" x-show="(companyDetail.ai_scores[0].highlights || []).length">
-                <span class="cd-ai-k">亮点</span>
-                <span class="cd-ai-v">
-                  <template x-for="(t, ti) in companyDetail.ai_scores[0].highlights" :key="ti">
-                    <span class="cd-ai-chip hl" x-text="t"></span>
-                  </template>
-                </span>
-              </div>
-              <div class="cd-ai-line" x-show="(companyDetail.ai_scores[0].risks || []).length">
-                <span class="cd-ai-k">顾虑</span>
-                <span class="cd-ai-v">
-                  <template x-for="(t, ti) in companyDetail.ai_scores[0].risks" :key="ti">
-                    <span class="cd-ai-chip risk" x-text="t"></span>
-                  </template>
-                </span>
-              </div>
-              <div class="cd-ai-line" x-show="(companyDetail.ai_scores[0].interview_strategy || []).length">
-                <span class="cd-ai-k">面试策略</span>
-                <span class="cd-ai-v">
-                  <template x-for="(t, ti) in companyDetail.ai_scores[0].interview_strategy" :key="ti">
-                    <span class="cd-ai-chip tip" x-text="t"></span>
-                  </template>
-                </span>
-              </div>
-              <div class="cd-ai-kws" x-show="(companyDetail.ai_scores[0].business_keywords || []).length">
-                <template x-for="(k, ki) in companyDetail.ai_scores[0].business_keywords" :key="ki">
-                  <span class="cd-kw" x-text="k"></span>
-                </template>
-              </div>
+              <!-- 解析失败: 显示编辑入口 -->
+              <template x-if="companyDetail.ai_scores[0].status === 'PARSE_FAILED'">
+                <div class="cd-parse-failed-box">
+                  <div style="color:var(--gaj-state-warning);font-size:var(--gaj-font-size-sm);margin-bottom:6px;display:flex;align-items:center;gap:4px;">
+                    <i data-lucide="alert-triangle"></i> JSON 解析失败, 可人工编辑后重新解析
+                  </div>
+                  <textarea x-model="companyDetail.ai_scores[0]._edit_text" class="raw-edit-textarea" placeholder="编辑 AI 原始回复..." x-init="companyDetail.ai_scores[0]._edit_text = companyDetail.ai_scores[0]._edit_text || companyDetail.ai_scores[0].raw_response || ''"></textarea>
+                  <div style="margin-top:6px;display:flex;gap:6px">
+                    <button class="primary" style="padding:4px 12px;font-size:var(--gaj-font-size-xs)" @click="reparseCompanyAi(companyDetail.ai_scores[0]._file)" :disabled="companyReparseFile === companyDetail.ai_scores[0]._file">
+                      <i data-lucide="refresh-cw"></i>
+                      <span x-show="companyReparseFile !== companyDetail.ai_scores[0]._file">重新解析</span>
+                      <span x-show="companyReparseFile === companyDetail.ai_scores[0]._file">解析中</span>
+                    </button>
+                  </div>
+                </div>
+              </template>
+              <!-- 解析成功: 正常展示 + 查看原始回复 -->
+              <template x-if="companyDetail.ai_scores[0].status !== 'PARSE_FAILED'">
+                <div>
+                  <div class="cd-ai-body" x-text="companyDetail.ai_scores[0].business_analysis"></div>
+                  <div class="cd-ai-line" x-show="companyDetail.ai_scores[0].tech_stack_profile">
+                    <span class="cd-ai-k">技术栈画像</span>
+                    <span class="cd-ai-v" x-text="companyDetail.ai_scores[0].tech_stack_profile"></span>
+                  </div>
+                  <div class="cd-ai-line">
+                    <span class="cd-ai-k">招聘紧迫度</span>
+                    <span class="cd-ai-v" x-text="companyDetail.ai_scores[0].hiring_urgency + (companyDetail.ai_scores[0].hiring_urgency_reason ? ' — ' + companyDetail.ai_scores[0].hiring_urgency_reason : '')"></span>
+                  </div>
+                  <div class="cd-ai-line" x-show="companyDetail.ai_scores[0].worth_joining_reason">
+                    <span class="cd-ai-k">结论理由</span>
+                    <span class="cd-ai-v" x-text="companyDetail.ai_scores[0].worth_joining_reason"></span>
+                  </div>
+                  <div class="cd-ai-line" x-show="(companyDetail.ai_scores[0].highlights || []).length">
+                    <span class="cd-ai-k">亮点</span>
+                    <span class="cd-ai-v">
+                      <template x-for="(t, ti) in companyDetail.ai_scores[0].highlights" :key="ti">
+                        <span class="cd-ai-chip hl" x-text="t"></span>
+                      </template>
+                    </span>
+                  </div>
+                  <div class="cd-ai-line" x-show="(companyDetail.ai_scores[0].risks || []).length">
+                    <span class="cd-ai-k">顾虑</span>
+                    <span class="cd-ai-v">
+                      <template x-for="(t, ti) in companyDetail.ai_scores[0].risks" :key="ti">
+                        <span class="cd-ai-chip risk" x-text="t"></span>
+                      </template>
+                    </span>
+                  </div>
+                  <div class="cd-ai-line" x-show="(companyDetail.ai_scores[0].interview_strategy || []).length">
+                    <span class="cd-ai-k">面试策略</span>
+                    <span class="cd-ai-v">
+                      <template x-for="(t, ti) in companyDetail.ai_scores[0].interview_strategy" :key="ti">
+                        <span class="cd-ai-chip tip" x-text="t"></span>
+                      </template>
+                    </span>
+                  </div>
+                  <div class="cd-ai-kws" x-show="(companyDetail.ai_scores[0].business_keywords || []).length">
+                    <template x-for="(k, ki) in companyDetail.ai_scores[0].business_keywords" :key="ki">
+                      <span class="cd-kw" x-text="k"></span>
+                    </template>
+                  </div>
+                  <!-- 查看原始回复 + 重新解析 -->
+                  <div style="margin-top:8px;border-top:1px solid var(--gaj-border);padding-top:8px">
+                    <button class="cd-raw-toggle" @click="companyReparseExpand = (companyReparseExpand === companyDetail.ai_scores[0]._file ? '' : companyDetail.ai_scores[0]._file)">
+                      <i data-lucide="file-text"></i>
+                      <span x-show="companyReparseExpand !== companyDetail.ai_scores[0]._file">查看原始回复</span>
+                      <span x-show="companyReparseExpand === companyDetail.ai_scores[0]._file">收起</span>
+                    </button>
+                    <template x-if="companyReparseExpand === companyDetail.ai_scores[0]._file">
+                      <div style="margin-top:6px">
+                        <textarea x-model="companyDetail.ai_scores[0]._edit_text" class="raw-edit-textarea" placeholder="编辑 AI 原始回复..." x-init="companyDetail.ai_scores[0]._edit_text = companyDetail.ai_scores[0]._edit_text || companyDetail.ai_scores[0].raw_response || ''"></textarea>
+                        <div style="margin-top:6px;display:flex;gap:6px">
+                          <button class="primary" style="padding:4px 12px;font-size:var(--gaj-font-size-xs)" @click="reparseCompanyAi(companyDetail.ai_scores[0]._file)" :disabled="companyReparseFile === companyDetail.ai_scores[0]._file">
+                            <i data-lucide="refresh-cw"></i>
+                            <span x-show="companyReparseFile !== companyDetail.ai_scores[0]._file">重新解析</span>
+                            <span x-show="companyReparseFile === companyDetail.ai_scores[0]._file">解析中</span>
+                          </button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
               <div class="cd-ai-history" x-show="companyDetail.ai_scores.length > 1">
                 <div class="cd-ai-h-h">历史评价</div>
                 <template x-for="s in companyDetail.ai_scores.slice(1)" :key="s._file">
                   <div class="cd-ai-h-item">
                     <span class="badge ai" x-text="s.provider"></span>
                     <span x-text="s.created_at"></span>
-                    <span x-text="s.worth_joining"></span>
+                    <template x-if="s.status === 'PARSE_FAILED'">
+                      <span style="color:var(--gaj-state-warning)">解析失败</span>
+                    </template>
+                    <template x-if="s.status !== 'PARSE_FAILED'">
+                      <span x-text="s.worth_joining"></span>
+                    </template>
                     <span x-text="s.company_score_ai != null ? s.company_score_ai.toFixed(1) + '/10' : '?'"></span>
                     <button class="cd-ai-del" @click="deleteCompanyAiScore(s._file)" title="删除">
                       <i data-lucide="trash-2"></i>

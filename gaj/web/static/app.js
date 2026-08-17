@@ -15,6 +15,7 @@ function app() {
     manualEdit: {total: '', note: ''}, manualSaving: false,
     selectMode: false, selectedIds: [], batchDeleting: false,
     reparseFile: '', reparseExpand: '',
+    companyReparseFile: '', companyReparseExpand: '',
     toasts: [], _toastSeq: 0,
     // ---- 公司图鉴 ----
     showGuide: false,
@@ -755,6 +756,40 @@ function app() {
         this.toast('公司 AI 评价已删除', 'success');
       } else {
         this.toast('删除失败, 请重试', 'error');
+      }
+    },
+
+    async reparseCompanyAi(file) {
+      // 公司级 AI 评价人工重新解析 (与岗位侧 reparseAi 对称)
+      if (!this.companyDetail || !file) return;
+      if (this.companyReparseFile === file) return;  // 防重入
+      const scoreItem = (this.companyDetail.ai_scores || []).find(s => s._file === file);
+      if (!scoreItem) return;
+      const rawText = (scoreItem._edit_text || scoreItem.raw_response || '').trim();
+      if (!rawText) { this.toast('请输入 AI 原始回复文本', 'error'); return; }
+      const brandId = this.companyDetail.company.brand_id;
+      this.companyReparseFile = file;
+      try {
+        const d = await this.api('/api/companies/' + encodeURIComponent(brandId) + '/ai-reparse', 'POST', {
+          raw_text: rawText,
+          provider: scoreItem.provider || 'unknown',
+        });
+        if (d && d.ok) {
+          this.toast(
+            '重新解析成功: ' + d.result.worth_joining
+            + ' ' + (d.result.company_score_ai != null ? d.result.company_score_ai.toFixed(1) : '?') + '/10',
+            'success'
+          );
+          this.companyReparseExpand = '';
+          await this.openCompany(brandId);
+          if (this.showGuide) await this.loadGuide();
+        } else {
+          this.toast('解析失败, 请检查文本是否包含合法 JSON', 'error');
+        }
+      } catch (e) {
+        this.toast('解析失败: ' + (e.message || '未知错误'), 'error');
+      } finally {
+        this.companyReparseFile = '';
       }
     },
 
