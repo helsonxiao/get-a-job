@@ -11,6 +11,8 @@ function app() {
     showConfig: false, configTab: 'rules',
     rulesCatalog: null, rulesEdit: {}, initialRulesEdit: {}, rulesSaving: false, scoringPresets: {},
     // AI 规则矫正: 建议仅在人工复核勾选后才应用
+    // showCalibration=false: v0.3 暂隐藏入口 (后端能力保留), 启用时翻 true 即恢复
+    showCalibration: false,
     calibration: {
       provider: 'deepseek', result: null, checked: {},
       showRaw: false, applying: false, loaded: false,

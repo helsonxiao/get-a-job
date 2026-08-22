@@ -6,15 +6,15 @@
 <title>坑位图鉴 — 个人猎头系统</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
 <script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js"></script>
-<script src="/static/core/icons.js?v=9"></script>
-<script src="/static/core/store.js?v=9"></script>
-<script src="/static/views/observatory.js?v=9"></script>
-<script src="/static/app.js?v=9"></script>
-<script defer src="/static/alpine.min.js?v=9"></script>
-<link rel="stylesheet" href="/static/styles/base.css?v=9">
-<link rel="stylesheet" href="/static/style.css?v=9">
-<link rel="stylesheet" href="/static/styles/observatory.css?v=9">
-<link rel="stylesheet" href="/static/styles/calibration.css?v=9">
+<script src="/static/core/icons.js?v=10"></script>
+<script src="/static/core/store.js?v=10"></script>
+<script src="/static/views/observatory.js?v=10"></script>
+<script src="/static/app.js?v=10"></script>
+<script defer src="/static/alpine.min.js?v=10"></script>
+<link rel="stylesheet" href="/static/styles/base.css?v=10">
+<link rel="stylesheet" href="/static/style.css?v=10">
+<link rel="stylesheet" href="/static/styles/observatory.css?v=10">
+<link rel="stylesheet" href="/static/styles/calibration.css?v=10">
 </head>
 <body x-data="app()" x-init="init()" x-cloak
       @obs-open-company.window="openCompany($event.detail.brandId)"
@@ -84,7 +84,7 @@
         <span x-show="!selectMode">批量</span>
         <span x-show="selectMode">退出批量</span>
       </button>
-      <button @click="showConfig = !showConfig; if(showConfig){ configTab='rules'; loadRules(); loadCalibration(); }" :class="{primary: showConfig}">
+      <button @click="showConfig = !showConfig; if(showConfig){ configTab='rules'; loadRules(); if(showCalibration) loadCalibration(); }" :class="{primary: showConfig}">
         <i data-lucide="settings"></i>
         <span>规则配置</span>
       </button>
@@ -122,7 +122,9 @@
     <div x-show="configTab==='rules'" class="config-body">
       <div class="config-body-inner">
       <!-- AI 规则矫正: 市场数据 + 当前预期 → 大模型建议 → 人工复核应用 -->
-      <div class="calib-card" x-data="{ }">
+      <!-- v0.3 暂不开放: 待矫正建议质量验证后再启用 (app.js showCalibration 翻 true 即恢复) -->
+      <template x-if="showCalibration">
+      <div class="calib-card">
         <div class="calib-head">
           <div class="calib-title">
             <i data-lucide="wand-2"></i>
@@ -232,6 +234,7 @@
           还没有矫正记录。点击「生成矫正建议」, 大模型将基于市场观察台数据分析你的配置。
         </div>
       </div>
+      </template>
 
       <template x-if="rulesCatalog">
         <div>
