@@ -1,0 +1,54 @@
+<!-- ============================================
+     VIEW: RESUME — 主简历 (逻辑 views/resume.js · 样式 styles/resume.css)
+     岛声明 (x-data/事件) 在 index.html 挂载点 [data-tpl="resume"],
+     由 loader 在 Alpine 启动前注入本片段。
+     ============================================ -->
+    <div class="config-tabs">
+      <button class="active">
+        <i data-lucide="file-text"></i>
+        <span>主简历 (Markdown)</span>
+      </button>
+      <button @click="$store.core.switchView('jobs')" style="margin-left:auto; border-bottom: 2px solid transparent;">
+        <i data-lucide="x"></i>
+        <span>关闭</span>
+      </button>
+    </div>
+    <div class="config-body">
+      <div class="config-body-inner">
+      <div class="config-meta">
+        <span>状态: <strong x-text="resumeData.exists ? '已上传' : '未上传'"></strong></span>
+        <span x-show="resumeData.exists">字数: <strong x-text="resumeData.size"></strong></span>
+        <span x-show="resumeData.exists" style="color: var(--gaj-state-success); display: inline-flex; align-items: center; gap: 4px;">
+          <i data-lucide="check-circle"></i> AI 打分会自动融入此简历
+        </span>
+      </div>
+      <div class="resume-upload-area">
+        <input type="file" accept=".md,.markdown,text/markdown,text/plain"
+               @change="onResumeFile($event)" x-ref="resumeFileInput"
+               style="display:none">
+        <button @click="$refs.resumeFileInput.click()">
+          <i data-lucide="upload"></i>
+          <span>选择 .md 文件上传</span>
+        </button>
+        <span style="color: var(--gaj-foreground-3); font-size: var(--gaj-font-size-xs);">或直接在下方粘贴/编辑</span>
+      </div>
+      <textarea class="resume-editor" x-model="resumeData.content"
+                placeholder="在此粘贴或编辑你的 Markdown 简历...&#10;&#10;建议包含: 个人信息、专业技能、工作经历、项目经历、教育背景。&#10;这份简历会作为 AI 打分的人岗匹配参考, 也会用于针对性简历生成。"
+                spellcheck="false"></textarea>
+      <div class="profile-actions">
+        <button @click="saveResume()" :disabled="resumeSaving" class="primary">
+          <i data-lucide="save"></i>
+          <span x-show="!resumeSaving">保存简历</span>
+          <span x-show="resumeSaving">保存中...</span>
+        </button>
+        <button @click="clearResume()" x-show="resumeData.exists" class="danger">
+          <i data-lucide="trash-2"></i>
+          <span>清空</span>
+        </button>
+        <span x-show="resumeSavedAt" style="color: var(--gaj-state-success); font-size: var(--gaj-font-size-xs); display: inline-flex; align-items: center; gap: 4px;">
+          <i data-lucide="check"></i> 已保存 <span x-text="resumeSavedAt"></span>
+        </span>
+      </div>
+      </div>
+    </div>
+

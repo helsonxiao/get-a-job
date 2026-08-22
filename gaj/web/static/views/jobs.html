@@ -1,0 +1,507 @@
+<!-- ============================================
+     VIEW: JOBS — 职位列表 + 详情 (逻辑 views/jobs.js · 样式 styles/jobs.css)
+     岛声明 (x-data/事件) 在 index.html 挂载点 [data-tpl="jobs"],
+     由 loader 在 Alpine 启动前注入本片段。
+     ============================================ -->
+    <!-- Job List -->
+    <div class="list-panel">
+      <div class="filters">
+        <div class="search-input">
+          <i data-lucide="search"></i>
+          <input type="text" placeholder="搜索职位/公司/技能..." x-model="filters.search" @input.debounce.300ms="loadJobs()">
+        </div>
+        <div class="filter-row">
+          <select class="filter-select" x-model="filters.city" @change="loadJobs()">
+            <option value="">全部城市</option>
+            <template x-for="c in $store.core.stats.cities || []" :key="c.value">
+              <option :value="c.value" x-text="c.value + ' (' + c.count + ')'"></option>
+            </template>
+          </select>
+          <select class="filter-select" x-model="filters.status" @change="loadJobs()">
+            <option value="">全部状态</option>
+            <option value="PASS">通过</option>
+            <option value="REVIEW">待复核</option>
+            <option value="REJECTED">已淘汰</option>
+          </select>
+          <select class="filter-select" x-model="filters.scored" @change="loadJobs()">
+            <option value="all">全部</option>
+            <option value="none">未打分</option>
+            <option value="rule_only">仅规则</option>
+            <option value="ai">有AI打分</option>
+            <option value="no_ai">无AI打分</option>
+          </select>
+          <select class="filter-select" x-model="filters.favorite" @change="loadJobs()">
+            <option value="all">全部收藏</option>
+            <option value="only">只看收藏</option>
+            <option value="exclude">排除收藏</option>
+          </select>
+          <select class="filter-select" x-model="filters.ignored" @change="loadJobs()">
+            <option value="exclude">排除忽略</option>
+            <option value="all">含忽略</option>
+            <option value="only">只看忽略</option>
+          </select>
+          <select class="filter-select" x-model="filters.sort" @change="loadJobs()">
+            <option value="best_total">最佳分数</option>
+            <option value="rule_total">规则分</option>
+            <option value="latest_ai_total">AI分</option>
+            <option value="salary_max">薪资上限</option>
+            <option value="salary_min">薪资下限</option>
+            <option value="salary_mid">薪资中位</option>
+            <option value="favorited_at">收藏时间</option>
+            <option value="last_seen">最近抓取</option>
+            <option value="first_seen">首次抓取</option>
+            <option value="quality_score">数据质量</option>
+            <option value="jd_length">JD长度</option>
+            <option value="exp_max">经验上限</option>
+            <option value="title">职位名</option>
+          </select>
+        </div>
+      </div>
+      <!-- 批量操作工具栏 -->
+      <div class="batch-bar" x-show="selectedIds.length > 0" x-cloak>
+        <span x-text="'已选 ' + selectedIds.length + ' 个'"></span>
+        <button @click="batchDelete()" class="danger" :disabled="batchDeleting">
+          <i data-lucide="trash-2"></i>
+          <span x-show="!batchDeleting">删除选中</span>
+          <span x-show="batchDeleting">删除中...</span>
+        </button>
+        <button @click="clearSelection()">取消选择</button>
+        <button @click="selectAllOnPage()">全选本页</button>
+      </div>
+      <div class="job-list">
+        <div class="loading" x-show="jobsLoading">加载中...</div>
+        <div class="empty" x-show="!jobsLoading && jobs.length === 0">
+          <i data-lucide="inbox" style="width:32px;height:32px;color:var(--gaj-foreground-4);margin-bottom:8px;"></i>
+          <div>没有匹配的职位</div>
+        </div>
+        <template x-for="job in jobs" :key="job.job_id">
+          <div class="job-item" :class="{active: selectedJobId === job.job_id, selected: selectedIds.includes(job.job_id)}" @click="selectJob(job.job_id)">
+            <div class="job-item-top">
+              <input type="checkbox" :checked="selectedIds.includes(job.job_id)" @click.stop="toggleSelect(job.job_id)" x-show="$store.core.ui.selectMode">
+              <div class="title" x-text="job.title"></div>
+              <span class="fav-badge" x-show="job.favorite" title="已收藏岗位">
+                <i data-lucide="star" fill="currentColor"></i>
+                <span>已藏</span>
+              </span>
+              <button class="ignore-btn" @click.stop="toggleIgnore(job.job_id, !job.ignored)" :class="{on: job.ignored}">
+                <i data-lucide="eye-off"></i>
+                <span x-show="!job.ignored">忽略</span>
+                <span x-show="job.ignored">已忽略</span>
+              </button>
+            </div>
+            <div class="meta">
+              <span x-text="job.company_name || '未知'"></span>
+              <span class="sep">·</span>
+              <span x-text="job.city || ''"></span>
+              <span class="sep">·</span>
+              <span class="salary" x-text="job.salary_raw || '面议'"></span>
+            </div>
+            <div class="scores">
+              <template x-if="job.rule_status">
+                <span class="score-label" :class="job.rule_status.toLowerCase()" x-text="job.rule_status + ' ' + (job.rule_total || 0).toFixed(1)"></span>
+              </template>
+              <template x-if="job.rule_status">
+                <div class="score-bar-track">
+                  <div class="score-bar-fill" :style="'width:' + Math.min(100, (job.rule_total || 0) * 10) + '%; background:' + ({PASS:'var(--gaj-state-success)',REVIEW:'var(--gaj-state-warning)',REJECTED:'var(--gaj-state-error)'}[job.rule_status] || 'var(--gaj-foreground-3)')"></div>
+                </div>
+              </template>
+              <template x-if="!job.rule_status">
+                <span class="score-label none">未打分</span>
+              </template>
+              <template x-if="job.ai_count > 0">
+                <span class="badge ai" :title="'AI 打分 ' + job.ai_count + ' 次'">
+                  <i data-lucide="bot"></i>
+                  <span x-text="job.ai_count + 'x'"></span>
+                  <span x-show="job.latest_ai_total" x-text="job.latest_ai_total ? job.latest_ai_total.toFixed(1) : ''"></span>
+                </span>
+              </template>
+              <template x-if="job.ai_needed && job.ai_count === 0">
+                <span class="badge review">需AI</span>
+              </template>
+              <template x-if="job.ai_stale">
+                <span class="badge stale"
+                      :title="'需重打: ' + (job.ai_stale_reason === 'context_changed' ? '打分预期已变化' : job.ai_stale_reason === 'expired' ? '分数超过保鲜期' : (job.ai_stale_reason || '分数过时'))">
+                  <i data-lucide="refresh-cw"></i>
+                  <span>需重打</span>
+                </span>
+              </template>
+            </div>
+            <div class="skills-row" x-show="job.skills && job.skills.length">
+              <template x-for="sk in (job.skills || []).slice(0, 5)" :key="sk">
+                <span class="tag" x-text="sk"></span>
+              </template>
+              <span class="tag" x-show="(job.skills || []).length > 5" style="color:var(--gaj-foreground-3)" x-text="'+' + ((job.skills || []).length - 5)"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div class="pagination">
+        <button class="page-btn" @click="prevPage()" :disabled="filters.offset === 0"><i data-lucide="chevron-left"></i></button>
+        <span style="font-size:var(--gaj-font-size-xs);color:var(--gaj-foreground-2);line-height:28px" x-text="(filters.offset + 1) + '-' + Math.min(filters.offset + jobs.length, jobsTotal) + ' / ' + jobsTotal"></span>
+        <button class="page-btn" @click="nextPage()" :disabled="filters.offset + jobs.length >= jobsTotal"><i data-lucide="chevron-right"></i></button>
+      </div>
+      <div class="list-resizer" @mousedown="startResize($event)"></div>
+    </div>
+
+    <!-- Job Detail -->
+    <div class="detail-panel">
+      <div class="loading" x-show="detailLoading">加载中...</div>
+      <div class="empty" x-show="!detailLoading && !detail">
+        <i data-lucide="mouse-pointer-click" style="width:32px;height:32px;color:var(--gaj-foreground-4);margin-bottom:8px;"></i>
+        <div>选择左侧职位查看详情</div>
+      </div>
+      <template x-if="detail && !detailLoading">
+      <div class="detail-content" x-cloak x-data="{scrolled: false, activeSection: 'sec-basic', scrollToSection(id) { const el = document.getElementById(id); if (!el) return; const panel = el.closest('.detail-panel'); panel.scrollTo({top: el.offsetTop - 60, behavior: 'smooth'}); this.activeSection = id; }, trackSection(panel) { const ids = ['sec-basic','sec-rule','sec-manual','sec-ai','sec-jd','sec-company']; const panelTop = panel.getBoundingClientRect().top; for (let i = ids.length - 1; i >= 0; i--) { const s = document.getElementById(ids[i]); if (s && s.getBoundingClientRect().top - panelTop < 100) { this.activeSection = ids[i]; break; } } }}" x-init="$nextTick(() => { const el = document.querySelector('.detail-panel'); if (el) el.addEventListener('scroll', () => { scrolled = el.scrollTop > 180; trackSection(el); }); })">
+        <!-- 滚动悬浮摘要条: 含操作按钮, 滚动时固定顶部 -->
+        <div class="sticky-job-summary" :class="{show: scrolled}">
+          <div class="sjs-info">
+            <span class="sjs-title" x-text="detail.job.title"></span>
+            <span class="sjs-sep">·</span>
+            <span class="sjs-company" x-text="detail.company?.name || detail.job.company_name || '未知'"></span>
+            <span class="sjs-sep">·</span>
+            <span class="sjs-salary" x-text="detail.job.salary?.raw || '面议'"></span>
+            <span class="sjs-sep">·</span>
+            <span class="sjs-city" x-text="detail.job.city || ''"></span>
+            <template x-if="detail.rule_score">
+              <span class="sjs-score">
+                <span class="sjs-sep">·</span>
+                <span class="badge" :class="detail.rule_score.status.toLowerCase()" x-text="detail.rule_score.status"></span>
+                <span class="sjs-total" x-text="(detail.rule_score.total_score || 0).toFixed(1) + '/10'"></span>
+              </span>
+            </template>
+          </div>
+          <div class="sjs-actions" x-show="scrolled">
+            <button class="primary" @click="triggerAiScore()" :disabled="$store.core.taskRunning('ai-score-' + selectedJobId + '-' + $store.core.aiProvider)"><i data-lucide="bot"></i><span>打分</span></button>
+            <button @click="triggerAiScore(true)" :disabled="$store.core.taskRunning('ai-score-' + selectedJobId + '-' + $store.core.aiProvider)"><i data-lucide="file-text"></i><span>深度</span></button>
+            <button title="实验性功能：简历优化尚未充分测试，欢迎反馈改进" @click="triggerResume()" :disabled="$store.core.taskRunning('resume-' + selectedJobId + '-' + $store.core.aiProvider)"><i data-lucide="file-text"></i><span>简历</span></button>
+            <button @click="toggleFavorite(selectedJobId, !detail.job.favorite)" :class="{primary: detail.job.favorite}"><i data-lucide="star" :fill="detail.job.favorite ? 'currentColor' : 'none'"></i><span x-text="detail.job.favorite ? '已藏' : '收藏'"></span></button>
+            <button @click="toggleIgnore(selectedJobId, !detail.job.ignored)" :class="{primary: detail.job.ignored}"><i data-lucide="eye-off"></i><span x-text="detail.job.ignored ? '已忽略' : '忽略'"></span></button>
+            <button class="danger" @click="if(confirm('确认删除职位「' + detail.job.title + '」? 此操作不可恢复')) deleteJob(selectedJobId)"><i data-lucide="trash-2"></i><span>删除</span></button>
+          </div>
+        </div>
+        <div class="detail-layout">
+        <nav class="section-nav">
+          <a class="nav-link" :class="{active: activeSection==='sec-basic'}" @click="scrollToSection('sec-basic')"><i data-lucide="info"></i>基础信息</a>
+          <a class="nav-link" :class="{active: activeSection==='sec-rule'}" @click="scrollToSection('sec-rule')" x-show="detail.rule_score"><i data-lucide="bar-chart-3"></i>规则打分</a>
+          <a class="nav-link" :class="{active: activeSection==='sec-manual'}" @click="scrollToSection('sec-manual')"><i data-lucide="hand"></i>人工调分</a>
+          <a class="nav-link" :class="{active: activeSection==='sec-ai'}" @click="scrollToSection('sec-ai')" x-show="detail.ai_scores && detail.ai_scores.length"><i data-lucide="bot"></i>AI打分</a>
+          <a class="nav-link" :class="{active: activeSection==='sec-jd'}" @click="scrollToSection('sec-jd')"><i data-lucide="file-text"></i>岗位描述</a>
+          <a class="nav-link" :class="{active: activeSection==='sec-company'}" @click="scrollToSection('sec-company')" x-show="detail.company && detail.company.intro"><i data-lucide="building-2"></i>公司简介</a>
+        </nav>
+        <div class="detail-content-inner">
+        <!-- 标题区: 职位名 + 操作栏 (顶部时) -->
+        <div class="title-row">
+          <h2 x-text="detail.job.title"></h2>
+          <div class="title-actions" x-show="!scrolled">
+            <span class="badge stale" x-show="detail.job.ai_stale"
+                  :title="'需重打: ' + (detail.job.ai_stale_reason === 'context_changed' ? '打分预期已变化' : detail.job.ai_stale_reason === 'expired' ? '分数超过保鲜期' : '分数过时')">
+              <i data-lucide="refresh-cw"></i><span>需重打</span>
+            </span>
+            <select x-model="$store.core.aiProvider" style="min-width:100px">
+              <template x-for="p in $store.core.providers" :key="p">
+                <option :value="p" x-text="p"></option>
+              </template>
+            </select>
+            <button class="primary" @click="triggerAiScore()" :disabled="$store.core.taskRunning('ai-score-' + selectedJobId + '-' + $store.core.aiProvider)">
+              <i data-lucide="bot"></i>
+              <span x-show="!$store.core.taskRunning('ai-score-' + selectedJobId + '-' + $store.core.aiProvider)">打分</span>
+              <span x-show="$store.core.taskRunning('ai-score-' + selectedJobId + '-' + $store.core.aiProvider)">打分中</span>
+            </button>
+            <button @click="triggerAiScore(true)" :disabled="$store.core.taskRunning('ai-score-' + selectedJobId + '-' + $store.core.aiProvider)"><i data-lucide="file-text"></i><span>深度</span></button>
+            <button title="实验性功能：简历优化尚未充分测试，欢迎反馈改进" @click="triggerResume()" :disabled="$store.core.taskRunning('resume-' + selectedJobId + '-' + $store.core.aiProvider)"><i data-lucide="file-text"></i><span>简历</span></button>
+            <button @click="toggleFavorite(selectedJobId, !detail.job.favorite)" :class="{primary: detail.job.favorite}"><i data-lucide="star" :fill="detail.job.favorite ? 'currentColor' : 'none'"></i><span x-text="detail.job.favorite ? '已藏' : '收藏'"></span></button>
+            <button @click="toggleIgnore(selectedJobId, !detail.job.ignored)" :class="{primary: detail.job.ignored}"><i data-lucide="eye-off"></i><span x-text="detail.job.ignored ? '已忽略' : '忽略'"></span></button>
+            <button class="danger" @click="if(confirm('确认删除职位「' + detail.job.title + '」? 此操作不可恢复')) deleteJob(selectedJobId)"><i data-lucide="trash-2"></i><span>删除</span></button>
+          </div>
+        </div>
+        <div class="detail-subtitle">
+          <span x-text="detail.company?.name || detail.job.company_name || '未知'"></span>
+          <span class="sep">·</span>
+          <span class="salary-tag" x-text="detail.job.salary?.raw || '面议'"></span>
+          <span class="sep">·</span>
+          <span x-text="detail.job.city + (detail.job.district ? ' ' + detail.job.district : '')"></span>
+          <span class="sep">·</span>
+          <a :href="detail.job.url" target="_blank">BOSS直聘 <i data-lucide="external-link"></i></a>
+        </div>
+
+        <!-- 基础信息卡片 -->
+        <div class="detail-section" id="sec-basic">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="info"></i>
+              <span>基础信息</span>
+            </div>
+            <span class="card-hint" x-text="'抓取于 ' + (detail.job.last_seen || '-')"></span>
+          </div>
+          <div class="info-grid">
+            <div class="info-item"><span class="label">公司</span><span class="info-value" x-text="detail.company?.name || detail.job.company_name || '未知'"></span></div>
+            <div class="info-item"><span class="label">行业</span><span class="info-value" x-text="detail.company?.industry || '-'"></span></div>
+            <div class="info-item"><span class="label">薪资</span><span class="info-value salary" style="color:var(--gaj-state-orange);font-weight:600" x-text="detail.job.salary?.raw || '面议'"></span></div>
+            <div class="info-item"><span class="label">城市</span><span class="info-value" x-text="detail.job.city + (detail.job.district ? ' ' + detail.job.district : '')"></span></div>
+            <div class="info-item"><span class="label">经验</span><span class="info-value" x-text="detail.job.experience?.raw || '不限'"></span></div>
+            <div class="info-item"><span class="label">学历</span><span class="info-value" x-text="detail.job.education?.raw || '不限'"></span></div>
+            <div class="info-item"><span class="label">规模</span><span class="info-value" x-text="detail.company?.scale_raw || '-'"></span></div>
+            <div class="info-item"><span class="label">阶段</span><span class="info-value" x-text="detail.company?.stage || '-'"></span></div>
+            <div class="info-item" style="grid-column: 1 / -1"><span class="label">技能</span><span class="info-value" x-text="(detail.job.skills || []).join(', ') || '-'"></span></div>
+            <div class="info-item" style="grid-column: 1 / -1"><span class="label">福利</span><span class="info-value" x-text="(detail.job.welfare || []).join(', ') || '-'"></span></div>
+            <div class="info-item" style="grid-column: 1 / -1"><span class="label">地址</span><span class="info-value" x-text="detail.job.address || '-'"></span></div>
+            <div class="info-item">
+              <span class="label">坐标</span>
+              <template x-if="detail.job.gps">
+                <span class="info-value" style="color:var(--gaj-foreground-2);font-size:var(--gaj-font-size-xs)" x-text="detail.job.gps.lng + ', ' + detail.job.gps.lat"></span>
+              </template>
+              <template x-if="!detail.job.gps">
+                <span style="color:var(--gaj-foreground-3)">未记录</span>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <!-- Rule Score -->
+        <div class="detail-section" id="sec-rule" x-show="detail.rule_score">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="bar-chart-3"></i>
+              <span>规则打分</span>
+            </div>
+            <span class="card-hint" x-text="detail.rule_score.rules_version ? 'v' + detail.rule_score.rules_version : ''"></span>
+          </div>
+          <div class="score-card">
+            <div class="score-summary">
+              <div class="header-row">
+                <span class="badge" :class="detail.rule_score.status.toLowerCase()" x-text="detail.rule_score.status"></span>
+                <span class="total" x-text="(detail.rule_score.total_score || 0).toFixed(1) + '/10'"></span>
+                <span style="color:var(--gaj-foreground-3);font-size:var(--gaj-font-size-sm)" x-text="'(' + (detail.rule_score.total_100 || 0).toFixed(0) + '分)'"></span>
+              </div>
+            </div>
+            <!-- 维度条形图 -->
+            <div class="dim-bars">
+              <template x-for="(val, key) in detail.rule_score.dimension_scores || {}" :key="key">
+                <div class="dim-bar-row">
+                  <span class="lbl" x-text="{finance:'财务',growth:'成长',resource:'资源',wlb:'WLB'}[key] || key"></span>
+                  <div class="dim-bar-track">
+                    <div class="dim-bar-fill" :style="'width:' + Math.min(100, (val || 0) * 10) + '%; background:' + ((val || 0) >= 8 ? 'var(--gaj-state-success)' : ((val || 0) >= 6 ? 'var(--gaj-state-warning)' : 'var(--gaj-state-error)'))"></div>
+                  </div>
+                  <span class="val" x-text="(val || 0).toFixed(1)"></span>
+                </div>
+              </template>
+            </div>
+            <!-- Hard Checks (只展示命中的) -->
+            <template x-if="detail.rule_score.hard_checks && detail.rule_score.hard_checks.filter(h => h.hit).length">
+              <div class="hard-checks-list">
+                <div class="hc-title">命中规则明细</div>
+                <template x-for="hc in detail.rule_score.hard_checks.filter(h => h.hit)" :key="hc.code">
+                  <div class="hard-check-item" :class="{'fatal': hc.fatal, 'suspicion': !hc.fatal}">
+                    <div class="hc-header">
+                      <span class="hc-code" x-text="hc.code"></span>
+                      <span class="hc-label" x-text="hc.label"></span>
+                      <span class="hc-verdict">
+                        <span x-show="hc.fatal" style="display:inline-flex;align-items:center;gap:3px;"><i data-lucide="x-circle"></i>淘汰</span>
+                        <span x-show="!hc.fatal" style="display:inline-flex;align-items:center;gap:3px;"><i data-lucide="help-circle"></i>存疑→AI</span>
+                      </span>
+                    </div>
+                    <div class="hc-reason" x-text="hc.reason"></div>
+                    <div class="hc-confidence" x-show="hc.confidence < 1.0">
+                      置信度 <span x-text="(hc.confidence*100).toFixed(0) + '%'"></span>
+                      <span x-text="hc.confidence >= hc.floor ? '≥' : '<'"></span>
+                      下限 <span x-text="(hc.floor*100).toFixed(0) + '%'"></span>
+                    </div>
+                    <template x-if="hc.evidence && hc.evidence.length">
+                      <div class="hc-evidence">
+                        证据: <span x-text="hc.evidence.join('、')"></span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <div style="margin-top:8px;font-size:var(--gaj-font-size-xs);color:var(--gaj-foreground-2);display:flex;align-items:center;gap:4px;" x-show="detail.rule_score.reject_reason">
+              <i data-lucide="alert-circle" style="color:var(--gaj-state-error)"></i>
+              <span style="color:var(--gaj-state-error)">淘汰: </span><span x-text="detail.rule_score.reject_reason"></span>
+            </div>
+            <template x-for="w in detail.rule_score.warnings || []" :key="w">
+              <div style="font-size:var(--gaj-font-size-xs);color:var(--gaj-state-warning);margin-top:4px;display:flex;align-items:center;gap:4px;">
+                <i data-lucide="alert-triangle"></i><span x-text="w"></span>
+              </div>
+            </template>
+            <template x-for="t in detail.rule_score.triggered_ai_rules || []" :key="t.code">
+              <div style="font-size:var(--gaj-font-size-xs);color:var(--gaj-state-purple);margin-top:4px;display:flex;align-items:center;gap:4px;">
+                <i data-lucide="arrow-right"></i><strong x-text="t.code"></strong> <span x-text="t.reason"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Manual Override -->
+        <div class="detail-section" id="sec-manual">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="hand"></i>
+              <span>人工调分</span>
+            </div>
+          </div>
+          <div class="manual-override-box">
+            <template x-if="detail.job.manual_override && detail.job.manual_override.total !== undefined && detail.job.manual_override.total !== null">
+              <div class="manual-current">
+                <span>当前人工调分: <strong style="color:var(--gaj-state-orange);font-size:var(--gaj-font-size-lg)" x-text="(detail.job.manual_override.total || 0).toFixed(1) + ' 分'"></strong></span>
+                <span style="color:var(--gaj-foreground-3);margin-left:8px" x-text="detail.job.manual_override.at ? '于 ' + detail.job.manual_override.at : ''"></span>
+                <div class="manual-note-display" x-show="detail.job.manual_override.note" x-text="'备注: ' + detail.job.manual_override.note"></div>
+              </div>
+            </template>
+            <div class="manual-edit-row">
+              <label>调整分数:</label>
+              <input type="number" step="0.1" min="0" max="100" style="width:80px"
+                     x-model="manualEdit.total"
+                     :placeholder="detail.job.manual_override && detail.job.manual_override.total != null ? detail.job.manual_override.total.toFixed(1) : '如 7.5'">
+              <label style="margin-left:8px">备注:</label>
+              <input type="text" style="flex:1;min-width:200px"
+                     x-model="manualEdit.note"
+                     placeholder="如: 条件太苛刻实际可接受 / 简历没写充分其实匹配 / ...">
+              <button class="primary" @click="saveManualOverride()" :disabled="manualSaving">
+                <i data-lucide="save"></i>
+                <span x-show="!manualSaving">保存</span>
+                <span x-show="manualSaving">⏳</span>
+              </button>
+              <button @click="clearManualOverride()" x-show="detail.job.manual_override && detail.job.manual_override.total != null" class="danger">
+                <i data-lucide="x"></i><span>清除</span>
+              </button>
+            </div>
+            <div style="font-size:var(--gaj-font-size-xs);color:var(--gaj-foreground-3);margin-top:6px">
+              人工调分会覆盖 AI/规则分用于排序。备注会在后续生成简历时引用。
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Scores -->
+        <div class="detail-section" id="sec-ai" x-show="detail.ai_scores && detail.ai_scores.length > 0">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="bot" style="color: var(--gaj-state-purple);"></i>
+              <span>AI 打分</span>
+            </div>
+            <span class="card-hint" x-text="detail.ai_scores.length + ' 次'"></span>
+          </div>
+          <!-- 分数轨迹: 预期调整前后分数的变化一目了然 -->
+          <div class="ai-sparkline" x-data="{sp: null}"
+               x-effect="detail; sp = (detail && detail.ai_scores) ? sparklineData(detail.ai_scores) : null"
+               x-show="sp && sp.dots.length >= 2">
+            <div class="spark-title">
+              <i data-lucide="trending-up"></i>
+              <span>分数轨迹</span>
+              <span class="spark-count" x-show="sp" x-text="sp ? sp.dots.length + ' 次打分, 左旧右新' : ''"></span>
+            </div>
+            <svg :viewBox="'0 0 ' + (sp ? sp.w : 240) + ' 56'" class="spark-svg" preserveAspectRatio="none" x-show="sp">
+              <polyline :points="sp ? sp.points : ''" class="spark-line"></polyline>
+              <g x-html="sp ? sparkDotsSvg(sp) : ''"></g>
+            </svg>
+          </div>
+          <template x-for="s in detail.ai_scores" :key="s._file || s.created_at">
+            <div class="ai-score-section">
+              <div class="header-row">
+                <span class="provider" x-text="'🤖 ' + s.provider"></span>
+                <span class="badge" :class="s.status.toLowerCase()" x-text="s.status"></span>
+                <template x-if="s.status !== 'PARSE_FAILED'">
+                  <span class="total" style="font-size:var(--gaj-font-size-lg)" x-text="(s.total_score || 0).toFixed(1) + '/10'"></span>
+                </template>
+                <template x-if="s.status !== 'PARSE_FAILED'">
+                  <span class="badge ai" x-text="s.recommendation"></span>
+                </template>
+                <span style="color:var(--gaj-foreground-3);margin-left:auto;font-size:var(--gaj-font-size-xs)" x-text="s.created_at"></span>
+                <button class="danger" style="padding:4px 10px;font-size:var(--gaj-font-size-xs)" @click="deleteAiScore(s._file)"><i data-lucide="trash-2"></i></button>
+              </div>
+              <!-- 解析失败: 显示编辑入口 -->
+              <template x-if="s.status === 'PARSE_FAILED'">
+                <div class="parse-failed-box">
+                  <div style="color:var(--gaj-state-warning);font-size:var(--gaj-font-size-sm);margin-bottom:6px;display:flex;align-items:center;gap:4px;">
+                    <i data-lucide="alert-triangle"></i> JSON 解析失败, 可人工编辑后重新解析
+                  </div>
+                  <textarea x-model="s._edit_text" class="raw-edit-textarea" placeholder="编辑 AI 原始回复..." x-init="s._edit_text = s._edit_text || s.raw_response || ''"></textarea>
+                  <div style="margin-top:6px;display:flex;gap:6px">
+                    <button class="primary" style="padding:4px 12px;font-size:var(--gaj-font-size-xs)" @click="reparseAi(job_id_for_detail(), s._file)" :disabled="reparseFile === s._file">
+                      <i data-lucide="refresh-cw"></i>
+                      <span x-show="reparseFile !== s._file">重新解析</span>
+                      <span x-show="reparseFile === s._file">解析中</span>
+                    </button>
+                  </div>
+                </div>
+              </template>
+              <!-- 解析成功: 正常展示 -->
+              <template x-if="s.status !== 'PARSE_FAILED'">
+                <div>
+                  <div class="dims">
+                    <template x-for="key in ['finance','growth','resource','wlb']" :key="key">
+                      <div class="dim">
+                        <span class="lbl" x-text="{finance:'财务',growth:'成长',resource:'资源',wlb:'WLB'}[key]"></span>
+                        <div class="dim-bar-track">
+                          <div class="dim-bar-fill" :style="'width:' + Math.min(100, ((s.dimension_scores || {})[key] || 0) * 10) + '%; background:' + (((s.dimension_scores || {})[key] || 0) >= 8 ? 'var(--gaj-state-success)' : (((s.dimension_scores || {})[key] || 0) >= 6 ? 'var(--gaj-primary)' : 'var(--gaj-state-warning)'))"></div>
+                        </div>
+                        <span class="val" x-text="((s.dimension_scores || {})[key] || 0).toFixed(1)"></span>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="reason" x-show="s.recommendation_reason" x-text="s.recommendation_reason"></div>
+                  <div class="tags">
+                    <template x-for="h in s.highlights || []" :key="h">
+                      <div class="tag highlight"><i data-lucide="plus"></i><span x-text="h"></span></div>
+                    </template>
+                    <template x-for="r in s.risks || []" :key="r">
+                      <div class="tag risk"><i data-lucide="alert-triangle"></i><span x-text="r"></span></div>
+                    </template>
+                    <template x-for="t in s.interview_tips || []" :key="t">
+                      <div class="tag tip"><i data-lucide="lightbulb"></i><span x-text="t"></span></div>
+                    </template>
+                  </div>
+                  <div class="reason" x-show="s.deep_analysis_report" style="white-space:pre-wrap;border-top:1px solid var(--gaj-border);padding-top:8px;margin-top:8px" x-text="s.deep_analysis_report"></div>
+                  <!-- 查看原始回复 + 重新解析 -->
+                  <div style="margin-top:8px;border-top:1px solid var(--gaj-border);padding-top:8px">
+                    <button style="font-size:var(--gaj-font-size-xs);padding:4px 10px;background:var(--gaj-surface-2);border:1px solid var(--gaj-border);border-radius:var(--gaj-radius-sm);color:var(--gaj-foreground-2);cursor:pointer;display:inline-flex;align-items:center;gap:4px;" @click="reparseExpand = (reparseExpand === s._file ? '' : s._file)">
+                      <i data-lucide="file-text"></i>
+                      <span x-show="reparseExpand !== s._file">查看原始回复</span>
+                      <span x-show="reparseExpand === s._file">收起</span>
+                    </button>
+                    <template x-if="reparseExpand === s._file">
+                      <div style="margin-top:6px">
+                        <textarea x-model="s._edit_text" class="raw-edit-textarea" placeholder="编辑 AI 原始回复..." x-init="s._edit_text = s._edit_text || s.raw_response || ''"></textarea>
+                        <div style="margin-top:6px;display:flex;gap:6px">
+                          <button class="primary" style="padding:4px 12px;font-size:var(--gaj-font-size-xs)" @click="reparseAi(job_id_for_detail(), s._file)" :disabled="reparseFile === s._file">
+                            <i data-lucide="refresh-cw"></i>
+                            <span x-show="reparseFile !== s._file">重新解析</span>
+                            <span x-show="reparseFile === s._file">解析中</span>
+                          </button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+
+        <!-- JD -->
+        <div class="detail-section" id="sec-jd">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="file-text"></i>
+              <span>岗位描述</span>
+            </div>
+          </div>
+          <div class="jd-text" x-text="detail.jd_text || detail.job.jd?.full || '无 JD'"></div>
+        </div>
+
+        <!-- Company -->
+        <div class="detail-section" id="sec-company" x-show="detail.company && detail.company.intro">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="building-2"></i>
+              <span>公司简介</span>
+            </div>
+          </div>
+          <div class="jd-text" x-text="detail.company?.intro || ''"></div>
+        </div>
+        </div>
+        </div>
+      </div>
+      </template>
+    </div>
+

@@ -1,7 +1,7 @@
 /* ============================================
    Get A Job — 市场观察台 (Alpine.data 岛)
    4 视角: G1 区域热力 / G2 信号雷达 / S1 技能热度 / S2 薪资定价
-   通过 $store.core.api 调共享层, 不往旧 app.js 塞状态。
+   通过 $store.core 调共享层; 跨视图跳转走 store.openJob/openCompany。
    所有图表纯 SVG, 无 CDN 依赖, 遵循项目硬约束。
    ============================================ */
 document.addEventListener('alpine:init', () => {
@@ -96,21 +96,21 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
-    // 公司点击: 抽屉打开 → 在抽屉内加载公司详情; 否则 → 根 app 公司抽屉
+    // 公司点击: 抽屉打开 → 在抽屉内加载公司详情; 否则 → 跳公司图鉴抽屉 (store 切 view)
     openCompany(brandId) {
       if (this.drill) {
         this.openDrillCompany(brandId);
       } else {
-        this.$dispatch('obs-open-company', { brandId });
+        Alpine.store('core').openCompany(brandId);
       }
     },
 
-    // 岗位卡片点击: 抽屉打开 → 在抽屉内加载岗位详情; 否则 → 根 app 职位详情
+    // 岗位卡片点击: 抽屉打开 → 在抽屉内加载岗位详情; 否则 → 跳职位视图详情 (store 切 view)
     openJob(jobId) {
       if (this.drill) {
         this.openDrillJob(jobId);
       } else {
-        this.$dispatch('obs-open-job', { jobId });
+        Alpine.store('core').openJob(jobId);
       }
     },
 

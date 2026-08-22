@@ -1,0 +1,252 @@
+/* ============================================
+   Get A Job — 规则配置视图样式 (对应 views/config.js)
+   规则概览 (硬规则卡/维度评分/配比预设) + 画像编辑表单。
+   AI 矫正卡片样式在 calibration.css。
+   ============================================ */
+/* === Config Panel === */
+.config-panel {
+  background: var(--gaj-bg);
+  border-bottom: 1px solid var(--gaj-border);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.config-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 20px;
+  height: 44px;
+  border-bottom: 1px solid var(--gaj-border);
+  background: var(--gaj-surface);
+}
+.config-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 16px;
+  border: none;
+  background: transparent;
+  color: var(--gaj-foreground-2);
+  font-size: var(--gaj-font-size-md);
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+  transition: all var(--gaj-transition-fast);
+}
+.config-tabs button [data-lucide] { width: 16px; height: 16px; }
+.config-tabs button:hover { color: var(--gaj-foreground); background: transparent; }
+.config-tabs button.active {
+  color: var(--gaj-primary);
+  border-bottom-color: var(--gaj-primary);
+}
+.config-tabs button:active, .config-tabs button:focus { outline: none; box-shadow: none; }
+.config-body {
+  padding: 24px 32px;
+  overflow-y: auto;
+  flex: 1;
+}
+.config-body-inner { max-width: 1100px; margin: 0 auto; }
+.config-meta {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 16px;
+  font-size: var(--gaj-font-size-sm);
+  color: var(--gaj-foreground-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.config-meta strong { color: var(--gaj-foreground); font-weight: 600; }
+
+.weight-presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: var(--gaj-bg);
+  border: 1px dashed var(--gaj-border);
+  border-radius: var(--gaj-radius-md);
+}
+.weight-presets .presets-label {
+  font-size: var(--gaj-font-size-sm);
+  color: var(--gaj-foreground-2);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+.preset-btn, .preset-pill {
+  padding: 4px 12px;
+  font-size: var(--gaj-font-size-sm);
+  color: var(--gaj-foreground-2);
+  background: transparent;
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-pill);
+  cursor: pointer;
+  transition: all var(--gaj-transition-fast);
+  white-space: nowrap;
+}
+.preset-btn:hover, .preset-pill:hover {
+  border-color: var(--gaj-primary);
+  color: var(--gaj-primary);
+  background: transparent;
+}
+
+.config-h, .section-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--gaj-font-size-md);
+  font-weight: 600;
+  color: var(--gaj-foreground);
+  margin: 24px 0 12px;
+  border-left: none;
+  padding-left: 0;
+}
+.config-h [data-lucide] { width: 16px; height: 16px; }
+.config-h .heading-hint {
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-3);
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+.dim-block { margin-bottom: 20px; }
+.dim-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: var(--gaj-font-size-sm);
+}
+.dim-header strong { color: var(--gaj-foreground); font-weight: 600; }
+.dim-max {
+  color: var(--gaj-foreground-3);
+  font-size: var(--gaj-font-size-xs);
+}
+.dim-max.over-cap { color: var(--gaj-state-error) !important; }
+.dim-cap-warn { color: var(--gaj-state-error); font-size: var(--gaj-font-size-xs); }
+
+.rule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+}
+.rule-card {
+  background: var(--gaj-bg);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-md);
+  padding: 10px 12px;
+  border-left: 2px solid transparent;
+}
+.rule-card.reject, .rule-card.hard { border-left-color: var(--gaj-state-error); }
+.rule-card.changed { border-left-color: var(--gaj-state-orange); }
+.rule-card.ai { border-left-color: var(--gaj-state-purple); }
+.rule-code {
+  font-size: var(--gaj-font-size-xs);
+  font-weight: 600;
+  color: var(--gaj-foreground-3);
+  font-family: var(--gaj-font-mono);
+  letter-spacing: 0.02em;
+}
+.rule-label {
+  font-size: var(--gaj-font-size-sm);
+  color: var(--gaj-foreground);
+  font-weight: 500;
+  margin: 2px 0 4px;
+}
+.rule-detail {
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-2);
+  line-height: 1.5;
+}
+.rule-max-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  justify-content: flex-end;
+}
+.rule-max-row label {
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-3);
+}
+.rule-max-input {
+  width: 60px;
+  font-size: var(--gaj-font-size-sm);
+  padding: 4px 6px;
+  text-align: center;
+}
+.rule-default {
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-3);
+  cursor: pointer;
+}
+.rule-default:hover { color: var(--gaj-primary); }
+.rule-threshold {
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: var(--gaj-surface-2);
+  border-radius: var(--gaj-radius-sm);
+  font-size: var(--gaj-font-size-xs);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--gaj-foreground-3);
+}
+.rt-label { color: var(--gaj-foreground-3); }
+.rt-value { color: var(--gaj-foreground); font-weight: 500; margin-left: 2px; }
+.rt-source { color: var(--gaj-foreground-3); }
+.rt-edit {
+  margin-left: auto;
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-primary);
+  cursor: pointer;
+}
+.rt-edit:hover { color: var(--gaj-primary-hover); }
+
+/* === Profile Editor === */
+.profile-group {
+  background: var(--gaj-surface);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-md);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.profile-group .config-h { margin-top: 0; }
+.profile-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.profile-field label {
+  font-size: var(--gaj-font-size-sm);
+  color: var(--gaj-foreground-2);
+}
+.profile-field input, .profile-field select { font-size: var(--gaj-font-size-sm); width: 100%; }
+.profile-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 16px 0;
+  border-top: 1px solid var(--gaj-border);
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+.profile-actions button [data-lucide] { width: 14px; height: 14px; }
+
+
+/* === Responsive: narrow screens (配置部分) === */
+@media (max-width: 700px) {
+  .config-body { padding: 16px; }
+  .rule-grid { grid-template-columns: 1fr; }
+  .profile-fields { grid-template-columns: 1fr; }
+}

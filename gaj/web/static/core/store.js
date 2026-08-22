@@ -1,23 +1,40 @@
 /* ============================================
-   Get A Job — Alpine.store 共享层
-   提供 api/toast/stats/tasks/SSE 等跨视图共享功能。
-   视图岛通过 $store.core.xxx 调用, 避免重复实现。
+   Get A Job — Alpine.store 共享层 (core)
+   跨视图共享的唯一真相源: api/toast/stats/tasks/SSE/
+   view 路由/跨视图跳转 (openJob/openCompany)。
+
+   视图岛通过 $store.core.xxx 调用, 禁止各岛自带副本。
+   (架构决策见 .trae/documents/adr-001-frontend-framework.md)
 
    设计要点:
-   - pollTasks 数据层与视图刷新分离: store.fetchTasks() 返回 changed 信号,
-     由组件决定是否刷新视图 (loadJobs/selectJob/loadGuide 等)。
-   - SSE 只负责 logs 数据推送, DOM 滚动由组件通过 x-effect 监听 logs.length 触发。
-   - 轮询调度由 store.startPolling(hook) 启动, hook 通常是组件的 pollTasks 包装。
+   - view 单一状态替代旧 N 个布尔 flag (showGuide/showConfig/...)
+   - pollTasks 数据层与视图刷新分离: store.poll() 在任务状态变化时
+     dispatch 'gaj:refresh' 事件, 各视图岛自行监听刷新。
+   - SSE 只负责 logs 数据推送, DOM 滚动由 log panel 自行 x-effect。
+   - 跨视图跳转 (观察台→职位详情 等) 走 openJob/openCompany:
+     切换 view + dispatch 事件, 目标岛监听后加载。
    ============================================ */
 document.addEventListener('alpine:init', () => {
   Alpine.store('core', {
-    // ---- 状态 ----
+    // ---- 视图路由 (单一真相源) ----
+    // jobs | guide | observatory | config | resume
+    view: 'jobs',
+
+    // ---- 跨视图共享状态 ----
     toasts: [],
     _toastSeq: 0,
     stats: {},
     tasks: {},
     logs: [],
     sseConnected: false,
+    providers: ['deepseek', 'doubao', 'tongyi', 'kimi'],
+    aiProvider: 'deepseek',
+    // header "上传简历" 按钮标签依赖 (resumePanel 加载/保存后回写)
+    resumeExists: false,
+    // header 批量按钮与 jobsPanel 共享的 UI 态
+    ui: { selectMode: false },
+    // 日志面板展开态 (各操作触发任务后置 true 提示看进度)
+    logOpen: false,
 
     // ---- 内部句柄 ----
     _sse: null,
@@ -50,18 +67,44 @@ document.addEventListener('alpine:init', () => {
       this.toasts = this.toasts.filter(t => t.id !== id);
     },
 
+    // ---- 视图切换 ----
+    switchView(v) { this.view = v; },
+    // config/resume 类面板按钮语义: 再点一次回到 jobs 视图
+    toggleView(v) { this.view = (this.view === v) ? 'jobs' : v; },
+
+    // 跨视图跳转: 观察台/图鉴抽屉 → 职位详情 (jobsPanel 监听加载)
+    openJob(jobId) {
+      this.view = 'jobs';
+      window.dispatchEvent(new CustomEvent('gaj:open-job', { detail: { jobId } }));
+    },
+    // 跨视图跳转: 观察台 → 公司抽屉 (guidePanel 监听打开)
+    openCompany(brandId) {
+      this.view = 'guide';
+      window.dispatchEvent(new CustomEvent('gaj:open-company', { detail: { brandId } }));
+    },
+
     // ---- Stats ----
     async loadStats() {
       const d = await this.api('/api/stats');
       if (d) this.stats = d;
     },
 
-    // ---- Tasks 数据层 ----
+    async loadProviders() {
+      const d = await this.api('/api/providers');
+      if (d && d.providers) this.providers = d.providers;
+    },
+
+    // ---- Tasks ----
+    taskRunning(key) {
+      return Object.values(this.tasks).some(t => t.status === 'running' && t.key.includes(key));
+    },
+
     _taskLabel(key) {
       if (key === 'score-all') return '规则打分';
       if (key === 'reindex') return '重建索引';
       if (key.startsWith('ai-score-')) return 'AI 打分';
       if (key.startsWith('company-analyze-')) return '公司 AI 评价';
+      if (key.startsWith('config-calibrate-')) return 'AI 规则矫正';
       if (key.startsWith('resume-')) return '简历生成';
       return '任务';
     },
@@ -97,17 +140,41 @@ document.addEventListener('alpine:init', () => {
       return changed;
     },
 
-    // 启动轮询, hook 通常是组件的 pollTasks 包装 (负责 changed 后的视图刷新)
+    // 轮询入口: 任务状态变化时刷新 stats 并广播, 各视图岛监听 'gaj:refresh' 自行刷新
+    async poll() {
+      const changed = await this.fetchTasks();
+      if (changed) {
+        await this.loadStats();
+        window.dispatchEvent(new Event('gaj:refresh'));
+      }
+    },
+
+    // 启动轮询
     startPolling(hook) {
       this._pollHook = hook;
       clearInterval(this._pollTimer);
       this._pollTimer = setInterval(hook, this._pollInterval);
     },
 
+    // ---- 全局动作 ----
+    async scoreAll() {
+      // 规则打分很快, 始终 force=true 强制重打, 确保画像修改后分数会更新
+      const d = await this.api('/api/score-all?force=true', 'POST');
+      if (d && d.status === 'started') {
+        this.toast('规则打分已启动...', 'success');
+        // 立即轮询一次, 让按钮马上变成"打分中"状态
+        this.poll();
+      } else if (d && d.status === 'already_running') {
+        this.toast('规则打分正在进行中', 'warning');
+      } else {
+        this.toast('启动打分失败', 'error');
+      }
+    },
+
     // ---- SSE ----
     connectSSE() {
       // 关闭旧连接, 防止 HMR 重载导致多个 EventSource 累积
-      if (this._sse) { try { this._sse.close(); } catch (_) {} this._sse = null; }
+      if (this._sse) { try { this._sse.close(); } catch(_) {} this._sse = null; }
       const es = new EventSource('/api/logs/stream');
       this._sse = es;
       es.onopen = () => { this.sseConnected = true; };
@@ -118,8 +185,16 @@ document.addEventListener('alpine:init', () => {
           if (d.type === 'connected' || d.type === 'heartbeat' || d.type === 'shutdown') return;
           this.logs.push(d);
           if (this.logs.length > 500) this.logs = this.logs.slice(-300);
-        } catch (e) {}
+        } catch(e) {}
       };
+    },
+
+    // ---- 启动 (body x-init 调一次) ----
+    async bootstrap() {
+      await this.loadStats();
+      await this.loadProviders();
+      this.connectSSE();
+      this.startPolling(() => this.poll());
     },
   });
 

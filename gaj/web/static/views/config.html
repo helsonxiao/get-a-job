@@ -1,0 +1,321 @@
+<!-- ============================================
+     VIEW: CONFIG — 规则配置 (逻辑 views/config.js · 样式 styles/config.css + calibration.css)
+     岛声明 (x-data/事件) 在 index.html 挂载点 [data-tpl="config"],
+     由 loader 在 Alpine 启动前注入本片段。
+     ============================================ -->
+    <div class="config-tabs">
+      <button :class="{active: configTab==='rules'}" @click="configTab='rules'">
+        <i data-lucide="bar-chart-3"></i>
+        <span>规则概览</span>
+      </button>
+      <button :class="{active: configTab==='profile'}" @click="configTab='profile'">
+        <i data-lucide="user"></i>
+        <span>画像编辑</span>
+      </button>
+      <button @click="$store.core.switchView('jobs')" style="margin-left:auto; border-bottom: 2px solid transparent;">
+        <i data-lucide="x"></i>
+        <span>关闭</span>
+      </button>
+    </div>
+
+    <!-- Tab: 规则概览 -->
+    <div x-show="configTab==='rules'" class="config-body">
+      <div class="config-body-inner">
+      <!-- AI 规则矫正: 市场数据 + 当前预期 → 大模型建议 → 人工复核应用 -->
+      <!-- v0.3 暂不开放: 待矫正建议质量验证后再启用 (views/config.js showCalibration 翻 true 即恢复) -->
+      <template x-if="showCalibration">
+      <div class="calib-card">
+        <div class="calib-head">
+          <div class="calib-title">
+            <i data-lucide="wand-2"></i>
+            <span>AI 规则矫正</span>
+            <span class="calib-hint">对比你的预期与市场观察台数据, 生成配置调整建议, 人工复核后应用</span>
+          </div>
+          <div class="calib-actions">
+            <select class="filter-select" x-model="calibration.provider" style="width:auto;">
+              <template x-for="p in $store.core.providers" :key="p">
+                <option :value="p" x-text="p"></option>
+              </template>
+            </select>
+            <button class="primary" @click="triggerCalibration()"
+                    :disabled="$store.core.taskRunning('config-calibrate-')">
+              <i data-lucide="sparkles"></i>
+              <span x-show="!$store.core.taskRunning('config-calibrate-')">生成矫正建议</span>
+              <span x-show="$store.core.taskRunning('config-calibrate-')">矫正中...</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 任务运行中提示 -->
+        <div class="calib-running" x-show="$store.core.taskRunning('config-calibrate-')">
+          <i data-lucide="loader-2"></i> 正在调用大模型分析市场数据与当前配置, 完成后自动刷新结果...
+        </div>
+
+        <!-- 最新结果 -->
+        <template x-if="calibration.result && calibration.result.status === 'OK'">
+          <div class="calib-result">
+            <div class="calib-meta-row">
+              <span class="badge ai" x-text="calibration.result.provider"></span>
+              <span class="calib-time" x-text="calibration.result.created_at"></span>
+              <span class="calib-count" x-text="(calibration.result.suggestions || []).length + ' 条建议'"></span>
+              <span class="calib-applied-count" x-show="(calibration.result.applied || []).length > 0"
+                    x-text="'已应用 ' + calibration.result.applied.length + ' 条'"></span>
+            </div>
+            <div class="calib-reading">
+              <div class="calib-reading-h"><i data-lucide="line-chart"></i> 市场解读</div>
+              <div class="calib-reading-text" x-text="calibration.result.market_reading"></div>
+            </div>
+            <div class="calib-suggestions">
+              <template x-for="(s, si) in (calibration.result.suggestions || [])" :key="si">
+                <div class="calib-item" :class="{applied: calibApplied(s)}">
+                  <label class="calib-check">
+                    <input type="checkbox" x-model="calibration.checked[calibKey(s)]"
+                           :disabled="calibApplied(s)">
+                  </label>
+                  <span class="calib-target" :class="s.target"
+                        x-text="s.target === 'profile' ? '画像' : '规则'"></span>
+                  <span class="calib-field" x-text="calibFieldLabel(s)"></span>
+                  <span class="calib-diff">
+                    <span class="old" x-text="s.current != null ? s.current : '(默认)'"></span>
+                    <i data-lucide="arrow-right"></i>
+                    <span class="new" x-text="s.suggested"></span>
+                    <span class="delta" x-show="s.current != null && s.current != 0"
+                          :class="{up: s.suggested > s.current, down: s.suggested < s.current}"
+                          x-text="s.current != null ? ((s.suggested > s.current ? '+' : '') + Math.round((s.suggested - s.current) / Math.abs(s.current) * 100) + '%') : ''"></span>
+                  </span>
+                  <span class="calib-reason" x-text="s.reason"></span>
+                  <span class="calib-applied-tag" x-show="calibApplied(s)"><i data-lucide="check"></i> 已应用</span>
+                </div>
+              </template>
+            </div>
+            <div class="calib-summary" x-show="calibration.result.summary">
+              <i data-lucide="lightbulb"></i>
+              <span x-text="calibration.result.summary"></span>
+            </div>
+            <div class="calib-foot">
+              <button class="primary" @click="applyCalibration()"
+                      :disabled="calibration.applying || calibCheckedCount() === 0">
+                <i data-lucide="check-check"></i>
+                <span x-text="'应用选中建议 (' + calibCheckedCount() + ')'"></span>
+              </button>
+              <button class="cd-raw-toggle" @click="calibration.showRaw = !calibration.showRaw">
+                <span x-show="!calibration.showRaw">查看原始回复</span>
+                <span x-show="calibration.showRaw">收起</span>
+              </button>
+              <span class="calib-hint" x-show="calibCheckedCount() > 0">应用后将写入画像与规则配置, 请随后重新打分</span>
+            </div>
+            <template x-if="calibration.showRaw">
+              <pre class="calib-raw" x-text="calibration.result.raw_response || '(无原始回复)'"></pre>
+            </template>
+          </div>
+        </template>
+
+        <!-- 解析失败 -->
+        <template x-if="calibration.result && calibration.result.status === 'PARSE_FAILED'">
+          <div class="calib-result">
+            <div class="calib-parse-failed">
+              <i data-lucide="alert-triangle"></i>
+              上次矫正回复解析失败 (人工排查后可重新生成)
+            </div>
+            <div class="calib-foot">
+              <button class="cd-raw-toggle" @click="calibration.showRaw = !calibration.showRaw">
+                <span x-show="!calibration.showRaw">查看原始回复</span>
+                <span x-show="calibration.showRaw">收起</span>
+              </button>
+            </div>
+            <template x-if="calibration.showRaw">
+              <pre class="calib-raw" x-text="calibration.result.raw_response || '(无原始回复)'"></pre>
+            </template>
+          </div>
+        </template>
+
+        <!-- 无记录 -->
+        <div class="calib-empty" x-show="calibration.loaded && !calibration.result">
+          还没有矫正记录。点击「生成矫正建议」, 大模型将基于市场观察台数据分析你的配置。
+        </div>
+      </div>
+      </template>
+
+      <template x-if="rulesCatalog">
+        <div>
+          <div class="config-meta">
+            <span>规则版本: <strong x-text="rulesCatalog.version"></strong></span>
+            <span>权重来源: <strong x-text="rulesCatalog.weights_source"></strong></span>
+            <span style="display:inline-flex;align-items:center;gap:6px;">
+              淘汰置信度下限:
+              <input type="number" step="0.1" min="0" max="1" class="rule-max-input"
+                     :value="rulesEdit.reject_confidence_floor != null ? rulesEdit.reject_confidence_floor : rulesCatalog.default_reject_confidence_floor"
+                     @input="rulesEdit.reject_confidence_floor = parseFloat($event.target.value)"
+                     style="width:50px">
+              <span class="rule-default" @click="rulesEdit.reject_confidence_floor = null"
+                    x-text="'↺ 默认'+(rulesCatalog.default_reject_confidence_floor*100)+'%'"></span>
+              <span style="color:var(--gaj-foreground-3);">(证据置信度低于此值只标 REVIEW 不淘汰)</span>
+            </span>
+          </div>
+
+          <div class="profile-actions" style="margin-bottom: 12px; border-top: none; padding-top: 0; margin-top: 0;">
+            <button class="primary" @click="saveScoringConfig()" :disabled="rulesSaving">
+              <i data-lucide="save"></i>
+              <span x-show="!rulesSaving">保存规则参数</span>
+              <span x-show="rulesSaving">保存中...</span>
+            </button>
+            <button @click="resetRulesEdit()">
+              <i data-lucide="rotate-ccw"></i>
+              <span>重置为加载时值</span>
+            </button>
+            <button @click="resetAllRulesDefault()">
+              <i data-lucide="refresh-cw"></i>
+              <span>全部恢复默认</span>
+            </button>
+            <span style="color:var(--gaj-foreground-3);font-size:var(--gaj-font-size-xs)">保存后请点击"规则打分"重新评分</span>
+          </div>
+          <div class="weight-presets" x-show="Object.keys(scoringPresets).length > 0">
+            <span class="presets-label">配比预设:</span>
+            <template x-for="(p, name) in scoringPresets" :key="name">
+              <button class="preset-btn" @click="applyScoringPreset(name)" x-text="name"
+                :title="'一键套用'+name+'的评分项配比 (各维度满分=10)'"></button>
+            </template>
+          </div>
+
+          <div class="config-h">
+            <i data-lucide="shield-x" style="color: var(--gaj-state-error);"></i>
+            <span>硬性淘汰规则</span>
+            <span class="heading-hint">(命中即淘汰, 证据不足只标 REVIEW)</span>
+          </div>
+          <div class="rule-grid">
+            <template x-for="h in rulesCatalog.hard_checks" :key="h.code">
+              <div class="rule-card reject">
+                <div class="rule-code" x-text="h.code"></div>
+                <div class="rule-label" x-text="h.label"></div>
+                <div class="rule-detail" x-text="h.detail"></div>
+                <template x-if="h.threshold">
+                  <div class="rule-threshold">
+                    <span class="rt-label">当前阈值:</span>
+                    <span class="rt-value" x-text="formatThreshold(h.threshold)"></span>
+                    <span class="rt-source" x-text="'← ' + h.threshold.source_label"></span>
+                    <span class="rt-edit" @click="configTab='profile'">去画像编辑改</span>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+
+          <div class="config-h">
+            <i data-lucide="bar-chart-3" style="color: var(--gaj-primary);"></i>
+            <span>四维度评分</span>
+            <span class="heading-hint">(改满分后按比例缩放, 加权求和得总分)</span>
+          </div>
+          <template x-for="dim in rulesCatalog.dimensions" :key="dim.key">
+            <div class="dim-block">
+              <div class="dim-header">
+                <strong x-text="dim.label"></strong>
+                <span class="dim-max" :class="{'over-cap': parseFloat(dimMaxSum(dim)) > 10}"
+                      x-text="'当前满分 '+dimMaxSum(dim)+' / 默认 '+dim.default_max_score"></span>
+                <span class="dim-cap-warn" x-show="parseFloat(dimMaxSum(dim)) > 10">⚠ 超过封顶10, 实际最多算10分</span>
+              </div>
+              <div class="rule-grid">
+                <template x-for="item in dim.items" :key="item.code">
+                  <div class="rule-card" :class="{changed: rulesEdit[item.override_key] != null && rulesEdit[item.override_key] !== item.default_max}">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+                      <div style="flex:1;min-width:0;">
+                        <div class="rule-code" x-text="item.code"></div>
+                        <div class="rule-label" x-text="item.label"></div>
+                        <div class="rule-detail" x-text="item.detail"></div>
+                      </div>
+                      <div class="rule-max-row" style="margin-top:0;">
+                        <label>满分:</label>
+                        <input type="number" step="0.1" min="0" max="100" class="rule-max-input"
+                               :value="rulesEdit[item.override_key] != null ? rulesEdit[item.override_key] : item.default_max"
+                               @input="rulesEdit[item.override_key] = parseFloat($event.target.value)">
+                        <span class="rule-default" @click="rulesEdit[item.override_key] = null"
+                              x-text="'↺'+item.default_max"></span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <div class="config-h">
+            <i data-lucide="bot" style="color: var(--gaj-state-purple);"></i>
+            <span>AI 介入触发条件</span>
+            <span class="heading-hint">(规则力所不及时交给大模型)</span>
+          </div>
+          <div class="rule-grid">
+            <template x-for="a in rulesCatalog.ai_triggers" :key="a.code">
+              <div class="rule-card ai">
+                <div class="rule-code" x-text="a.code"></div>
+                <div class="rule-label" x-text="a.label"></div>
+                <div class="rule-detail" x-text="a.detail"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+      <div x-show="!rulesCatalog" class="loading">加载规则中...</div>
+      </div>
+    </div>
+
+    <!-- Tab: 画像编辑 -->
+    <div x-show="configTab==='profile'" class="config-body">
+      <div class="config-body-inner">
+      <template x-if="profileData">
+        <div>
+          <div class="config-meta">
+            <span>当前权重(归一化): <strong x-text="profileData.weights ? '财务'+(profileData.weights.finance*100).toFixed(0)+'% / 成长'+(profileData.weights.growth*100).toFixed(0)+'% / 资源'+(profileData.weights.resource*100).toFixed(0)+'% / WLB'+(profileData.weights.wlb*100).toFixed(0)+'%' : ''"></strong></span>
+          </div>
+          <div class="profile-actions" style="margin-bottom: 12px; border-top: none; padding-top: 0; margin-top: 0;">
+            <button class="primary" @click="saveProfile()" :disabled="profileSaving">
+              <i data-lucide="save"></i>
+              <span x-show="!profileSaving">保存画像</span>
+              <span x-show="profileSaving">保存中...</span>
+            </button>
+            <button @click="loadProfile()">
+              <i data-lucide="rotate-ccw"></i>
+              <span>重新加载</span>
+            </button>
+            <span style="color:var(--gaj-foreground-3);font-size:var(--gaj-font-size-xs)">保存后请点击"规则打分"重新评分</span>
+          </div>
+          <template x-for="g in profileData.groups" :key="g.title">
+            <div class="profile-group">
+              <div class="config-h" x-text="g.title"></div>
+              <template x-if="g.title.includes('价值观权重') && Object.keys(weightPresets).length > 0">
+                <div class="weight-presets">
+                  <span class="presets-label">快速预设:</span>
+                  <template x-for="(p, name) in weightPresets" :key="name">
+                    <button class="preset-btn" @click="applyWeightPreset(name)" x-text="name"
+                      :title="'成长'+p.growth+'% / 财务'+p.finance+'% / WLB'+p.wlb+'% / 资源'+p.resource+'%'"></button>
+                  </template>
+                </div>
+              </template>
+              <div class="profile-fields">
+                <template x-for="f in g.fields" :key="f.name">
+                  <div class="profile-field">
+                    <label x-text="f.label"></label>
+                    <template x-if="f.type==='bool'">
+                      <select x-model="profileData.fields[f.name]">
+                        <option :value="true">是</option>
+                        <option :value="false">否</option>
+                      </select>
+                    </template>
+                    <template x-if="f.type==='list'">
+                      <input type="text" x-model="profileData.fields[f.name]" placeholder="逗号分隔">
+                    </template>
+                    <template x-if="f.type==='str'">
+                      <input type="text" x-model="profileData.fields[f.name]">
+                    </template>
+                    <template x-if="f.type==='int' || f.type==='float'">
+                      <input type="number" step="any" x-model.number="profileData.fields[f.name]">
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </template>
+      <div x-show="!profileData" class="loading">加载画像中...</div>
+      </div>
+    </div>
+

@@ -181,6 +181,9 @@
 2. **共享态必须走 store**：api/toast/stats/SSE 进 `core/store.js` 的 `Alpine.store('app')`，禁止新视图自带副本。
 3. **脚本顺序坑**：所有新 `<script>` 必须在 `<script defer src="alpine.min.js">` **之前**（Alpine defer 自动 start 会错过晚注册的 `alpine:init`）。
 4. **模板内联但分区**：index.html 模板段按视图用注释严格分区，不拆 fetch 加载。
+   > **[2026-08-22 修订]** 本条已被 [ADR-002](adr-002-module-split.md) §2.4 修订：index.html
+   > 膨胀至 ~1950 行后改为「骨架 + fetch 模板片段」，Alpine 由 loader 在片段
+   > 注入完成后动态加载，时序正确性不受影响。
 5. **CSS 按视图拆**：`styles/<view>.css` 多 `<link>`，旧 style.css 逐视图抽离。
 6. **旧 `app()` 不动**：本轮不重写旧 4 视图，迁出留独立迭代。
 

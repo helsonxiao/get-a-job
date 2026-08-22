@@ -1,0 +1,31 @@
+/* ============================================
+   Get A Job — 主简历视图样式 (对应 views/resume.js)
+   复用 config-panel 骨架, 额外提供上传区与编辑器。
+   ============================================ */
+/* === Resume Editor === */
+.resume-upload-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: var(--gaj-bg);
+  border: 1px dashed var(--gaj-border);
+  border-radius: var(--gaj-radius-md);
+}
+.resume-editor {
+  width: 100%;
+  min-height: 360px;
+  background: var(--gaj-bg);
+  border: 1px solid var(--gaj-border);
+  color: var(--gaj-foreground);
+  padding: 12px;
+  border-radius: var(--gaj-radius-md);
+  font-family: var(--gaj-font-mono);
+  font-size: var(--gaj-font-size-sm);
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+.resume-editor:focus { border-color: var(--gaj-primary); }
+

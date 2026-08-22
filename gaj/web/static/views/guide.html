@@ -1,0 +1,468 @@
+<!-- ============================================
+     VIEW: GUIDE — 公司图鉴 + 公司详情抽屉 (逻辑 views/guide.js · 样式 styles/guide.css)
+     岛声明 (x-data/事件) 在 index.html 挂载点 [data-tpl="guide"],
+     由 loader 在 Alpine 启动前注入本片段。
+     ============================================ -->
+    <div class="guide-toolbar">
+      <div class="guide-progress">
+        <i data-lucide="book-open"></i>
+        <span>图鉴进度: 已鉴定 <strong x-text="facets?.unlocked || 0"></strong> / <span x-text="facets?.total || 0"></span> 家公司</span>
+        <span class="guide-fav-count" :class="{active: favorite==='only'}"
+              @click="favorite = favorite==='only' ? 'all' : 'only'; loadGuideItems()"
+              title="想去清单">
+          <i data-lucide="heart"></i>
+          <span>想去</span>
+          <strong x-text="facets?.favorite || 0"></strong>
+        </span>
+      </div>
+      <div class="guide-controls">
+        <div class="leaderboard-switch" title="三榜即时切换">
+          <button :class="{active: sort==='score'}" @click="setGuideSort('score')"><i data-lucide="trophy"></i><span>分数榜</span></button>
+          <button :class="{active: sort==='jobs'}" @click="setGuideSort('jobs')"><i data-lucide="flame"></i><span>招聘力度榜</span></button>
+          <button :class="{active: sort==='salary'}" @click="setGuideSort('salary')"><i data-lucide="coins"></i><span>薪资榜</span></button>
+        </div>
+        <div class="guide-mode-switch">
+          <button :class="{active: mode==='cards'}" @click="setGuideMode('cards')"><i data-lucide="layout-grid"></i><span>卡片墙</span></button>
+          <button :class="{active: mode==='quadrant'}" @click="setGuideMode('quadrant')"><i data-lucide="scatter-chart"></i><span>象限图</span></button>
+          <button :class="{active: mode==='compare'}" @click="setGuideMode('compare')">
+            <i data-lucide="scale"></i><span>对比</span>
+            <span x-show="compareIds.length > 0" x-text="'(' + compareIds.length + ')'"></span>
+          </button>
+        </div>
+        <input class="guide-search" type="text" placeholder="搜索公司名..." x-model="q" @input.debounce.300ms="loadGuideItems()">
+        <select class="filter-select" x-model="industry" @change="loadGuideItems()">
+          <option value="">全部行业</option>
+          <template x-for="i in facets?.industries || []" :key="i.value">
+            <option :value="i.value" x-text="i.value + ' (' + i.count + ')'"></option>
+          </template>
+        </select>
+        <select class="filter-select" x-model="stage" @change="loadGuideItems()">
+          <option value="">全部阶段</option>
+          <template x-for="s in facets?.stages || []" :key="s.value">
+            <option :value="s.value" x-text="s.value + ' (' + s.count + ')'"></option>
+          </template>
+        </select>
+      </div>
+    </div>
+
+    <div class="guide-body">
+      <div class="loading" x-show="loading">加载中...</div>
+      <div class="empty" x-show="!loading && items.length === 0">
+        <i data-lucide="building-2" style="width:32px;height:32px;color:var(--gaj-foreground-4);margin-bottom:8px;"></i>
+        <div>没有匹配的公司</div>
+      </div>
+
+      <!-- 卡片墙 -->
+      <div class="guide-grid" x-show="!loading && mode === 'cards'">
+        <template x-for="c in items" :key="c.brand_id">
+          <div class="guide-card" :class="{locked: !guideUnlocked(c), 'in-compare': compareIds.includes(c.brand_id)}" @click="openCompany(c.brand_id)">
+            <div class="gc-top">
+              <span class="tier-badge" :class="tierClass(c.rank_tier)" x-show="c.rank_tier" x-text="c.rank_tier"></span>
+              <span class="gc-name" x-text="c.name"></span>
+              <button class="gc-fav" :class="{on: c.favorite}" @click.stop="toggleCompanyFavorite(c.brand_id, !c.favorite)" title="想去清单">
+                <i data-lucide="heart" :fill="c.favorite ? 'currentColor' : 'none'"></i>
+              </button>
+            </div>
+            <div class="gc-score-row">
+              <span class="gc-score" :class="{'locked-score': !guideUnlocked(c)}"
+                    x-text="guideUnlocked(c) && c.company_score != null ? c.company_score.toFixed(1) : '?'"></span>
+              <span class="gc-score-cap">/10</span>
+              <span class="gc-jobs" x-text="'在招 ' + (c.job_count || 0) + ' 岗'"></span>
+            </div>
+            <div class="gc-meta">
+              <span x-text="c.industry || '??'"></span>
+              <span class="sep">·</span>
+              <span x-text="c.stage || '??'"></span>
+              <span class="sep">·</span>
+              <span x-text="c.scale_raw || '??'"></span>
+            </div>
+            <div class="gc-meta" x-show="guideUnlocked(c)">
+              <span class="salary" x-text="c.salary_mid_avg ? '均薪 ' + c.salary_mid_avg.toFixed(1) + '万' : '薪资面议'"></span>
+              <span class="sep">·</span>
+              <span x-text="(c.cities || []).join('/') || '?'"></span>
+            </div>
+            <div class="gc-meta dim" x-show="!guideUnlocked(c)">
+              <span>?? · 未解锁, 细节待鉴定</span>
+            </div>
+            <div class="gc-top-job" x-show="guideUnlocked(c) && c.top_job_title">
+              <i data-lucide="crown"></i>
+              <span class="gc-top-title" x-text="c.top_job_title"></span>
+              <span class="gc-top-score" x-text="c.top_job_score != null ? c.top_job_score.toFixed(1) : ''"></span>
+            </div>
+            <div class="gc-actions" @click.stop>
+              <template x-if="!guideUnlocked(c)">
+                <button class="primary appraise-btn" @click="appraiseCompany(c)"
+                        :disabled="!c.top_job_id || $store.core.taskRunning('ai-score-' + c.top_job_id)"
+                        :title="c.top_job_id ? '对其最佳岗位「' + (c.top_job_title || '') + '」发起 AI 打分' : '暂无可鉴定的岗位'">
+                  <i data-lucide="sparkles"></i>
+                  <span x-show="!$store.core.taskRunning('ai-score-' + c.top_job_id)">去鉴定</span>
+                  <span x-show="$store.core.taskRunning('ai-score-' + c.top_job_id)">鉴定中</span>
+                </button>
+              </template>
+              <button class="compare-btn" :class="{on: compareIds.includes(c.brand_id)}" @click="toggleCompare(c.brand_id)">
+                <i data-lucide="scale"></i>
+                <span x-text="compareIds.includes(c.brand_id) ? '已加入对比' : '加入对比'"></span>
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- 象限图 -->
+      <div class="quadrant-wrap" x-show="!loading && mode === 'quadrant'"
+           x-data="{qd: {pts: [], unknown: [], xMax: 20}}"
+           x-effect="items; qd = quadrantData()">
+        <div class="quadrant-hint">
+          <i data-lucide="info"></i>
+          <span>x = 平均薪资(万/月) · y = 公司分 · 气泡大小 = 在招岗位数 · 点击气泡进入公司</span>
+        </div>
+        <svg viewBox="0 0 760 440" class="quadrant-svg" @click="quadrantClick($event)">
+          <g x-html="quadrantGridSvg(qd)"></g>
+          <text x="726" y="36" class="qsweet" text-anchor="end">高分 · 高薪甜蜜点 ↗</text>
+          <g x-html="quadrantBubblesSvg(qd)"></g>
+        </svg>
+        <div class="quadrant-unknown" x-show="qd.unknown.length > 0">
+          <span class="qu-title"><i data-lucide="help-circle"></i>薪资未知, 无法定位 x 轴 (<span x-text="qd.unknown.length"></span> 家)</span>
+          <template x-for="c in qd.unknown" :key="c.brand_id">
+            <span class="qu-chip" @click="openCompany(c.brand_id)" x-text="c.name"></span>
+          </template>
+        </div>
+      </div>
+
+      <!-- 对比模式 -->
+      <div class="compare-wrap" x-show="!loading && mode === 'compare'">
+        <div class="compare-empty" x-show="compareIds.length < 2">
+          <i data-lucide="scale" style="width:32px;height:32px;color:var(--gaj-foreground-4);margin-bottom:8px;"></i>
+          <div x-text="compareIds.length === 0 ? '在卡片墙点「加入对比」选 2-4 家公司, 并排看四维雷达与关键指标' : '再选 ' + (2 - compareIds.length) + ' 家公司即可开始对比'"></div>
+          <button @click="setGuideMode('cards')">去挑选</button>
+        </div>
+        <div class="compare-grid" x-show="compareIds.length >= 2">
+          <template x-for="id in compareIds" :key="id">
+            <div class="compare-col">
+              <div class="loading" x-show="!compareDetails[id]">加载中...</div>
+              <template x-if="compareDetails[id]">
+                <div>
+                  <div class="cc-header">
+                    <span class="tier-badge" :class="tierClass(compareDetails[id].stats?.rank_tier)"
+                          x-show="compareDetails[id].stats?.rank_tier" x-text="compareDetails[id].stats?.rank_tier"></span>
+                    <span class="cc-name" @click="openCompany(id)" x-text="compareDetails[id].company.name"></span>
+                    <button class="cc-remove" @click="toggleCompare(id)" title="移出对比"><i data-lucide="x"></i></button>
+                  </div>
+                  <div class="cc-score" x-text="compareDetails[id].stats?.company_score != null ? compareDetails[id].stats.company_score.toFixed(1) + ' /10' : '暂无公司分'"></div>
+                  <svg viewBox="0 0 200 200" class="radar-svg">
+                    <polygon points="100,30 170,100 100,170 30,100" class="radar-frame"></polygon>
+                    <polygon points="100,65 135,100 100,135 65,100" class="radar-frame"></polygon>
+                    <line x1="100" y1="30" x2="100" y2="170" class="radar-frame"></line>
+                    <line x1="30" y1="100" x2="170" y2="100" class="radar-frame"></line>
+                    <polygon :points="radarPoints(compareDetails[id].dims_avg, 100, 100, 70)" class="radar-shape"></polygon>
+                    <text x="100" y="20" class="radar-label" text-anchor="middle">财务</text>
+                    <text x="178" y="104" class="radar-label" text-anchor="start">成长</text>
+                    <text x="100" y="190" class="radar-label" text-anchor="middle">资源</text>
+                    <text x="22" y="104" class="radar-label" text-anchor="end">WLB</text>
+                  </svg>
+                  <div class="cc-metrics">
+                    <div><span>规模</span><strong x-text="compareDetails[id].company.scale_raw || '??'"></strong></div>
+                    <div><span>阶段</span><strong x-text="compareDetails[id].company.stage || '??'"></strong></div>
+                    <div><span>均薪</span><strong x-text="compareDetails[id].stats?.salary_mid_avg ? compareDetails[id].stats.salary_mid_avg.toFixed(1) + '万' : '??'"></strong></div>
+                    <div><span>在招</span><strong x-text="(compareDetails[id].stats?.job_count || 0) + ' 岗'"></strong></div>
+                    <div><span>最佳岗位</span><strong x-text="compareDetails[id].stats?.top_job_title || '-'"></strong></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+  <!-- 公司详情抽屉 (属于 guide 岛, fixed 定位不占布局) -->
+<!-- Company Detail Drawer (公司详情抽屉) -->
+  <div class="drawer-mask" x-show="companyDetail || companyDetailLoading" x-cloak
+       @click="closeCompany()" x-transition.opacity></div>
+  <div class="company-drawer" x-show="companyDetail || companyDetailLoading" x-cloak x-transition>
+    <div class="loading" x-show="companyDetailLoading" style="padding:32px;">加载中...</div>
+    <template x-if="companyDetail && !companyDetailLoading">
+      <div class="cd-body" x-data="{introExpanded: false}">
+        <div x-show="!companyJobDetail">
+        <div class="cd-header">
+          <span class="tier-badge lg" :class="tierClass(companyDetail.stats?.rank_tier)"
+                x-show="companyDetail.stats?.rank_tier" x-text="companyDetail.stats?.rank_tier"></span>
+          <h2 x-text="companyDetail.company.name"></h2>
+          <button class="cd-close" @click="closeCompany()"><i data-lucide="x"></i></button>
+        </div>
+        <div class="cd-score-row">
+          <span class="cd-score" x-text="companyDetail.stats?.company_score != null ? companyDetail.stats.company_score.toFixed(1) : '?'"></span>
+          <span class="cd-score-cap">/10 公司分</span>
+          <span class="cd-sub" x-show="companyDetail.stats?.ai_scored_count > 0"
+                x-text="'已鉴定 ' + companyDetail.stats.ai_scored_count + ' 个岗位'"></span>
+          <button class="gc-fav big" :class="{on: companyDetail.company.favorite}"
+                  @click="toggleCompanyFavorite(companyDetail.company.brand_id, !companyDetail.company.favorite)">
+            <i data-lucide="heart" :fill="companyDetail.company.favorite ? 'currentColor' : 'none'"></i>
+            <span x-text="companyDetail.company.favorite ? '已想去' : '想去'"></span>
+          </button>
+          <button class="compare-btn" :class="{on: compareIds.includes(companyDetail.company.brand_id)}"
+                  @click="toggleCompare(companyDetail.company.brand_id)">
+            <i data-lucide="scale"></i>
+            <span x-text="compareIds.includes(companyDetail.company.brand_id) ? '已在对比' : '加入对比'"></span>
+          </button>
+        </div>
+        <div class="cd-chips">
+          <span x-show="companyDetail.company.industry" x-text="companyDetail.company.industry"></span>
+          <span x-show="companyDetail.company.stage" x-text="companyDetail.company.stage"></span>
+          <span x-show="companyDetail.company.scale_raw" x-text="companyDetail.company.scale_raw"></span>
+          <span x-show="companyDetail.company.nature && companyDetail.company.nature !== '未知'" x-text="companyDetail.company.nature"></span>
+          <span x-show="companyDetail.company.founded" x-text="'成立于 ' + companyDetail.company.founded"></span>
+          <span x-show="companyDetail.company.hours_per_day" x-text="'日均 ' + companyDetail.company.hours_per_day + 'h'"></span>
+          <span x-text="'在招 ' + (companyDetail.stats?.job_count || 0) + ' 岗'"></span>
+          <span x-show="companyDetail.stats?.salary_mid_avg" x-text="'均薪 ' + companyDetail.stats.salary_mid_avg.toFixed(1) + '万'"></span>
+        </div>
+        <div class="cd-section" x-show="companyDetail.company.intro">
+          <div class="cd-h"><i data-lucide="building-2"></i>公司简介</div>
+          <div class="cd-text" :class="{clamped: !introExpanded}" x-text="companyDetail.company.intro"></div>
+          <button class="cd-more" @click="introExpanded = !introExpanded"
+                  x-text="introExpanded ? '收起' : '展开全文'"></button>
+        </div>
+        <div class="cd-section" x-show="companyDetail.company.business_scope">
+          <div class="cd-h"><i data-lucide="compass"></i>经营范围</div>
+          <div class="cd-text" x-text="companyDetail.company.business_scope"></div>
+        </div>
+        <div class="cd-section" x-show="companyDetail.dims_avg">
+          <div class="cd-h"><i data-lucide="radar"></i>四维画像 (岗位均值)</div>
+          <svg viewBox="0 0 200 200" class="radar-svg" style="max-width:220px;">
+            <polygon points="100,30 170,100 100,170 30,100" class="radar-frame"></polygon>
+            <polygon points="100,65 135,100 100,135 65,100" class="radar-frame"></polygon>
+            <line x1="100" y1="30" x2="100" y2="170" class="radar-frame"></line>
+            <line x1="30" y1="100" x2="170" y2="100" class="radar-frame"></line>
+            <polygon :points="radarPoints(companyDetail.dims_avg, 100, 100, 70)" class="radar-shape"></polygon>
+            <text x="100" y="20" class="radar-label" text-anchor="middle">财务</text>
+            <text x="178" y="104" class="radar-label" text-anchor="start">成长</text>
+            <text x="100" y="190" class="radar-label" text-anchor="middle">资源</text>
+            <text x="22" y="104" class="radar-label" text-anchor="end">WLB</text>
+          </svg>
+        </div>
+        <div class="cd-section">
+          <div class="cd-h">
+            <i data-lucide="sparkles" style="color: var(--gaj-state-purple);"></i>
+            AI 评价 · 图鉴词条
+            <span class="cd-h-hint" x-show="(companyDetail.ai_scores || []).length > 1"
+                  x-text="'历史 ' + companyDetail.ai_scores.length + ' 条 (append-only)'"></span>
+          </div>
+          <div class="cd-ai-actions">
+            <select class="filter-select" x-model="$store.core.aiProvider" style="width:auto;">
+              <template x-for="p in $store.core.providers" :key="p">
+                <option :value="p" x-text="p"></option>
+              </template>
+            </select>
+            <button class="primary" @click="analyzeCompany(companyDetail.company.brand_id)"
+                    :disabled="$store.core.taskRunning('company-analyze-' + companyDetail.company.brand_id)">
+              <i data-lucide="sparkles"></i>
+              <span x-show="!$store.core.taskRunning('company-analyze-' + companyDetail.company.brand_id)"
+                    x-text="(companyDetail.ai_scores || []).length ? '再评价一次' : '生成 AI 评价'"></span>
+              <span x-show="$store.core.taskRunning('company-analyze-' + companyDetail.company.brand_id)">评价中...</span>
+            </button>
+            <span class="cd-ai-hint">纯手动触发 · 结果追加保存到 data/companies/&lt;id&gt;/scores/</span>
+          </div>
+          <template x-if="(companyDetail.ai_scores || []).length">
+            <div class="cd-ai-entry">
+              <div class="cd-ai-meta">
+                <span class="badge ai" x-text="companyDetail.ai_scores[0].provider || '?'"></span>
+                <span x-text="companyDetail.ai_scores[0].created_at"></span>
+                <template x-if="companyDetail.ai_scores[0].status === 'PARSE_FAILED'">
+                  <span class="badge" style="background:var(--gaj-state-warning-muted, rgba(255,180,0,.15));color:var(--gaj-state-warning);border:1px solid var(--gaj-state-warning)">解析失败</span>
+                </template>
+                <template x-if="companyDetail.ai_scores[0].status !== 'PARSE_FAILED'">
+                  <span class="cd-ai-worth" x-text="companyDetail.ai_scores[0].worth_joining"></span>
+                </template>
+                <template x-if="companyDetail.ai_scores[0].status !== 'PARSE_FAILED'">
+                  <span class="cd-ai-score"
+                        x-text="(companyDetail.ai_scores[0].company_score_ai != null ? companyDetail.ai_scores[0].company_score_ai.toFixed(1) : '?') + ' /10'"></span>
+                </template>
+                <button class="cd-ai-del" style="margin-left:auto;"
+                        @click="deleteCompanyAiScore(companyDetail.ai_scores[0]._file)" title="删除这条评价">
+                  <i data-lucide="trash-2"></i>
+                </button>
+              </div>
+              <!-- 解析失败: 显示编辑入口 -->
+              <template x-if="companyDetail.ai_scores[0].status === 'PARSE_FAILED'">
+                <div class="cd-parse-failed-box">
+                  <div style="color:var(--gaj-state-warning);font-size:var(--gaj-font-size-sm);margin-bottom:6px;display:flex;align-items:center;gap:4px;">
+                    <i data-lucide="alert-triangle"></i> JSON 解析失败, 可人工编辑后重新解析
+                  </div>
+                  <textarea x-model="companyDetail.ai_scores[0]._edit_text" class="raw-edit-textarea" placeholder="编辑 AI 原始回复..." x-init="companyDetail.ai_scores[0]._edit_text = companyDetail.ai_scores[0]._edit_text || companyDetail.ai_scores[0].raw_response || ''"></textarea>
+                  <div style="margin-top:6px;display:flex;gap:6px">
+                    <button class="primary" style="padding:4px 12px;font-size:var(--gaj-font-size-xs)" @click="reparseCompanyAi(companyDetail.ai_scores[0]._file)" :disabled="companyReparseFile === companyDetail.ai_scores[0]._file">
+                      <i data-lucide="refresh-cw"></i>
+                      <span x-show="companyReparseFile !== companyDetail.ai_scores[0]._file">重新解析</span>
+                      <span x-show="companyReparseFile === companyDetail.ai_scores[0]._file">解析中</span>
+                    </button>
+                  </div>
+                </div>
+              </template>
+              <!-- 解析成功: 正常展示 + 查看原始回复 -->
+              <template x-if="companyDetail.ai_scores[0].status !== 'PARSE_FAILED'">
+                <div>
+                  <div class="cd-ai-body" x-text="companyDetail.ai_scores[0].business_analysis"></div>
+                  <div class="cd-ai-line" x-show="companyDetail.ai_scores[0].tech_stack_profile">
+                    <span class="cd-ai-k">技术栈画像</span>
+                    <span class="cd-ai-v" x-text="companyDetail.ai_scores[0].tech_stack_profile"></span>
+                  </div>
+                  <div class="cd-ai-line">
+                    <span class="cd-ai-k">招聘紧迫度</span>
+                    <span class="cd-ai-v" x-text="companyDetail.ai_scores[0].hiring_urgency + (companyDetail.ai_scores[0].hiring_urgency_reason ? ' — ' + companyDetail.ai_scores[0].hiring_urgency_reason : '')"></span>
+                  </div>
+                  <div class="cd-ai-line" x-show="companyDetail.ai_scores[0].worth_joining_reason">
+                    <span class="cd-ai-k">结论理由</span>
+                    <span class="cd-ai-v" x-text="companyDetail.ai_scores[0].worth_joining_reason"></span>
+                  </div>
+                  <div class="cd-ai-line" x-show="(companyDetail.ai_scores[0].highlights || []).length">
+                    <span class="cd-ai-k">亮点</span>
+                    <span class="cd-ai-v">
+                      <template x-for="(t, ti) in companyDetail.ai_scores[0].highlights" :key="ti">
+                        <span class="cd-ai-chip hl" x-text="t"></span>
+                      </template>
+                    </span>
+                  </div>
+                  <div class="cd-ai-line" x-show="(companyDetail.ai_scores[0].risks || []).length">
+                    <span class="cd-ai-k">顾虑</span>
+                    <span class="cd-ai-v">
+                      <template x-for="(t, ti) in companyDetail.ai_scores[0].risks" :key="ti">
+                        <span class="cd-ai-chip risk" x-text="t"></span>
+                      </template>
+                    </span>
+                  </div>
+                  <div class="cd-ai-line" x-show="(companyDetail.ai_scores[0].interview_strategy || []).length">
+                    <span class="cd-ai-k">面试策略</span>
+                    <span class="cd-ai-v">
+                      <template x-for="(t, ti) in companyDetail.ai_scores[0].interview_strategy" :key="ti">
+                        <span class="cd-ai-chip tip" x-text="t"></span>
+                      </template>
+                    </span>
+                  </div>
+                  <div class="cd-ai-kws" x-show="(companyDetail.ai_scores[0].business_keywords || []).length">
+                    <template x-for="(k, ki) in companyDetail.ai_scores[0].business_keywords" :key="ki">
+                      <span class="cd-kw" x-text="k"></span>
+                    </template>
+                  </div>
+                  <!-- 查看原始回复 + 重新解析 -->
+                  <div style="margin-top:8px;border-top:1px solid var(--gaj-border);padding-top:8px">
+                    <button class="cd-raw-toggle" @click="companyReparseExpand = (companyReparseExpand === companyDetail.ai_scores[0]._file ? '' : companyDetail.ai_scores[0]._file)">
+                      <i data-lucide="file-text"></i>
+                      <span x-show="companyReparseExpand !== companyDetail.ai_scores[0]._file">查看原始回复</span>
+                      <span x-show="companyReparseExpand === companyDetail.ai_scores[0]._file">收起</span>
+                    </button>
+                    <template x-if="companyReparseExpand === companyDetail.ai_scores[0]._file">
+                      <div style="margin-top:6px">
+                        <textarea x-model="companyDetail.ai_scores[0]._edit_text" class="raw-edit-textarea" placeholder="编辑 AI 原始回复..." x-init="companyDetail.ai_scores[0]._edit_text = companyDetail.ai_scores[0]._edit_text || companyDetail.ai_scores[0].raw_response || ''"></textarea>
+                        <div style="margin-top:6px;display:flex;gap:6px">
+                          <button class="primary" style="padding:4px 12px;font-size:var(--gaj-font-size-xs)" @click="reparseCompanyAi(companyDetail.ai_scores[0]._file)" :disabled="companyReparseFile === companyDetail.ai_scores[0]._file">
+                            <i data-lucide="refresh-cw"></i>
+                            <span x-show="companyReparseFile !== companyDetail.ai_scores[0]._file">重新解析</span>
+                            <span x-show="companyReparseFile === companyDetail.ai_scores[0]._file">解析中</span>
+                          </button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+              <div class="cd-ai-history" x-show="companyDetail.ai_scores.length > 1">
+                <div class="cd-ai-h-h">历史评价</div>
+                <template x-for="s in companyDetail.ai_scores.slice(1)" :key="s._file">
+                  <div class="cd-ai-h-item">
+                    <span class="badge ai" x-text="s.provider"></span>
+                    <span x-text="s.created_at"></span>
+                    <template x-if="s.status === 'PARSE_FAILED'">
+                      <span style="color:var(--gaj-state-warning)">解析失败</span>
+                    </template>
+                    <template x-if="s.status !== 'PARSE_FAILED'">
+                      <span x-text="s.worth_joining"></span>
+                    </template>
+                    <span x-text="s.company_score_ai != null ? s.company_score_ai.toFixed(1) + '/10' : '?'"></span>
+                    <button class="cd-ai-del" @click="deleteCompanyAiScore(s._file)" title="删除">
+                      <i data-lucide="trash-2"></i>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+          <div class="cd-empty"
+               x-show="!(companyDetail.ai_scores || []).length && !$store.core.taskRunning('company-analyze-' + companyDetail.company.brand_id)">
+            还没有评价。点击「生成 AI 评价」, 让大模型基于公司资料与全部在招岗位生成词条:
+            业务解读 / 技术栈画像 / 招聘紧迫度 / 值不值得去 / 面试策略。
+          </div>
+        </div>
+        <div class="cd-section">
+          <div class="cd-h"><i data-lucide="briefcase"></i>名下岗位 (<span x-text="companyDetail.job_count"></span>)</div>
+          <div class="cd-empty" x-show="companyDetail.job_count === 0">暂无岗位记录</div>
+          <template x-for="j in companyDetail.jobs" :key="j.job_id">
+            <div class="cd-job" @click="openJobInCompany(j.job_id)" title="点击查看职位详情">
+              <div class="cd-job-title">
+                <span x-text="j.title"></span>
+                <i data-lucide="arrow-right"></i>
+              </div>
+              <div class="cd-job-meta">
+                <span class="salary" x-text="j.salary_raw || '面议'"></span>
+                <span x-show="j.city" x-text="j.city"></span>
+                <span class="score-label" :class="(j.rule_status || 'none').toLowerCase()"
+                      x-text="j.best_total != null ? j.best_total.toFixed(1) + ' 分' : '未打分'"></span>
+                <span class="badge ai" x-show="j.ai_count > 0" x-text="'AI×' + j.ai_count"></span>
+                <span class="badge" style="opacity:.7" x-show="!j.online">已下线</span>
+              </div>
+            </div>
+          </template>
+        </div>
+        </div><!-- /公司内容 (x-show=!companyJobDetail) -->
+
+        <!-- 岗位详情 (公司抽屉内嵌, 不离开当前页面) -->
+        <div x-show="companyJobDetail" x-cloak class="cd-inset-detail">
+          <!-- 加载中 -->
+          <div class="obs-drill-empty" x-show="companyJobDetail && companyJobDetail.loading" style="padding:48px 0;">加载中...</div>
+
+          <template x-if="companyJobDetail && !companyJobDetail.loading && companyJobDetail.data">
+            <div class="obs-detail">
+              <div class="cd-inset-head">
+                <button class="obs-drill-back" @click="backToCompany()" title="返回公司"><i data-lucide="arrow-left"></i></button>
+                <span class="cd-inset-title">岗位详情</span>
+              </div>
+              <div class="obs-detail-title" x-text="companyJobDetail.data.job?.title"></div>
+              <div class="obs-detail-meta">
+                <span class="obs-detail-salary" x-text="companyJobDetail.data.job?.salary?.raw || '面议'"></span>
+                <span x-text="companyJobDetail.data.company?.name || companyJobDetail.data.job?.company_name || '未知公司'"></span>
+                <span x-text="(companyJobDetail.data.job?.city || '') + (companyJobDetail.data.job?.district ? ' ' + companyJobDetail.data.job.district : '')"></span>
+                <span x-text="companyJobDetail.data.job?.experience?.raw || '经验不限'"></span>
+                <span x-text="companyJobDetail.data.job?.education?.raw || '学历不限'"></span>
+              </div>
+              <div class="obs-detail-tags" x-show="companyJobDetail.data.job?.skills && companyJobDetail.data.job.skills.length > 0">
+                <template x-for="sk in (companyJobDetail.data.job?.skills || [])" :key="sk">
+                  <span class="obs-tag" x-text="sk"></span>
+                </template>
+              </div>
+              <div class="obs-detail-grid">
+                <div class="obs-detail-item"><span class="label">行业</span><span class="v" x-text="companyJobDetail.data.company?.industry || '-'"></span></div>
+                <div class="obs-detail-item"><span class="label">阶段</span><span class="v" x-text="companyJobDetail.data.company?.stage || '-'"></span></div>
+                <div class="obs-detail-item"><span class="label">规模</span><span class="v" x-text="companyJobDetail.data.company?.scale_raw || '-'"></span></div>
+                <div class="obs-detail-item" x-show="companyJobDetail.data.job?.welfare && companyJobDetail.data.job.welfare.length">
+                  <span class="label">福利</span>
+                  <span class="v" x-text="(companyJobDetail.data.job?.welfare || []).join('、')"></span>
+                </div>
+                <div class="obs-detail-item" x-show="companyJobDetail.data.job?.address" style="grid-column: 1 / -1">
+                  <span class="label">地址</span>
+                  <span class="v" x-text="companyJobDetail.data.job?.address"></span>
+                </div>
+              </div>
+              <div class="obs-detail-section" x-show="companyJobDetail.data.jd_text || companyJobDetail.data.job?.jd?.full">
+                <div class="obs-detail-h">岗位描述</div>
+                <div class="obs-detail-text" x-text="companyJobDetail.data.jd_text || companyJobDetail.data.job?.jd?.full || '无 JD'"></div>
+              </div>
+              <div class="obs-detail-actions">
+                <a class="obs-detail-link" :href="companyJobDetail.data.job?.url" target="_blank">BOSS直聘原页 <i data-lucide="external-link"></i></a>
+                <button class="obs-detail-btn" @click="$store.core.openJob(companyJobDetail?.data?.job?.job_id); closeCompany()">在主视图打开</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+  </div>
+

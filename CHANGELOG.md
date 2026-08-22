@@ -7,6 +7,42 @@
 
 ---
 
+## [v0.4.0] — 前后端功能域分治重构（组件岛迁移完成）
+
+依据 [ADR-002](../.trae/documents/adr-002-module-split.md) 完成 ADR-001 预留的「逐视图迁出」迭代，
+**API 与交互行为零变化**，代码按功能域一域一文件。模块地图见 [gaj/web/README.md](../gaj/web/README.md)。
+
+### 🏗️ 前端：删除 1023 行单体 app.js，五岛齐备
+
+- **视图三件套**：一视图 = `static/views/<name>.js`（逻辑）+
+  `views/<name>.html`（模板片段）+ `styles/<name>.css`（样式），
+  改哪个视图只读这三个文件，不碰 index.html
+- **index.html 1946 → ~200 行**：只留共享 UI（Toast/Header/日志面板）、
+  各视图岛挂载点（`data-tpl`）与模板 loader
+- **模板片段加载**：loader 先 fetch 各视图模板注入挂载点，全部完成后
+  才动态加载 Alpine（本地 alpine 3.15.12 无 deferLoadingAlpine 钩子，
+  用「先注入后加载」保证时序）；fetch 失败显示 #tpl-error 兜底块
+- **视图路由单一真相源**：`$store.core.view` 取代 showGuide/showConfig 等 4 个布尔 flag
+- **共享层扩容**（`core/store.js`）：taskRunning/scoreAll/跨视图跳转
+  openJob/openCompany/bootstrap；跨视图通信统一 window 事件协议
+  （`gaj:open-job` / `gaj:open-company` / `gaj:refresh` / `gaj:toggle-select`）
+- **公司详情抽屉移入公司图鉴岛**；观察台「在主视图打开」现在会真正切换视图
+- **CSS 按视图抽离**：新增 `styles/{jobs,guide,config,resume}.css`；
+  `style.css` 1980 → ~300 行共享外壳，并删除与 `base.css` 重复的令牌段
+
+### 🏗️ 后端：app.py 拆为纯组装层
+
+- 路由全量按域拆入 `routes/`：新增 `jobs.py` / `scoring.py` / `profile.py` /
+  `resume.py` / `system.py`（SSE 日志桥随日志流进 system）
+- `routes/__init__.py` 提供 `ALL_ROUTERS` 聚合表，新增路由零改 app.py
+- app.py 725 → ~90 行：只保留 app 工厂/生命周期/静态资源/启动入口
+
+### 🐛 修复
+
+- 公司抽屉内嵌岗位「在主视图打开」的空引用回归（closeCompany 置空顺序问题）
+
+---
+
 ## [v0.3.0] — 市场观察台与全链路下钻
 
 ### 📈 新增：市场观察台
