@@ -1,0 +1,121 @@
+/* ============================================
+   Get A Job — Base Layer (Design Tokens + Reset)
+   被 index.html 在 style.css 之前加载, 提供全局变量与重置。
+   后续 §1 从 style.css 头部删除重复定义, 由本文件统一提供。
+   ============================================ */
+:root {
+  /* --- Background layers (surface depth system) --- */
+  --gaj-bg: #0A0D12;
+  --gaj-surface: #0F131A;
+  --gaj-surface-2: #151A23;
+  --gaj-surface-3: #1C2230;
+  --gaj-surface-hover: #20283A;
+
+  /* --- Foreground / text --- */
+  --gaj-foreground: #E3E8EF;
+  --gaj-foreground-2: #98A2B3;
+  --gaj-foreground-3: #5C6573;
+  --gaj-foreground-4: #3D4452;
+
+  /* --- Brand primary (single hue: blue) --- */
+  --gaj-primary: #5B8EF7;
+  --gaj-primary-hover: #7AA5FA;
+  --gaj-primary-active: #4A7FE0;
+  --gaj-primary-foreground: #FFFFFF;
+  --gaj-primary-muted: rgba(91, 142, 247, 0.10);
+  --gaj-primary-border: rgba(91, 142, 247, 0.30);
+
+  /* --- Status colors (semantic only) --- */
+  --gaj-state-success: #3FB950;
+  --gaj-state-success-muted: rgba(63, 185, 80, 0.12);
+  --gaj-state-warning: #D29922;
+  --gaj-state-warning-muted: rgba(210, 153, 34, 0.12);
+  --gaj-state-error: #F85149;
+  --gaj-state-error-muted: rgba(248, 81, 73, 0.12);
+  --gaj-state-info: #5B8EF7;
+  --gaj-state-info-muted: rgba(91, 142, 247, 0.12);
+  --gaj-state-purple: #A78BFA;
+  --gaj-state-purple-muted: rgba(167, 139, 250, 0.12);
+  --gaj-state-orange: #DB6D28;
+  --gaj-state-orange-muted: rgba(219, 109, 40, 0.12);
+
+  /* --- Borders --- */
+  --gaj-border: #1A2030;
+  --gaj-border-hover: #2A3245;
+  --gaj-border-subtle: rgba(255, 255, 255, 0.04);
+
+  /* --- Radius scale --- */
+  --gaj-radius-sm: 4px;
+  --gaj-radius-md: 8px;
+  --gaj-radius-lg: 12px;
+  --gaj-radius-pill: 9999px;
+
+  /* --- Shadows (subtle, dark-mode appropriate) --- */
+  --gaj-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.20), 0 1px 1px rgba(0, 0, 0, 0.10);
+  --gaj-shadow-2: 0 8px 24px -8px rgba(0, 0, 0, 0.40);
+  --gaj-shadow-3: 0 24px 60px -20px rgba(0, 0, 0, 0.55);
+
+  /* --- Typography --- */
+  --gaj-font-sans: "Inter", -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --gaj-font-mono: "SF Mono", "Cascadia Code", "JetBrains Mono", "Menlo", monospace;
+  --gaj-font-size-xs: 11px;
+  --gaj-font-size-sm: 12px;
+  --gaj-font-size-base: 13px;
+  --gaj-font-size-md: 14px;
+  --gaj-font-size-lg: 16px;
+  --gaj-font-size-xl: 18px;
+  --gaj-font-size-2xl: 20px;
+  --gaj-font-size-3xl: 24px;
+
+  /* --- Spacing (8pt grid) --- */
+  --gaj-space-1: 4px;
+  --gaj-space-2: 8px;
+  --gaj-space-3: 12px;
+  --gaj-space-4: 16px;
+  --gaj-space-5: 20px;
+  --gaj-space-6: 24px;
+  --gaj-space-8: 32px;
+
+  /* --- Transitions --- */
+  --gaj-transition-fast: 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --gaj-transition-normal: 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* --- Legacy aliases (for backwards compat) --- */
+  --bg: var(--gaj-bg);
+  --bg2: var(--gaj-surface);
+  --bg3: var(--gaj-surface-3);
+  --border: var(--gaj-border);
+  --text: var(--gaj-foreground);
+  --text2: var(--gaj-foreground-2);
+  --text3: var(--gaj-foreground-3);
+  --blue: var(--gaj-primary);
+  --green: var(--gaj-state-success);
+  --yellow: var(--gaj-state-warning);
+  --red: var(--gaj-state-error);
+  --purple: var(--gaj-state-purple);
+  --orange: var(--gaj-state-orange);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+[x-cloak] { display: none !important; }
+html, body { height: 100%; overflow: hidden; }
+
+body {
+  background: var(--gaj-bg);
+  color: var(--gaj-foreground);
+  font-family: var(--gaj-font-sans);
+  font-size: var(--gaj-font-size-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: var(--gaj-primary); text-decoration: none; }
+a:hover { color: var(--gaj-primary-hover); }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--gaj-surface-3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--gaj-border-hover); }
+
+/* === Lucide icon sizing === */
+[data-lucide] { width: 14px; height: 14px; stroke-width: 1.75; flex-shrink: 0; vertical-align: middle; }

@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     company_name    TEXT,
     city            TEXT,
     district        TEXT,
+    business_district TEXT,
+    lat             REAL,
+    lng             REAL,
     address         TEXT,
     salary_raw      TEXT,
     salary_min      REAL,
@@ -184,7 +187,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN ai_stale INTEGER DEFAULT 0")
     if "ai_stale_reason" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN ai_stale_reason TEXT")
+    if "business_district" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN business_district TEXT")
+    if "lat" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN lat REAL")
+    if "lng" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN lng REAL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_favorite ON jobs(favorite)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_geo ON jobs(lat)")
 
     score_cols = {r[1] for r in conn.execute("PRAGMA table_info(scores)").fetchall()}
     if "context_fp" not in score_cols:
@@ -251,6 +261,9 @@ def _job_row(
         "company_name": job.company_name or (company.name if company else ""),
         "city": job.city,
         "district": job.district,
+        "business_district": job.business_district,
+        "lat": (job.gps or {}).get("lat"),
+        "lng": (job.gps or {}).get("lng"),
         "address": job.address,
         "salary_raw": job.salary.get("raw", ""),
         "salary_min": job.salary.get("min_10k"),
@@ -636,6 +649,55 @@ def reindex(db_path: Path | None = None) -> dict:
     return {"jobs": n_jobs, "companies": len(companies), "seconds": elapsed}
 
 
+def backfill_geo(db_path: Path | None = None) -> dict:
+    """从 data/jobs/*/job.json 回填 lat/lng/district/business_district/city 到索引。
+
+    一次性运维函数: 给老索引补 geo 列, 不重爬。新增岗位在 upsert_job 自动落 geo。
+    返回 {"scanned": n, "updated": m}。
+    """
+    started = time.time()
+    conn = connect(db_path)
+    try:
+        scanned = 0
+        updated = 0
+        for job in repo.iter_jobs():
+            scanned += 1
+            gps = job.gps or {}
+            lat = gps.get("lat")
+            lng = gps.get("lng")
+            # 只回填非空字段, 避免用空覆盖已有值
+            sets = []
+            params: list[Any] = []
+            if lat is not None:
+                sets.append("lat = ?")
+                params.append(lat)
+            if lng is not None:
+                sets.append("lng = ?")
+                params.append(lng)
+            if job.district:
+                sets.append("district = ?")
+                params.append(job.district)
+            if job.business_district:
+                sets.append("business_district = ?")
+                params.append(job.business_district)
+            if job.city:
+                sets.append("city = ?")
+                params.append(job.city)
+            if not sets:
+                continue
+            params.append(job.job_id)
+            conn.execute(
+                f"UPDATE jobs SET {', '.join(sets)} WHERE job_id = ?", params
+            )
+            updated += 1
+        conn.commit()
+    finally:
+        conn.close()
+    elapsed = round(time.time() - started, 2)
+    log.info(f"geo 回填完成: 扫描 {scanned}, 更新 {updated}, 耗时 {elapsed}s")
+    return {"scanned": scanned, "updated": updated, "seconds": elapsed}
+
+
 def delete_job_from_index(conn: sqlite3.Connection, job_id: str) -> None:
     """从索引中删除职位 (含 FTS + scores)。文件系统由 repo.delete_job 负责。"""
     row = conn.execute("SELECT company_id FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
@@ -863,6 +925,14 @@ def _build_where(
     favorite: str = "all",
     ignored: str = "exclude",
     new_since: str = "",
+    industry: str = "",
+    district: str = "",
+    overtime: str = "",
+    skill: str = "",
+    edu_level: int | None = None,
+    exp_min: float | None = None,
+    company_id: str = "",
+    has_salary: bool = False,
 ) -> tuple[str, list[Any]]:
     """构造列表筛选的 WHERE 子句与参数, 供 query / count 共用。"""
     where: list[str] = []
@@ -913,6 +983,44 @@ def _build_where(
         # 归一化成 T 再比较, 避免字符串比较出错
         where.append("REPLACE(first_seen, ' ', 'T') >= ?")
         params.append(new_since)
+    # ---- 市场观察台下钻筛选 ----
+    # 口径对齐: 聚合端把 NULL/空 industry/district/stage 显示为"未知",
+    # 下钻传"未知"时必须匹配回 NULL/空, 否则抽屉为空。
+    if industry:
+        if industry == "未知":
+            where.append("(industry IS NULL OR industry = '')")
+        else:
+            where.append("industry = ?")
+            params.append(industry)
+    if district:
+        if district == "未知":
+            where.append("(district IS NULL OR district = '')")
+        else:
+            where.append("district = ?")
+            params.append(district)
+    if overtime:
+        # overtime 可能存 NULL/空/'unknown' 三种形态
+        if overtime == "unknown":
+            where.append("(overtime IS NULL OR overtime = '' OR overtime = 'unknown')")
+        else:
+            where.append("overtime = ?")
+            params.append(overtime)
+    if skill:
+        # skills 是 JSON 数组字符串, 用 LIKE 匹配 (参数化, 无注入风险)
+        where.append("skills LIKE ?")
+        params.append('%"' + skill.replace('"', '\\"') + '"%')
+    if edu_level is not None:
+        where.append("edu_level = ?")
+        params.append(edu_level)
+    if exp_min is not None:
+        where.append("exp_min = ?")
+        params.append(exp_min)
+    if company_id:
+        where.append("company_id = ?")
+        params.append(company_id)
+    if has_salary:
+        # 薪资定价 tab 的柱图 count 只统计有薪资样本, 下钻保持同口径
+        where.append("salary_mid IS NOT NULL AND salary_mid > 0")
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     return clause, params
 
@@ -935,12 +1043,22 @@ def query_jobs(
     desc: bool = True,
     limit: int = 200,
     offset: int = 0,
+    industry: str = "",
+    district: str = "",
+    overtime: str = "",
+    skill: str = "",
+    edu_level: int | None = None,
+    exp_min: float | None = None,
+    company_id: str = "",
+    has_salary: bool = False,
 ) -> list[dict]:
     where_clause, params = _build_where(
         search=search, cities=cities, statuses=statuses, scored=scored,
         providers=providers, salary_min=salary_min, online_only=online_only,
         outsourcing=outsourcing, favorite=favorite, ignored=ignored,
-        new_since=new_since,
+        new_since=new_since, industry=industry, district=district,
+        overtime=overtime, skill=skill, edu_level=edu_level,
+        exp_min=exp_min, company_id=company_id, has_salary=has_salary,
     )
     sort_col = sort if sort in _SORTABLE else "best_total"
     direction = "DESC" if desc else "ASC"
@@ -970,13 +1088,23 @@ def count_jobs(
     favorite: str = "all",
     ignored: str = "exclude",
     new_since: str = "",
+    industry: str = "",
+    district: str = "",
+    overtime: str = "",
+    skill: str = "",
+    edu_level: int | None = None,
+    exp_min: float | None = None,
+    company_id: str = "",
+    has_salary: bool = False,
 ) -> int:
     """带筛选条件的职位计数, 参数与 query_jobs 一致。"""
     where_clause, params = _build_where(
         search=search, cities=cities, statuses=statuses, scored=scored,
         providers=providers, salary_min=salary_min, online_only=online_only,
         outsourcing=outsourcing, favorite=favorite, ignored=ignored,
-        new_since=new_since,
+        new_since=new_since, industry=industry, district=district,
+        overtime=overtime, skill=skill, edu_level=edu_level,
+        exp_min=exp_min, company_id=company_id, has_salary=has_salary,
     )
     sql = "SELECT COUNT(*) FROM jobs" + where_clause
     return conn.execute(sql, params).fetchone()[0]
@@ -1040,197 +1168,3 @@ def facets(conn: sqlite3.Connection) -> dict:
         ],
     }
 
-
-# ---------------------------------------------------------------- 公司图鉴查询
-
-
-_COMPANY_SELECT = (
-    "SELECT c.brand_id, c.name, c.short_name, c.industry, c.stage, c.scale_raw,"
-    " c.scale_min, c.scale_max, c.nature, c.founded, c.capital, c.hours_per_day,"
-    " c.favorite, c.updated_at,"
-    " s.job_count, s.online_count, s.scored_count, s.ai_scored_count,"
-    " s.best_score, s.avg_score, s.company_score, s.rank_tier, s.salary_mid_avg,"
-    " s.cities, s.top_job_id, s.top_job_title, s.top_job_score, s.latest_seen,"
-    " s.has_intro, s.has_scope, s.excluded"
-    " FROM companies c LEFT JOIN company_stats s ON s.brand_id = c.brand_id"
-)
-
-_COMPANY_SORTS = {
-    "score": "s.company_score",
-    "jobs": "s.job_count",
-    "salary": "s.salary_mid_avg",
-    "best": "s.best_score",
-    "updated": "c.updated_at",
-}
-
-
-def _company_where(
-    *,
-    q: str = "",
-    industry: str = "",
-    stage: str = "",
-    city: str = "",
-    favorite: str = "all",
-    include_excluded: bool = False,
-    scored_only: bool = False,
-) -> tuple[str, list[Any]]:
-    where: list[str] = []
-    params: list[Any] = []
-    if not include_excluded:
-        where.append("(s.excluded = 0 OR s.excluded IS NULL)")
-    if q.strip():
-        where.append("(c.name LIKE ? OR c.short_name LIKE ?)")
-        like = f"%{q.strip()}%"
-        params.extend([like, like])
-    if industry:
-        where.append("c.industry = ?")
-        params.append(industry)
-    if stage:
-        where.append("c.stage = ?")
-        params.append(stage)
-    if city:
-        # cities 是 JSON 数组文本 (ensure_ascii=False), LIKE 匹配足够
-        where.append("s.cities LIKE ?")
-        params.append(f"%{city}%")
-    if favorite == "only":
-        where.append("c.favorite = 1")
-    if scored_only:
-        where.append("s.company_score IS NOT NULL")
-    clause = (" WHERE " + " AND ".join(where)) if where else ""
-    return clause, params
-
-
-def query_companies(
-    conn: sqlite3.Connection,
-    *,
-    q: str = "",
-    industry: str = "",
-    stage: str = "",
-    city: str = "",
-    favorite: str = "all",
-    include_excluded: bool = False,
-    scored_only: bool = False,
-    sort: str = "score",
-    desc: bool = True,
-    limit: int = 200,
-    offset: int = 0,
-) -> list[dict]:
-    where_clause, params = _company_where(
-        q=q, industry=industry, stage=stage, city=city, favorite=favorite,
-        include_excluded=include_excluded, scored_only=scored_only,
-    )
-    sort_col = _COMPANY_SORTS.get(sort, "s.company_score")
-    direction = "DESC" if desc else "ASC"
-    sql = (
-        _COMPANY_SELECT + where_clause +
-        # 收藏置顶, NULL 排最后, 同分按名字稳定排序
-        f" ORDER BY c.favorite DESC, ({sort_col} IS NULL), {sort_col} {direction},"
-        " c.name ASC LIMIT ? OFFSET ?"
-    )
-    params.extend([limit, offset])
-    rows = conn.execute(sql, params).fetchall()
-    out = []
-    for r in rows:
-        d = dict(r)
-        if isinstance(d.get("cities"), str):
-            try:
-                d["cities"] = json.loads(d["cities"])
-            except (json.JSONDecodeError, TypeError):
-                d["cities"] = []
-        out.append(d)
-    return out
-
-
-def count_companies(
-    conn: sqlite3.Connection,
-    *,
-    q: str = "",
-    industry: str = "",
-    stage: str = "",
-    city: str = "",
-    favorite: str = "all",
-    include_excluded: bool = False,
-    scored_only: bool = False,
-) -> int:
-    where_clause, params = _company_where(
-        q=q, industry=industry, stage=stage, city=city, favorite=favorite,
-        include_excluded=include_excluded, scored_only=scored_only,
-    )
-    sql = "SELECT COUNT(*) FROM companies c LEFT JOIN company_stats s ON s.brand_id = c.brand_id" + where_clause
-    return conn.execute(sql, params).fetchone()[0]
-
-
-def company_facets(conn: sqlite3.Connection) -> dict:
-    """图鉴顶栏概况 + 筛选面板选项。"""
-    row = conn.execute(
-        "SELECT COUNT(*) AS total,"
-        " SUM(CASE WHEN company_score IS NOT NULL THEN 1 ELSE 0 END) AS scored,"
-        " SUM(CASE WHEN ai_scored_count > 0 THEN 1 ELSE 0 END) AS unlocked"
-        " FROM company_stats WHERE excluded = 0"
-    ).fetchone()
-    fav = conn.execute(
-        "SELECT COUNT(*) FROM companies c"
-        " LEFT JOIN company_stats s ON s.brand_id = c.brand_id"
-        " WHERE c.favorite = 1 AND (s.excluded = 0 OR s.excluded IS NULL)"
-    ).fetchone()[0]
-
-    def group(col: str) -> list[dict]:
-        rows = conn.execute(
-            f"SELECT {col} AS k, COUNT(*) AS n FROM companies c"
-            " LEFT JOIN company_stats s ON s.brand_id = c.brand_id"
-            f" WHERE {col} IS NOT NULL AND {col} != ''"
-            " AND (s.excluded = 0 OR s.excluded IS NULL)"
-            f" GROUP BY {col} ORDER BY n DESC"
-        ).fetchall()
-        return [{"value": r["k"], "count": r["n"]} for r in rows]
-
-    return {
-        "total": row["total"] or 0,
-        "scored": row["scored"] or 0,
-        "unlocked": row["unlocked"] or 0,
-        "favorite": fav,
-        "industries": group("c.industry"),
-        "stages": group("c.stage"),
-    }
-
-
-def company_dims_avg(conn: sqlite3.Connection, brand_id: str) -> dict | None:
-    """公司四维分均值 (对比雷达图用)。
-
-    每个岗位优先取最新一条 AI 打分的维度分, 没有则退回规则维度分;
-    再对所有岗位求均值。全部岗位都没有维度分时返回 None。
-    """
-    rows = conn.execute(
-        "SELECT job_id FROM jobs WHERE company_id = ? AND (ignored = 0 OR ignored IS NULL)",
-        (brand_id,),
-    ).fetchall()
-    dims_list: list[dict] = []
-    for r in rows:
-        jid = r["job_id"]
-        s = conn.execute(
-            "SELECT dims FROM scores WHERE job_id = ? AND kind = 'ai'"
-            " AND dims IS NOT NULL AND dims != '' AND dims != '{}'"
-            " ORDER BY created_at DESC, file DESC LIMIT 1",
-            (jid,),
-        ).fetchone()
-        if not s:
-            s = conn.execute(
-                "SELECT dims FROM scores WHERE job_id = ? AND kind = 'rule'"
-                " AND dims IS NOT NULL AND dims != '' AND dims != '{}'",
-                (jid,),
-            ).fetchone()
-        if not s:
-            continue
-        try:
-            d = json.loads(s["dims"])
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if any(isinstance(d.get(k), (int, float)) for k in ("finance", "growth", "resource", "wlb")):
-            dims_list.append(d)
-    if not dims_list:
-        return None
-    out: dict = {}
-    for k in ("finance", "growth", "resource", "wlb"):
-        vals = [d[k] for d in dims_list if isinstance(d.get(k), (int, float))]
-        out[k] = round(sum(vals) / len(vals), 2) if vals else None
-    return out

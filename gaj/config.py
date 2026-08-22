@@ -24,6 +24,8 @@ RESUMES_DIR = DATA_ROOT / "resumes"
 TAILORED_DIR = RESUMES_DIR / "tailored"
 RAW_DIR = DATA_ROOT / "_raw"
 INDEX_DB = DATA_ROOT / "index.db"
+# AI 规则矫正记录目录 (append-only 历史)
+CALIBRATION_DIR = DATA_ROOT / "calibration"
 
 REFERENCES_DIR = PROJECT_ROOT / "references"
 # 个人资料放在 data/ 下, 整个 data/ 已被 .gitignore 忽略, 避免隐私外泄
@@ -59,6 +61,7 @@ def ensure_dirs() -> None:
         RESUMES_DIR,
         TAILORED_DIR,
         RAW_DIR,
+        CALIBRATION_DIR,
         LOGS_DIR,
     ):
         p.mkdir(parents=True, exist_ok=True)

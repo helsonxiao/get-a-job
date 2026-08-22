@@ -10,6 +10,11 @@ function app() {
     logs: [], sseConnected: false, logCollapsed: true,
     showConfig: false, configTab: 'rules',
     rulesCatalog: null, rulesEdit: {}, initialRulesEdit: {}, rulesSaving: false, scoringPresets: {},
+    // AI 规则矫正: 建议仅在人工复核勾选后才应用
+    calibration: {
+      provider: 'deepseek', result: null, checked: {},
+      showRaw: false, applying: false, loaded: false,
+    },
     profileData: null, profileSaving: false, weightPresets: {},
     showResume: false, resumeData: {content: '', exists: false, size: 0}, resumeSaving: false, resumeSavedAt: '',
     manualEdit: {total: '', note: ''}, manualSaving: false,
@@ -19,6 +24,7 @@ function app() {
     toasts: [], _toastSeq: 0,
     // ---- 公司图鉴 ----
     showGuide: false,
+    showObservatory: false,
     guide: {
       facets: null, items: [], total: 0, loading: false,
       q: '', industry: '', stage: '', favorite: 'all',
@@ -26,6 +32,8 @@ function app() {
       mode: 'cards',            // cards | quadrant | compare
     },
     companyDetail: null, companyDetailLoading: false,
+    // 公司抽屉内嵌岗位详情: 抽屉内点击岗位不离开当前页面
+    companyJobDetail: null,
     compareIds: [], compareDetails: {},
 
     async init() {
@@ -134,6 +142,111 @@ function app() {
       for (const [k, v] of Object.entries(p)) next[k] = v;
       this.rulesEdit = next;
       this.toast(`已套用「${name}」配比预设, 记得点"保存规则参数"生效`, 'info');
+    },
+
+    // ---- AI 规则矫正 (人工复核后应用) ----
+
+    async triggerCalibration() {
+      const p = new URLSearchParams({ provider: this.calibration.provider });
+      const d = await this.api('/api/config/calibrate?' + p.toString(), 'POST');
+      if (d && d.status === 'started') {
+        this.toast('AI 矫正已启动, 进度见日志面板', 'success');
+        this.logCollapsed = false;
+      } else if (d && d.status === 'already_running') {
+        this.toast('矫正任务正在运行中', 'warning');
+      } else {
+        this.toast('启动 AI 矫正失败', 'error');
+      }
+    },
+
+    async loadCalibration() {
+      const d = await this.api('/api/config/calibrate/latest');
+      if (d && d.result) {
+        this.calibration.result = d.result;
+        // 默认全选未应用的合法建议
+        const checked = {};
+        for (const s of (d.result.suggestions || [])) {
+          checked[s.target + ':' + s.field] = !this.calibApplied(s);
+        }
+        this.calibration.checked = checked;
+      } else {
+        this.calibration.result = null;
+        this.calibration.checked = {};
+      }
+      this.calibration.loaded = true;
+    },
+
+    calibKey(s) { return s.target + ':' + s.field; },
+
+    calibApplied(s) {
+      const applied = (this.calibration.result && this.calibration.result.applied) || [];
+      return applied.some(a => a.field === s.target + ':' + s.field || a.field === s.field);
+    },
+
+    calibCheckedCount() {
+      const items = (this.calibration.result && this.calibration.result.suggestions) || [];
+      return items.filter(s => this.calibration.checked[this.calibKey(s)]).length;
+    },
+
+    // 字段中文标签 (画像字段 + 常见评分项)
+    calibFieldLabel(s) {
+      if (s.target === 'scoring') {
+        const labels = {
+          reject_confidence_floor: '淘汰置信度下限',
+          f01_max: 'F-01 薪资下限达标', f02_max: 'F-02 薪资中位数达标', f03_max: 'F-03 薪资上限惊喜',
+          f04_max: 'F-04 股票期权激励', f05_max: 'F-05 高价值福利', f06_max: 'F-06 薪资构成质量',
+          g01_max: 'G-01 技术栈重合度', g02_max: 'G-02 公司阶段价值', g03_max: 'G-03 业务方向匹配',
+          g04_max: 'G-04 团队规模契合', g05_max: 'G-05 经验学历兼容', g06_max: 'G-06 技术深度信号',
+          g07_max: 'G-07 技术前瞻性',
+          r01_max: 'R-01 城市匹配', r02_max: 'R-02 行业经验重叠', r03_max: 'R-03 公司体量偏好',
+          r04_max: 'R-04 特殊资源', r05_max: 'R-05 文化适配信号',
+          w01_max: 'W-01 工作模式弹性', w02_max: 'W-02 弹性福利信号', w03_max: 'W-03 企业规范性',
+          w04_max: 'W-04 加班强度', w05_max: 'W-05 通勤便利',
+        };
+        return labels[s.field] || s.field;
+      }
+      const labels = {
+        hard_min_salary_10k: '薪资硬下限(万)', expect_min_salary_10k: '期望最低薪资(万)',
+        expect_max_salary_10k: '期望最高薪资(万)', max_commute_minutes: '最长通勤(分钟)',
+        reject_scale_below: '公司规模下限(人)',
+        weight_growth: '成长权重', weight_finance: '财务权重', weight_wlb: 'WLB权重', weight_resource: '资源权重',
+        team_size_min: '团队规模下限', team_size_max: '团队规模上限',
+      };
+      return labels[s.field] || s.field;
+    },
+
+    async applyCalibration() {
+      const r = this.calibration.result;
+      if (!r || !r.file) return;
+      const items = (r.suggestions || []).filter(s => this.calibration.checked[this.calibKey(s)]);
+      if (!items.length) { this.toast('请先勾选要应用的建议', 'warning'); return; }
+      if (!confirm(`确认应用选中的 ${items.length} 条矫正建议? 将直接写入画像与规则配置。`)) return;
+
+      this.calibration.applying = true;
+      // 按 target 分组: profile 走 PUT /api/profile, scoring 走 PUT /api/scoring-config
+      const profileBody = {};
+      const scoringBody = {};
+      const appliedFields = [];
+      for (const s of items) {
+        if (s.target === 'profile') profileBody[s.field] = s.suggested;
+        else scoringBody[s.field] = s.suggested;
+        appliedFields.push(this.calibKey(s));
+      }
+      let ok = true;
+      if (Object.keys(profileBody).length) {
+        const d = await this.api('/api/profile', 'PUT', profileBody);
+        if (!d || !d.ok) { ok = false; this.toast('画像更新失败, 请重试', 'error'); }
+      }
+      if (ok && Object.keys(scoringBody).length) {
+        const d = await this.api('/api/scoring-config', 'PUT', scoringBody);
+        if (!d || !d.ok) { ok = false; this.toast('规则配置更新失败', 'error'); }
+      }
+      if (ok) {
+        await this.api('/api/config/calibrate/applied', 'POST', { file: r.file, fields: appliedFields });
+        this.toast('矫正建议已应用, 请点击"规则打分"刷新分数', 'success');
+        await Promise.all([this.loadRules(), this.loadProfile(), this.loadCalibration()]);
+      }
+      this.calibration.applying = false;
     },
 
     async loadProfile() {
@@ -573,6 +686,11 @@ function app() {
         await this.loadStats();
         if (this.selectedJobId) await this.selectJob(this.selectedJobId);
         await this.loadJobs();
+        // 矫正任务完成 → 刷新最新矫正结果
+        const calibDone = Object.entries(cur).some(
+          ([k, t]) => k.startsWith('config-calibrate-') && t.status !== 'running'
+        );
+        if (calibDone && this.showConfig) await this.loadCalibration();
         if (this.showGuide) {
           await this.loadGuide();
           if (this.companyDetail) await this.openCompany(this.companyDetail.company.brand_id);
@@ -595,6 +713,7 @@ function app() {
       if (key === 'reindex') return '重建索引';
       if (key.startsWith('ai-score-')) return 'AI 打分';
       if (key.startsWith('company-analyze-')) return '公司 AI 评价';
+      if (key.startsWith('config-calibrate-')) return 'AI 规则矫正';
       if (key.startsWith('resume-')) return '简历生成';
       return '任务';
     },
@@ -625,7 +744,15 @@ function app() {
       this.showGuide = true;
       this.showConfig = false;
       this.showResume = false;
+      this.showObservatory = false;
       if (!this.guide.facets) this.loadGuide();
+    },
+
+    openObservatory() {
+      this.showObservatory = true;
+      this.showGuide = false;
+      this.showConfig = false;
+      this.showResume = false;
     },
 
     async loadGuide() {
@@ -666,12 +793,23 @@ function app() {
     async openCompany(brandId) {
       this.companyDetailLoading = true;
       this.companyDetail = null;
+      this.companyJobDetail = null;
       const d = await this.api('/api/companies/' + encodeURIComponent(brandId));
       if (d) this.companyDetail = d;
       this.companyDetailLoading = false;
     },
 
-    closeCompany() { this.companyDetail = null; this.companyDetailLoading = false; },
+    closeCompany() { this.companyDetail = null; this.companyDetailLoading = false; this.companyJobDetail = null; },
+
+    // 公司抽屉内嵌: 加载岗位详情, 不离开抽屉
+    async openJobInCompany(jobId) {
+      this.companyJobDetail = { loading: true, data: null };
+      const d = await this.api('/api/jobs/' + encodeURIComponent(jobId));
+      this.companyJobDetail = { loading: false, data: d };
+    },
+
+    // 返回公司详情 (关闭内嵌岗位详情)
+    backToCompany() { this.companyJobDetail = null; },
 
     async toggleCompanyFavorite(brandId, fav) {
       const d = await this.api('/api/companies/' + encodeURIComponent(brandId) + '/favorite', 'POST', {favorite: fav});
@@ -724,12 +862,6 @@ function app() {
       } else {
         this.toast('启动 AI 鉴定失败', 'error');
       }
-    },
-
-    openJobFromCompany(jobId) {
-      this.closeCompany();
-      this.showGuide = false;
-      this.selectJob(jobId);
     },
 
     async analyzeCompany(brandId) {

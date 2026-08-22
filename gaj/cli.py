@@ -77,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     # ---- reindex ----
     sub.add_parser("reindex", help="重建索引")
 
+    # ---- backfill-geo ----
+    sub.add_parser("backfill-geo", help="从 job.json 回填 lat/lng/district 到索引")
+
     # ---- fix-conflicts ----
     p = sub.add_parser("fix-conflicts", help="自动修复 brand_id 串号遗留的脏数据")
     p.add_argument("--dry-run", action="store_true", help="只看报告, 不落盘")
@@ -195,6 +198,13 @@ def main(argv: list[str] | None = None) -> int:
 
         out = index.reindex()
         print(f"✓ 索引重建: {out['jobs']} 职位, {out['companies']} 公司, {out['seconds']}s")
+        return 0
+
+    if args.command == "backfill-geo":
+        from .store import index
+
+        out = index.backfill_geo()
+        print(f"✓ geo 回填: 扫描 {out['scanned']}, 更新 {out['updated']}, {out['seconds']}s")
         return 0
 
     if args.command == "fix-conflicts":

@@ -37,7 +37,7 @@ from .. import config as cfg
 from ..logging_setup import SINK, get_logger, setup
 from ..store import index, repo
 
-log = get_logger("web")
+from .runtime import log, _run_in_thread, _task_lock, _running_tasks, _safe_serialize
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -90,51 +90,16 @@ def _attach_log_bridge() -> None:
     SINK.add(_on_log)
 
 
-# ---------------------------------------------------------------- 后台任务
-
-_running_tasks: dict[str, dict] = {}
-_task_lock = threading.Lock()
-
-
-def _run_in_thread(func, task_key: str, **kwargs) -> None:
-    """在后台线程执行耗时任务, 状态记录到 _running_tasks。"""
-    with _task_lock:
-        _running_tasks[task_key] = {"status": "running", "key": task_key}
-
-    def _wrapper():
-        try:
-            result = func(**kwargs)
-            with _task_lock:
-                _running_tasks[task_key] = {
-                    "status": "done", "key": task_key, "result": _safe_serialize(result),
-                }
-        except Exception as exc:
-            log.error(f"后台任务 {task_key} 失败: {exc}")
-            with _task_lock:
-                _running_tasks[task_key] = {
-                    "status": "error", "key": task_key, "error": str(exc),
-                }
-
-    t = threading.Thread(target=_wrapper, daemon=True, name=f"gaj-{task_key}")
-    t.start()
-
-
-def _safe_serialize(obj: Any) -> Any:
-    """把可能含 dataclass / Path 的对象转成 JSON 安全的结构。"""
-    if obj is None:
-        return None
-    if isinstance(obj, dict):
-        return {k: _safe_serialize(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_safe_serialize(v) for v in obj]
-    if isinstance(obj, (str, int, float, bool)):
-        return obj
-    return str(obj)
-
-
 # ---------------------------------------------------------------- FastAPI
 
 app = FastAPI(title="坑位图鉴", docs_url="/api/docs")
+
+from .routes.observatory import router as _obs_router
+from .routes.companies import router as _companies_router
+from .routes.config import router as _config_router
+app.include_router(_obs_router)
+app.include_router(_companies_router)
+app.include_router(_config_router)
 
 
 @app.on_event("startup")
@@ -161,7 +126,11 @@ async def _shutdown() -> None:
 
 @app.get("/")
 async def index_page() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    # no-cache 防止浏览器缓存旧版 HTML (热重载场景)
+    return FileResponse(
+        STATIC_DIR / "index.html",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -199,6 +168,14 @@ async def api_jobs(
     desc: bool = Query(True),
     limit: int = Query(50, le=500),
     offset: int = Query(0, ge=0),
+    industry: str = Query("", description="行业精确筛选 (市场观察台下钻)"),
+    district: str = Query("", description="区域精确筛选 (市场观察台下钻)"),
+    overtime: str = Query("", description="加班档位筛选 heavy|moderate|light|none|unknown"),
+    skill: str = Query("", description="技能筛选 (skills LIKE)"),
+    edu_level: Optional[int] = Query(None, description="学历等级 0-5"),
+    exp_min: Optional[float] = Query(None, description="经验下限精确匹配"),
+    company_id: str = Query("", description="公司 brand_id 精确筛选"),
+    has_salary: bool = Query(False, description="只含有薪资样本的岗位 (薪资定价 tab 下钻口径)"),
 ) -> dict:
     with index.session() as conn:
         items = index.query_jobs(
@@ -217,6 +194,14 @@ async def api_jobs(
             desc=desc,
             limit=limit,
             offset=offset,
+            industry=industry,
+            district=district,
+            overtime=overtime,
+            skill=skill,
+            edu_level=edu_level,
+            exp_min=exp_min,
+            company_id=company_id,
+            has_salary=has_salary,
         )
         total = index.count_jobs(
             conn,
@@ -230,6 +215,14 @@ async def api_jobs(
             outsourcing=outsourcing,
             favorite=favorite,
             ignored=ignored,
+            industry=industry,
+            district=district,
+            overtime=overtime,
+            skill=skill,
+            edu_level=edu_level,
+            exp_min=exp_min,
+            company_id=company_id,
+            has_salary=has_salary,
         )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
@@ -480,166 +473,6 @@ async def api_providers() -> dict:
     except Exception:
         return {"providers": ["deepseek", "doubao", "tongyi", "kimi"]}
 
-
-# ---------------------------------------------------------------- 公司图鉴
-
-
-@app.get("/api/companies/facets")
-async def api_company_facets() -> dict:
-    """图鉴顶栏概况 (已鉴定/已解锁/想去数) + 行业/阶段筛选选项。"""
-    with index.session() as conn:
-        return index.company_facets(conn)
-
-
-@app.get("/api/companies")
-async def api_companies(
-    q: str = Query("", description="公司名搜索"),
-    industry: str = Query(""),
-    stage: str = Query(""),
-    city: str = Query(""),
-    favorite: str = Query("all", description="all|only"),
-    scored_only: bool = Query(False, description="只看有公司分的"),
-    include_excluded: bool = Query(False, description="含匿名/串号公司"),
-    sort: str = Query("score", description="score|jobs|salary|best|updated"),
-    desc: bool = Query(True),
-    limit: int = Query(100, le=500),
-    offset: int = Query(0, ge=0),
-) -> dict:
-    """公司图鉴列表。三榜即时切换: sort=score(分数榜)/jobs(招聘力度榜)/salary(薪资榜)。"""
-    with index.session() as conn:
-        items = index.query_companies(
-            conn, q=q, industry=industry, stage=stage, city=city,
-            favorite=favorite, include_excluded=include_excluded,
-            scored_only=scored_only, sort=sort, desc=desc,
-            limit=limit, offset=offset,
-        )
-        total = index.count_companies(
-            conn, q=q, industry=industry, stage=stage, city=city,
-            favorite=favorite, include_excluded=include_excluded,
-            scored_only=scored_only,
-        )
-    return {"items": items, "total": total, "limit": limit, "offset": offset}
-
-
-@app.get("/api/companies/{brand_id}")
-async def api_company_detail(brand_id: str) -> dict:
-    """公司详情: 完整资料 + 聚合统计 + 名下岗位 (按分排序)。"""
-    company = repo.load_company(brand_id)
-    if not company:
-        raise HTTPException(404, f"公司不存在: {brand_id}")
-    with index.session() as conn:
-        stats = conn.execute(
-            "SELECT * FROM company_stats WHERE brand_id = ?", (brand_id,)
-        ).fetchone()
-        job_rows = conn.execute(
-            "SELECT * FROM jobs WHERE company_id = ?"
-            " ORDER BY favorite DESC, (best_total IS NULL), best_total DESC,"
-            " last_seen DESC",
-            (brand_id,),
-        ).fetchall()
-        dims_avg = index.company_dims_avg(conn, brand_id)
-    jobs = [index._row_to_dict(r) for r in job_rows]
-    return {
-        "company": company.to_dict(),
-        "stats": dict(stats) if stats else None,
-        "dims_avg": dims_avg,
-        "jobs": jobs,
-        "job_count": len(jobs),
-        "ai_scores": repo.list_company_ai_scores(brand_id),
-    }
-
-
-@app.post("/api/companies/{brand_id}/favorite")
-async def api_set_company_favorite(brand_id: str, body: dict = Body(...)) -> dict:
-    """切换"想去"状态 (公司级收藏)。body: {"favorite": true/false}"""
-    if repo.load_company(brand_id) is None:
-        raise HTTPException(404, f"公司不存在: {brand_id}")
-    fav = bool(body.get("favorite", False))
-    final = repo.set_company_favorite(brand_id, fav)
-    with index.session() as conn:
-        index.set_company_favorite(conn, brand_id, fav)
-    return {"ok": True, "brand_id": brand_id, "favorite": final}
-
-
-@app.post("/api/companies/{brand_id}/ai-analyze")
-async def api_company_ai_analyze(
-    brand_id: str,
-    provider: str = Query("deepseek"),
-) -> dict:
-    """触发公司级 AI 评价 (纯手动, 后台执行, 通过 SSE 看进度)。
-
-    与岗位打分对称: 全量落盘到 data/companies/<brand_id>/scores/,
-    append-only 历史; 不做任何自动调度。
-    """
-    if repo.load_company(brand_id) is None:
-        raise HTTPException(404, f"公司不存在: {brand_id}")
-
-    from ..ai.company_runner import analyze_company
-
-    task_key = f"company-analyze-{brand_id}-{provider}"
-    with _task_lock:
-        if task_key in _running_tasks and _running_tasks[task_key]["status"] == "running":
-            return {"task": task_key, "status": "already_running"}
-
-    _run_in_thread(analyze_company, task_key, brand_id=brand_id, provider=provider)
-    return {"task": task_key, "status": "started"}
-
-
-@app.delete("/api/companies/{brand_id}/ai-scores/{file_name}")
-async def api_delete_company_ai_score(brand_id: str, file_name: str) -> dict:
-    """删除指定的公司级 AI 评价文件。file_name 形如 ai_deepseek_20260814T123456.json"""
-    if repo.load_company(brand_id) is None:
-        raise HTTPException(404, f"公司不存在: {brand_id}")
-    try:
-        ok = repo.delete_company_ai_score(brand_id, file_name)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
-    if not ok:
-        raise HTTPException(404, f"AI 评价文件不存在: {file_name}")
-    return {"ok": True, "brand_id": brand_id, "file": file_name}
-
-
-@app.post("/api/companies/{brand_id}/ai-reparse")
-async def api_company_ai_reparse(brand_id: str, body: dict = Body(...)) -> dict:
-    """人工编辑公司级 AI 原始回复后重新解析并保存。
-
-    body: {"raw_text": "...", "provider": "deepseek"}
-    与岗位侧 /api/jobs/{id}/ai-reparse 对称: 解析成功则追加保存为新文件,
-    并刷新 company_stats (因为 company_score_ai 可能进入图鉴分数)。
-    解析失败返回 422, 不写入文件。
-    """
-    if repo.load_company(brand_id) is None:
-        raise HTTPException(404, f"公司不存在: {brand_id}")
-    raw_text = (body or {}).get("raw_text", "").strip()
-    provider = (body or {}).get("provider", "unknown")
-    if not raw_text:
-        raise HTTPException(400, "raw_text 不能为空")
-
-    from ..ai.company_runner import parse_company_response
-
-    result = parse_company_response(raw_text, provider=provider, brand_id=brand_id)
-    if not result:
-        raise HTTPException(422, "解析失败: 无法从编辑后的文本中提取 JSON")
-    result["raw_response"] = raw_text
-    # 记录评价时的上下文指纹, 与自动评价流程保持一致
-    try:
-        from ..core.context import compute_context_fingerprint
-
-        result["context_fingerprint"] = compute_context_fingerprint()
-    except Exception:
-        pass
-    path = repo.save_company_ai_score(brand_id, provider, result)
-    log.info(
-        f"人工重新解析公司评价成功: {brand_id} ({provider}) ->"
-        f" {result['worth_joining']} {result['company_score_ai']}/10 -> {path.name}"
-    )
-    # 刷新公司聚合统计: company_score_ai 可能影响图鉴分数 (头部加权无候选时回退)
-    try:
-        with index.session() as conn:
-            index.refresh_company_stats(conn, [brand_id])
-    except Exception as exc:
-        log.warning(f"刷新公司统计失败: {exc}")
-    return {"ok": True, "brand_id": brand_id, "result": result}
 
 
 # ---------------------------------------------------------------- 规则与画像配置

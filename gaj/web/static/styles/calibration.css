@@ -1,0 +1,241 @@
+/* ============================================
+   Get A Job — AI 规则矫正卡片
+   规则概览页顶部: 市场解读 + 建议 diff + 人工复核
+   ============================================ */
+
+.calib-card {
+  background: var(--gaj-surface);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-md);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.calib-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.calib-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--gaj-font-size-lg);
+  font-weight: 600;
+  color: var(--gaj-foreground);
+  flex: 1;
+  min-width: 0;
+}
+.calib-title i { width: 18px; height: 18px; color: var(--gaj-primary); }
+
+.calib-hint {
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-3);
+  font-weight: normal;
+  white-space: normal;
+}
+
+.calib-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.calib-running {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: 12px;
+  background: var(--gaj-primary-muted);
+  border-radius: var(--gaj-radius-sm);
+  color: var(--gaj-primary);
+  font-size: var(--gaj-font-size-sm);
+}
+.calib-running i { width: 16px; height: 16px; animation: calib-spin 1.2s linear infinite; }
+@keyframes calib-spin { to { transform: rotate(360deg); } }
+
+.calib-result { margin-top: 12px; }
+
+.calib-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-3);
+  margin-bottom: 10px;
+}
+
+.calib-time { font-family: var(--gaj-font-mono); }
+.calib-count { color: var(--gaj-foreground-2); }
+.calib-applied-count { color: var(--gaj-state-success); }
+
+.calib-reading {
+  background: var(--gaj-surface-2);
+  border: 1px solid var(--gaj-border-subtle);
+  border-radius: var(--gaj-radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.calib-reading-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--gaj-font-size-xs);
+  font-weight: 600;
+  color: var(--gaj-foreground-2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+.calib-reading-h i { width: 14px; height: 14px; }
+.calib-reading-text {
+  font-size: var(--gaj-font-size-sm);
+  color: var(--gaj-foreground-2);
+  line-height: 1.6;
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* ---- 建议列表: 可视化 diff ---- */
+
+.calib-suggestions { display: flex; flex-direction: column; gap: 8px; }
+
+.calib-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--gaj-surface-2);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-sm);
+  flex-wrap: wrap;
+}
+.calib-item.applied { opacity: 0.65; }
+
+.calib-check { display: flex; align-items: center; margin-top: 2px; }
+.calib-check input { cursor: pointer; }
+
+.calib-target {
+  font-size: var(--gaj-font-size-xs);
+  padding: 1px 8px;
+  border-radius: var(--gaj-radius-sm);
+  font-weight: 600;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.calib-target.profile { background: var(--gaj-state-purple-muted); color: var(--gaj-state-purple); }
+.calib-target.scoring { background: var(--gaj-state-info-muted); color: var(--gaj-state-info); }
+
+.calib-field {
+  font-size: var(--gaj-font-size-sm);
+  color: var(--gaj-foreground);
+  font-weight: 600;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.calib-diff {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--gaj-font-mono);
+  font-size: var(--gaj-font-size-sm);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.calib-diff i { width: 13px; height: 13px; color: var(--gaj-foreground-3); }
+.calib-diff .old {
+  color: var(--gaj-foreground-3);
+  text-decoration: line-through;
+}
+.calib-diff .new {
+  color: var(--gaj-state-success);
+  font-weight: 700;
+}
+.calib-diff .delta { font-size: var(--gaj-font-size-xs); }
+.calib-diff .delta.up { color: var(--gaj-state-success); }
+.calib-diff .delta.down { color: var(--gaj-state-orange); }
+
+.calib-reason {
+  flex: 1;
+  min-width: 200px;
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-2);
+  line-height: 1.5;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.calib-applied-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-state-success);
+  background: var(--gaj-state-success-muted);
+  border-radius: var(--gaj-radius-sm);
+  padding: 1px 8px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.calib-applied-tag i { width: 12px; height: 12px; }
+
+.calib-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--gaj-state-warning-muted);
+  border-radius: var(--gaj-radius-sm);
+  font-size: var(--gaj-font-size-sm);
+  color: var(--gaj-foreground-2);
+  line-height: 1.5;
+  white-space: normal;
+}
+.calib-summary i { width: 16px; height: 16px; color: var(--gaj-state-warning); flex-shrink: 0; margin-top: 1px; }
+
+.calib-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.calib-parse-failed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--gaj-state-warning);
+  font-size: var(--gaj-font-size-sm);
+}
+.calib-parse-failed i { width: 16px; height: 16px; }
+
+.calib-empty {
+  margin-top: 12px;
+  padding: 16px;
+  text-align: center;
+  color: var(--gaj-foreground-3);
+  font-size: var(--gaj-font-size-sm);
+  border: 1px dashed var(--gaj-border);
+  border-radius: var(--gaj-radius-sm);
+}
+
+.calib-raw {
+  margin-top: 10px;
+  max-height: 300px;
+  overflow: auto;
+  background: var(--gaj-bg);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-sm);
+  padding: 10px 12px;
+  font-family: var(--gaj-font-mono);
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

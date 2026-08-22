@@ -6,11 +6,19 @@
 <title>坑位图鉴 — 个人猎头系统</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
 <script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js"></script>
-<script src="/static/app.js"></script>
-<script defer src="/static/alpine.min.js"></script>
-<link rel="stylesheet" href="/static/style.css">
+<script src="/static/core/icons.js?v=9"></script>
+<script src="/static/core/store.js?v=9"></script>
+<script src="/static/views/observatory.js?v=9"></script>
+<script src="/static/app.js?v=9"></script>
+<script defer src="/static/alpine.min.js?v=9"></script>
+<link rel="stylesheet" href="/static/styles/base.css?v=9">
+<link rel="stylesheet" href="/static/style.css?v=9">
+<link rel="stylesheet" href="/static/styles/observatory.css?v=9">
+<link rel="stylesheet" href="/static/styles/calibration.css?v=9">
 </head>
-<body x-data="app()" x-init="init()" x-cloak>
+<body x-data="app()" x-init="init()" x-cloak
+      @obs-open-company.window="openCompany($event.detail.brandId)"
+      @obs-open-job.window="selectJob($event.detail.jobId)">
 
 <!-- Toast 通知容器 -->
 <div class="toast-container">
@@ -58,7 +66,7 @@
     </div>
     <div class="actions">
       <div class="view-switch">
-        <button :class="{active: !showGuide}" @click="showGuide = false" title="岗位分数排名列表">
+        <button :class="{active: !showGuide && !showObservatory}" @click="showGuide = false; showObservatory = false" title="岗位分数排名列表">
           <i data-lucide="briefcase"></i>
           <span>职位列表</span>
         </button>
@@ -66,13 +74,17 @@
           <i data-lucide="library-big"></i>
           <span>公司图鉴</span>
         </button>
+        <button :class="{active: showObservatory}" @click="openObservatory()" title="市场观察台: 薪资定价曲线">
+          <i data-lucide="radar"></i>
+          <span>市场观察台</span>
+        </button>
       </div>
       <button @click="selectMode = !selectMode; if(!selectMode) clearSelection()" :class="{primary: selectMode}" x-show="!showGuide">
         <i data-lucide="list-checks"></i>
         <span x-show="!selectMode">批量</span>
         <span x-show="selectMode">退出批量</span>
       </button>
-      <button @click="showConfig = !showConfig; if(showConfig) configTab='rules'" :class="{primary: showConfig}">
+      <button @click="showConfig = !showConfig; if(showConfig){ configTab='rules'; loadRules(); loadCalibration(); }" :class="{primary: showConfig}">
         <i data-lucide="settings"></i>
         <span>规则配置</span>
       </button>
@@ -109,6 +121,118 @@
     <!-- Tab: 规则概览 -->
     <div x-show="configTab==='rules'" class="config-body">
       <div class="config-body-inner">
+      <!-- AI 规则矫正: 市场数据 + 当前预期 → 大模型建议 → 人工复核应用 -->
+      <div class="calib-card" x-data="{ }">
+        <div class="calib-head">
+          <div class="calib-title">
+            <i data-lucide="wand-2"></i>
+            <span>AI 规则矫正</span>
+            <span class="calib-hint">对比你的预期与市场观察台数据, 生成配置调整建议, 人工复核后应用</span>
+          </div>
+          <div class="calib-actions">
+            <select class="filter-select" x-model="calibration.provider" style="width:auto;">
+              <template x-for="p in providers" :key="p">
+                <option :value="p" x-text="p"></option>
+              </template>
+            </select>
+            <button class="primary" @click="triggerCalibration()"
+                    :disabled="taskRunning('config-calibrate-')">
+              <i data-lucide="sparkles"></i>
+              <span x-show="!taskRunning('config-calibrate-')">生成矫正建议</span>
+              <span x-show="taskRunning('config-calibrate-')">矫正中...</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 任务运行中提示 -->
+        <div class="calib-running" x-show="taskRunning('config-calibrate-')">
+          <i data-lucide="loader-2"></i> 正在调用大模型分析市场数据与当前配置, 完成后自动刷新结果...
+        </div>
+
+        <!-- 最新结果 -->
+        <template x-if="calibration.result && calibration.result.status === 'OK'">
+          <div class="calib-result">
+            <div class="calib-meta-row">
+              <span class="badge ai" x-text="calibration.result.provider"></span>
+              <span class="calib-time" x-text="calibration.result.created_at"></span>
+              <span class="calib-count" x-text="(calibration.result.suggestions || []).length + ' 条建议'"></span>
+              <span class="calib-applied-count" x-show="(calibration.result.applied || []).length > 0"
+                    x-text="'已应用 ' + calibration.result.applied.length + ' 条'"></span>
+            </div>
+            <div class="calib-reading">
+              <div class="calib-reading-h"><i data-lucide="line-chart"></i> 市场解读</div>
+              <div class="calib-reading-text" x-text="calibration.result.market_reading"></div>
+            </div>
+            <div class="calib-suggestions">
+              <template x-for="(s, si) in (calibration.result.suggestions || [])" :key="si">
+                <div class="calib-item" :class="{applied: calibApplied(s)}">
+                  <label class="calib-check">
+                    <input type="checkbox" x-model="calibration.checked[calibKey(s)]"
+                           :disabled="calibApplied(s)">
+                  </label>
+                  <span class="calib-target" :class="s.target"
+                        x-text="s.target === 'profile' ? '画像' : '规则'"></span>
+                  <span class="calib-field" x-text="calibFieldLabel(s)"></span>
+                  <span class="calib-diff">
+                    <span class="old" x-text="s.current != null ? s.current : '(默认)'"></span>
+                    <i data-lucide="arrow-right"></i>
+                    <span class="new" x-text="s.suggested"></span>
+                    <span class="delta" x-show="s.current != null && s.current != 0"
+                          :class="{up: s.suggested > s.current, down: s.suggested < s.current}"
+                          x-text="s.current != null ? ((s.suggested > s.current ? '+' : '') + Math.round((s.suggested - s.current) / Math.abs(s.current) * 100) + '%') : ''"></span>
+                  </span>
+                  <span class="calib-reason" x-text="s.reason"></span>
+                  <span class="calib-applied-tag" x-show="calibApplied(s)"><i data-lucide="check"></i> 已应用</span>
+                </div>
+              </template>
+            </div>
+            <div class="calib-summary" x-show="calibration.result.summary">
+              <i data-lucide="lightbulb"></i>
+              <span x-text="calibration.result.summary"></span>
+            </div>
+            <div class="calib-foot">
+              <button class="primary" @click="applyCalibration()"
+                      :disabled="calibration.applying || calibCheckedCount() === 0">
+                <i data-lucide="check-check"></i>
+                <span x-text="'应用选中建议 (' + calibCheckedCount() + ')'"></span>
+              </button>
+              <button class="cd-raw-toggle" @click="calibration.showRaw = !calibration.showRaw">
+                <span x-show="!calibration.showRaw">查看原始回复</span>
+                <span x-show="calibration.showRaw">收起</span>
+              </button>
+              <span class="calib-hint" x-show="calibCheckedCount() > 0">应用后将写入画像与规则配置, 请随后重新打分</span>
+            </div>
+            <template x-if="calibration.showRaw">
+              <pre class="calib-raw" x-text="calibration.result.raw_response || '(无原始回复)'"></pre>
+            </template>
+          </div>
+        </template>
+
+        <!-- 解析失败 -->
+        <template x-if="calibration.result && calibration.result.status === 'PARSE_FAILED'">
+          <div class="calib-result">
+            <div class="calib-parse-failed">
+              <i data-lucide="alert-triangle"></i>
+              上次矫正回复解析失败 (人工排查后可重新生成)
+            </div>
+            <div class="calib-foot">
+              <button class="cd-raw-toggle" @click="calibration.showRaw = !calibration.showRaw">
+                <span x-show="!calibration.showRaw">查看原始回复</span>
+                <span x-show="calibration.showRaw">收起</span>
+              </button>
+            </div>
+            <template x-if="calibration.showRaw">
+              <pre class="calib-raw" x-text="calibration.result.raw_response || '(无原始回复)'"></pre>
+            </template>
+          </div>
+        </template>
+
+        <!-- 无记录 -->
+        <div class="calib-empty" x-show="calibration.loaded && !calibration.result">
+          还没有矫正记录。点击「生成矫正建议」, 大模型将基于市场观察台数据分析你的配置。
+        </div>
+      </div>
+
       <template x-if="rulesCatalog">
         <div>
           <div class="config-meta">
@@ -347,7 +471,7 @@
 
   <!-- Guide Panel (公司图鉴) -->
   <div class="guide-panel" x-show="showGuide" x-cloak style="flex:1;"
-       x-effect="guide.items.length; guide.mode; companyDetail; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())">
+       x-effect="guide.items.length; guide.mode; companyDetail; companyJobDetail; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())">
     <div class="guide-toolbar">
       <div class="guide-progress">
         <i data-lucide="book-open"></i>
@@ -521,8 +645,460 @@
     </div>
   </div>
 
+  <!-- 市场观察台 -->
+  <div class="observatory-panel" x-data="observatoryPanel()" x-show="showObservatory" x-cloak x-effect="drill; drillDetail; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())">
+    <div class="obs-tabs">
+      <button class="obs-tab" :class="{active: tab === 'salary'}" @click="setTab('salary')">
+        <i data-lucide="trending-up"></i> 薪资定价
+      </button>
+      <button class="obs-tab" :class="{active: tab === 'geo'}" @click="setTab('geo')">
+        <i data-lucide="map"></i> 区域热力
+      </button>
+      <button class="obs-tab" :class="{active: tab === 'radar'}" @click="setTab('radar')">
+        <i data-lucide="shield-alert"></i> 信号雷达
+      </button>
+      <button class="obs-tab" :class="{active: tab === 'skills'}" @click="setTab('skills')">
+        <i data-lucide="bar-chart-3"></i> 技能热度
+      </button>
+    </div>
+
+    <!-- 薪资定价 (S2) -->
+    <template x-if="tab === 'salary'">
+      <div>
+        <template x-if="loading">
+          <div class="obs-loading">加载中...</div>
+        </template>
+        <template x-if="!loading && (!salary || !salary.overall)">
+          <div class="obs-empty">样本不足, 无法生成薪资定价曲线</div>
+        </template>
+        <template x-if="!loading && salary && salary.overall">
+          <div>
+            <!-- 概览 -->
+            <div class="obs-section">
+              <div class="obs-section-title"><i data-lucide="gauge"></i> 全市场薪资概览</div>
+              <div class="obs-overview">
+                <div class="obs-stat-card">
+                  <div class="label">中位数 P50</div>
+                  <div class="value"><span x-text="salary.overall.p50"></span><span class="unit">万/年</span></div>
+                </div>
+                <div class="obs-stat-card">
+                  <div class="label">均值</div>
+                  <div class="value"><span x-text="salary.overall.mean"></span><span class="unit">万/年</span></div>
+                </div>
+                <div class="obs-stat-card">
+                  <div class="label">P25 - P75</div>
+                  <div class="value" style="font-size: var(--gaj-font-size-lg);"><span x-text="salary.overall.p25"></span> - <span x-text="salary.overall.p75"></span><span class="unit">万</span></div>
+                </div>
+                <div class="obs-stat-card">
+                  <div class="label">P10 - P90</div>
+                  <div class="value" style="font-size: var(--gaj-font-size-lg);"><span x-text="salary.overall.p10"></span> - <span x-text="salary.overall.p90"></span><span class="unit">万</span></div>
+                </div>
+                <div class="obs-stat-card">
+                  <div class="label">样本数</div>
+                  <div class="value" style="color: var(--gaj-foreground-2);"><span x-text="salary.overall.count"></span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 经验折线 + 学历柱图 并排 -->
+            <div class="obs-grid-2">
+              <template x-if="salary.by_exp && salary.by_exp.length > 1">
+                <div class="obs-section">
+                  <div class="obs-section-title"><i data-lucide="trending-up"></i> 经验-薪资曲线</div>
+                  <div class="obs-chart">
+                    <svg viewBox="0 0 560 200" @click="onChartClick($event)" x-html="salaryExpChart()"></svg>
+                  </div>
+                </div>
+              </template>
+              <template x-if="salary.by_edu && salary.by_edu.length > 0">
+                <div class="obs-section">
+                  <div class="obs-section-title"><i data-lucide="graduation-cap"></i> 学历-薪资柱图</div>
+                  <div class="obs-chart">
+                    <svg viewBox="0 0 560 200" @click="onChartClick($event)" x-html="salaryEduBars()"></svg>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <!-- 行业中位数 -->
+            <template x-if="salary.by_industry && salary.by_industry.length > 0">
+              <div class="obs-section">
+                <div class="obs-section-title"><i data-lucide="building-2"></i> 行业薪资中位数 (Top 10) <span class="obs-meta">点击柱条下钻岗位</span></div>
+                <div class="obs-chart">
+                  <svg preserveAspectRatio="xMinYMin meet" @click="onChartClick($event)"
+                       x-effect="salary && salary.by_industry && $el.setAttribute('viewBox', '0 0 560 ' + (16 + salary.by_industry.length * 28))"
+                       x-html="salaryIndustryBars()"></svg>
+                </div>
+              </div>
+            </template>
+
+            <!-- 融资阶段 -->
+            <template x-if="salary.by_stage && salary.by_stage.length > 0">
+              <div class="obs-section">
+                <div class="obs-section-title"><i data-lucide="rocket"></i> 融资阶段-薪资</div>
+                <div class="obs-chart">
+                  <svg viewBox="0 0 560 200" x-html="salaryStageBars()"></svg>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- 区域热力图 (G1) -->
+    <template x-if="tab === 'geo'">
+      <div>
+        <template x-if="loading">
+          <div class="obs-loading">加载中...</div>
+        </template>
+        <template x-if="!loading && (!geo || !geo.cells || geo.cells.length === 0)">
+          <div class="obs-empty">样本不足, 无地理坐标数据</div>
+        </template>
+        <template x-if="!loading && geo && geo.cells && geo.cells.length > 0">
+          <div>
+            <div class="obs-section">
+              <div class="obs-section-title">
+                <i data-lucide="map"></i> 区域机会热力图
+                <span class="obs-meta" x-text="geoBoundsLabel()"></span>
+                <span class="obs-meta" x-text="'共 ' + geo.total + ' 岗 · ' + (geo.total_companies || 0) + ' 公司'"></span>
+                <div class="obs-mode-switch">
+                  <button :class="{active: geoMode==='jobs'}" @click="geoMode='jobs'">按岗位</button>
+                  <button :class="{active: geoMode==='companies'}" @click="geoMode='companies'">按公司</button>
+                </div>
+              </div>
+              <div class="obs-chart obs-heatmap">
+                <svg viewBox="0 0 560 420" @click="onChartClick($event)" x-html="geoHeatmap()"></svg>
+              </div>
+              <div class="obs-legend">
+                <span class="legend-label">机会密度</span>
+                <span class="legend-dot" style="--heat:0.25"></span>
+                <span class="legend-dot" style="--heat:0.5"></span>
+                <span class="legend-dot" style="--heat:0.75"></span>
+                <span class="legend-dot" style="--heat:1"></span>
+                <span class="legend-hint" x-text="geoMode==='companies' ? '圆点大小 ∝ 该点公司密度 · 悬停看全区数字, 点击下钻整区公司' : '圆点大小 ∝ 该点岗位密度 · 悬停看全区数字, 点击下钻整区岗位'"></span>
+              </div>
+            </div>
+            <div class="obs-section">
+              <div class="obs-section-title"><i data-lucide="bar-chart-3"></i> 热点区域 Top 10 <span class="obs-meta">区域 × 代表行业切片, 数字与下钻一致</span></div>
+              <table class="obs-table">
+                <thead><tr><th>区域</th><th>行业</th><th>岗位数</th><th>公司数</th><th>代表公司</th><th>均薪(万)</th></tr></thead>
+                <tbody>
+                  <template x-for="d in (geo.top_districts || [])" :key="d.district">
+                    <tr class="obs-clickable" @click="openDrill(geoMode==='companies' ? 'district_companies' : 'district', d.district, d.district + ' · ' + d.industry, {industry: d.industry})">
+                      <td x-text="d.district"></td>
+                      <td x-text="d.industry"></td>
+                      <td x-text="d.count"></td>
+                      <td x-text="d.company_count || 0"></td>
+                      <td x-text="d.top_company || '—'"></td>
+                      <td x-text="d.avg_salary != null ? d.avg_salary : '—'"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- 信号雷达 (G2) -->
+    <template x-if="tab === 'radar'">
+      <div>
+        <template x-if="loading">
+          <div class="obs-loading">加载中...</div>
+        </template>
+        <template x-if="!loading && (!radar || !radar.summary)">
+          <div class="obs-empty">样本不足, 无信号数据</div>
+        </template>
+        <template x-if="!loading && radar && radar.summary">
+          <div>
+            <div class="obs-section">
+              <div class="obs-section-title"><i data-lucide="gauge"></i> 红旗信号概览</div>
+              <div class="obs-overview">
+                <div class="obs-stat-card obs-stat-warn">
+                  <div class="label">加班重</div>
+                  <div class="value"><span x-text="radar.summary.overtime.heavy"></span><span class="unit">岗</span></div>
+                </div>
+                <div class="obs-stat-card">
+                  <div class="label">外包岗</div>
+                  <div class="value"><span x-text="radar.summary.outsourcing_count"></span><span class="unit">/ <span x-text="(radar.summary.outsourcing_rate*100).toFixed(1)"></span>%</span></div>
+                </div>
+                <div class="obs-stat-card">
+                  <div class="label">出差岗</div>
+                  <div class="value"><span x-text="radar.summary.travel_count"></span><span class="unit">/ <span x-text="(radar.summary.travel_rate*100).toFixed(1)"></span>%</span></div>
+                </div>
+                <div class="obs-stat-card">
+                  <div class="label">可见岗位</div>
+                  <div class="value" style="color: var(--gaj-foreground-2);"><span x-text="radar.summary.total"></span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 横向柱图: 行数多, 全宽才能有足够高度, 不并排 -->
+            <template x-if="radar.summary.overtime">
+              <div class="obs-section">
+                <div class="obs-section-title"><i data-lucide="clock"></i> 加班强度分布 <span class="obs-meta">点击下钻</span></div>
+                <div class="obs-chart">
+                  <svg preserveAspectRatio="xMinYMin meet" @click="onChartClick($event)"
+                       x-effect="radar && radar.summary && $el.setAttribute('viewBox', '0 0 480 ' + radarOvertimeHeight())"
+                       x-html="radarOvertimeBars()"></svg>
+                </div>
+              </div>
+            </template>
+            <template x-if="radar.by_industry && radar.by_industry.length > 0">
+              <div class="obs-section">
+                <div class="obs-section-title"><i data-lucide="alert-triangle"></i> 行业红旗率 Top 8 <span class="obs-meta">点击下钻</span></div>
+                <div class="obs-chart">
+                  <svg preserveAspectRatio="xMinYMin meet" @click="onChartClick($event)"
+                       x-effect="radar && radar.by_industry && $el.setAttribute('viewBox', '0 0 520 ' + radarIndustryHeight())"
+                       x-html="radarIndustryBars()"></svg>
+                </div>
+              </div>
+            </template>
+
+            <template x-if="radar.red_flag_companies && radar.red_flag_companies.length > 0">
+              <div class="obs-section">
+                <div class="obs-section-title"><i data-lucide="shield-alert"></i> 红旗公司榜 <span class="obs-meta">点击查看公司详情</span></div>
+                <table class="obs-table">
+                  <thead><tr><th>公司</th><th>红旗岗</th><th>均薪(万)</th><th>信号</th></tr></thead>
+                  <tbody>
+                    <template x-for="c in radar.red_flag_companies" :key="c.brand_id">
+                      <tr class="obs-clickable" @click="openCompany(c.brand_id)">
+                        <td x-text="c.name || '匿名'"></td>
+                        <td x-text="c.job_count"></td>
+                        <td x-text="c.avg_salary != null ? c.avg_salary : '—'"></td>
+                        <td>
+                          <template x-for="f in c.flags" :key="f">
+                            <span class="obs-flag" x-text="f"></span>
+                          </template>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- 技能热度榜 (S1) -->
+    <template x-if="tab === 'skills'">
+      <div>
+        <template x-if="loading">
+          <div class="obs-loading">加载中...</div>
+        </template>
+        <template x-if="!loading && (!skills || !skills.items || skills.items.length === 0)">
+          <div class="obs-empty">样本不足, 无技能数据</div>
+        </template>
+        <template x-if="!loading && skills && skills.items && skills.items.length > 0">
+          <div>
+            <div class="obs-section">
+              <div class="obs-section-title">
+                <i data-lucide="bar-chart-3"></i> 技能热度榜
+                <span class="obs-meta">市场均价 <span x-text="skills.market_avg_salary"></span> 万/年 · 点击行下钻岗位</span>
+              </div>
+              <table class="obs-table obs-skill-table">
+                <thead><tr><th>技能</th><th>需求岗</th><th>招聘公司</th><th>均薪(万)</th><th>溢价</th><th>Top 行业</th></tr></thead>
+                <tbody>
+                  <template x-for="(s, i) in skills.items" :key="s.skill">
+                    <tr class="obs-clickable" @click="openDrill('skill', s.skill, s.skill + ' 技能')">
+                      <td><span class="obs-rank" x-text="i + 1"></span> <span x-text="s.skill"></span></td>
+                      <td x-text="s.demand_count"></td>
+                      <td x-text="s.company_count"></td>
+                      <td x-text="s.avg_salary != null ? s.avg_salary : '—'"></td>
+                      <td><span class="obs-premium" :class="skillPremiumClass(s.salary_premium)" x-text="skillPremiumText(s.salary_premium)"></span></td>
+                      <td>
+                        <template x-for="ind in s.top_industries" :key="ind.name">
+                          <span class="obs-tag" x-text="ind.name"></span>
+                        </template>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- 下钻抽屉: 岗位列表 + 内嵌详情 (点击图表元素触发) -->
+    <template x-if="drill">
+      <div>
+        <div class="obs-drill-mask" @click="closeDrill()"></div>
+        <div class="obs-drill">
+          <div class="obs-drill-head">
+            <template x-if="!drillDetail">
+              <div class="title">
+                <span x-text="drill.title"></span>
+                <span class="sub" x-text="drill.sub"></span>
+              </div>
+            </template>
+            <template x-if="drillDetail">
+              <div class="title">
+                <button class="obs-drill-back" @click="backToDrillList()" title="返回列表"><i data-lucide="arrow-left"></i></button>
+                <span x-text="drillDetail.type === 'job' ? '岗位详情' : '公司详情'"></span>
+              </div>
+            </template>
+            <button class="obs-drill-close" @click="closeDrill()">关闭</button>
+          </div>
+          <div class="obs-drill-body">
+            <!-- 列表视图 -->
+            <template x-if="!drillDetail">
+              <div>
+                <!-- 岗位列表 (默认模式) -->
+                <div class="obs-drill-empty" x-show="!drill.loading && drill.mode !== 'companies' && (!drill.jobs || drill.jobs.length === 0)">无匹配岗位</div>
+                <template x-if="drill.mode !== 'companies'">
+                  <div>
+                    <template x-for="j in drill.jobs" :key="j.job_id">
+                      <div class="obs-job-card" @click="openJob(j.job_id)">
+                        <div class="jc-title" x-text="j.title"></div>
+                        <div class="jc-meta">
+                          <span x-text="j.company_name || '匿名公司'"></span>
+                          <span x-text="(j.city || '未知') + (j.district ? '·' + j.district : '')"></span>
+                          <span class="jc-salary" x-text="j.salary_min != null ? (j.salary_min + '-' + j.salary_max + '万') : '面议'"></span>
+                          <span x-text="j.exp_min != null ? j.exp_min + '年经验' : '经验不限'"></span>
+                        </div>
+                        <div class="jc-skills" x-show="j.skills && j.skills.length > 0">
+                          <template x-for="sk in (j.skills || []).slice(0, 6)" :key="sk">
+                            <span class="sk" x-text="sk"></span>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <!-- 公司列表 (热力图"按公司"模式钻取) -->
+                <div class="obs-drill-empty" x-show="!drill.loading && drill.mode === 'companies' && (!drill.companies || drill.companies.length === 0)">无匹配公司</div>
+                <template x-if="drill.mode === 'companies'">
+                  <div>
+                    <template x-for="c in drill.companies" :key="c.brand_id">
+                      <div class="obs-job-card obs-company-card" @click="openDrillCompany(c.brand_id)">
+                        <div class="jc-title" x-text="c.name || '匿名公司'"></div>
+                        <div class="jc-meta">
+                          <span x-show="c.industry" x-text="c.industry"></span>
+                          <span x-show="c.stage" x-text="c.stage"></span>
+                          <span x-show="c.scale_raw" x-text="c.scale_raw"></span>
+                          <span x-text="'在招 ' + (c.job_count || 0) + ' 岗'"></span>
+                          <span class="jc-salary" x-show="c.salary_mid_avg != null" x-text="'均薪 ' + c.salary_mid_avg + '万'"></span>
+                          <span class="jc-score" x-show="c.best_score != null" x-text="c.best_score + ' 分'"></span>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <!-- 详情加载中 -->
+            <template x-if="drillDetail && drillDetail.loading">
+              <div class="obs-drill-empty">加载中...</div>
+            </template>
+
+            <!-- 岗位详情 (抽屉内嵌) -->
+            <template x-if="drillDetail && !drillDetail.loading && drillDetail.type === 'job' && drillDetail.data">
+              <div class="obs-detail">
+                <div class="obs-detail-title" x-text="drillDetail.data.job?.title"></div>
+                <div class="obs-detail-meta">
+                  <span class="obs-detail-salary" x-text="drillDetail.data.job?.salary?.raw || '面议'"></span>
+                  <span class="obs-detail-company-link"
+                        @click="drillDetail.data.company?.brand_id && openDrillCompany(drillDetail.data.company.brand_id)"
+                        x-text="drillDetail.data.company?.name || drillDetail.data.job?.company_name || '未知公司'"></span>
+                  <span x-text="(drillDetail.data.job?.city || '') + (drillDetail.data.job?.district ? ' ' + drillDetail.data.job.district : '')"></span>
+                  <span x-text="drillDetail.data.job?.experience?.raw || '经验不限'"></span>
+                  <span x-text="drillDetail.data.job?.education?.raw || '学历不限'"></span>
+                </div>
+                <div class="obs-detail-tags" x-show="drillDetail.data.job?.skills && drillDetail.data.job.skills.length > 0">
+                  <template x-for="sk in (drillDetail.data.job?.skills || [])" :key="sk">
+                    <span class="obs-tag" x-text="sk"></span>
+                  </template>
+                </div>
+                <div class="obs-detail-grid">
+                  <div class="obs-detail-item"><span class="label">行业</span><span class="v" x-text="drillDetail.data.company?.industry || '-'"></span></div>
+                  <div class="obs-detail-item"><span class="label">阶段</span><span class="v" x-text="drillDetail.data.company?.stage || '-'"></span></div>
+                  <div class="obs-detail-item"><span class="label">规模</span><span class="v" x-text="drillDetail.data.company?.scale_raw || '-'"></span></div>
+                  <div class="obs-detail-item" x-show="drillDetail.data.job?.welfare && drillDetail.data.job.welfare.length">
+                    <span class="label">福利</span>
+                    <span class="v" x-text="(drillDetail.data.job?.welfare || []).join('、')"></span>
+                  </div>
+                  <div class="obs-detail-item" x-show="drillDetail.data.job?.address" style="grid-column: 1 / -1">
+                    <span class="label">地址</span><span class="v" x-text="drillDetail.data.job?.address"></span>
+                  </div>
+                </div>
+                <div class="obs-detail-section" x-show="drillDetail.data.jd_text || drillDetail.data.job?.jd?.full">
+                  <div class="obs-detail-h">岗位描述</div>
+                  <div class="obs-detail-text" x-text="drillDetail.data.jd_text || drillDetail.data.job?.jd?.full || '无 JD'"></div>
+                </div>
+                <div class="obs-detail-section" x-show="drillDetail.data.company?.intro">
+                  <div class="obs-detail-h">公司简介</div>
+                  <div class="obs-detail-text" x-text="drillDetail.data.company?.intro"></div>
+                </div>
+                <div class="obs-detail-actions">
+                  <a class="obs-detail-link" :href="drillDetail.data.job?.url" target="_blank">BOSS直聘原页 <i data-lucide="external-link"></i></a>
+                  <button class="obs-detail-btn" @click="$dispatch('obs-open-job', { jobId: drillDetail.data.job?.job_id })">在主视图打开</button>
+                </div>
+              </div>
+            </template>
+
+            <!-- 公司详情 (抽屉内嵌) -->
+            <template x-if="drillDetail && !drillDetail.loading && drillDetail.type === 'company' && drillDetail.data">
+              <div class="obs-detail">
+                <div class="obs-detail-title" x-text="drillDetail.data.company?.name"></div>
+                <div class="obs-detail-meta">
+                  <span class="obs-detail-score" x-show="drillDetail.data.stats?.company_score != null"
+                        x-text="(drillDetail.data.stats?.company_score ?? '?') + ' 分'"></span>
+                  <span class="obs-detail-tier" x-show="drillDetail.data.stats?.rank_tier"
+                        x-text="drillDetail.data.stats?.rank_tier"></span>
+                  <span x-show="drillDetail.data.company?.industry" x-text="drillDetail.data.company?.industry"></span>
+                  <span x-show="drillDetail.data.company?.stage" x-text="drillDetail.data.company?.stage"></span>
+                  <span x-show="drillDetail.data.company?.scale_raw" x-text="drillDetail.data.company?.scale_raw"></span>
+                  <span x-show="drillDetail.data.stats?.job_count != null" x-text="'在招 ' + drillDetail.data.stats.job_count + ' 岗'"></span>
+                  <span x-show="drillDetail.data.stats?.salary_mid_avg" x-text="'均薪 ' + drillDetail.data.stats.salary_mid_avg.toFixed(1) + '万'"></span>
+                </div>
+                <div class="obs-detail-section" x-show="drillDetail.data.company?.intro">
+                  <div class="obs-detail-h">公司简介</div>
+                  <div class="obs-detail-text" x-text="drillDetail.data.company?.intro"></div>
+                </div>
+                <div class="obs-detail-section" x-show="drillDetail.data.company?.business_scope">
+                  <div class="obs-detail-h">经营范围</div>
+                  <div class="obs-detail-text" x-text="drillDetail.data.company?.business_scope"></div>
+                </div>
+                <template x-if="(drillDetail.data.ai_scores || []).length > 0 && drillDetail.data.ai_scores[0].status !== 'PARSE_FAILED'">
+                  <div class="obs-detail-section">
+                    <div class="obs-detail-h">AI 评价</div>
+                    <div class="obs-detail-ai-worth" x-text="drillDetail.data.ai_scores[0].worth_joining"></div>
+                    <div class="obs-detail-text" x-text="drillDetail.data.ai_scores[0].business_analysis"></div>
+                  </div>
+                </template>
+                <div class="obs-detail-section" x-show="(drillDetail.data.jobs || []).length > 0">
+                  <div class="obs-detail-h">名下岗位 (<span x-text="drillDetail.data.jobs?.length"></span>)</div>
+                  <template x-for="j in (drillDetail.data.jobs || []).slice(0, 20)" :key="j.job_id">
+                    <div class="obs-job-card" @click="openDrillJob(j.job_id)">
+                      <div class="jc-title" x-text="j.title"></div>
+                      <div class="jc-meta">
+                        <span class="jc-salary" x-text="j.salary_min != null ? (j.salary_min + '-' + j.salary_max + '万') : '面议'"></span>
+                        <span x-text="(j.city || '') + (j.district ? ' ' + j.district : '')"></span>
+                        <span x-text="j.exp_min != null ? j.exp_min + '年' : '不限'"></span>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+                <div class="obs-detail-actions">
+                  <button class="obs-detail-btn" @click="$dispatch('obs-open-company', { brandId: drillDetail.data.company?.brand_id })">在主视图打开</button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+
   <!-- Main -->
-  <div class="main" x-show="!showConfig && !showResume && !showGuide" x-effect="jobs.length; selectedJobId; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())">
+  <div class="main" x-show="!showConfig && !showResume && !showGuide && !showObservatory" x-effect="jobs.length; selectedJobId; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())">
 
     <!-- Job List -->
     <div class="list-panel">
@@ -1034,6 +1610,7 @@
     <div class="loading" x-show="companyDetailLoading" style="padding:32px;">加载中...</div>
     <template x-if="companyDetail && !companyDetailLoading">
       <div class="cd-body" x-data="{introExpanded: false}">
+        <div x-show="!companyJobDetail">
         <div class="cd-header">
           <span class="tier-badge lg" :class="tierClass(companyDetail.stats?.rank_tier)"
                 x-show="companyDetail.stats?.rank_tier" x-text="companyDetail.stats?.rank_tier"></span>
@@ -1246,7 +1823,7 @@
           <div class="cd-h"><i data-lucide="briefcase"></i>名下岗位 (<span x-text="companyDetail.job_count"></span>)</div>
           <div class="cd-empty" x-show="companyDetail.job_count === 0">暂无岗位记录</div>
           <template x-for="j in companyDetail.jobs" :key="j.job_id">
-            <div class="cd-job" @click="openJobFromCompany(j.job_id)" title="点击查看职位详情">
+            <div class="cd-job" @click="openJobInCompany(j.job_id)" title="点击查看职位详情">
               <div class="cd-job-title">
                 <span x-text="j.title"></span>
                 <i data-lucide="arrow-right"></i>
@@ -1258,6 +1835,56 @@
                       x-text="j.best_total != null ? j.best_total.toFixed(1) + ' 分' : '未打分'"></span>
                 <span class="badge ai" x-show="j.ai_count > 0" x-text="'AI×' + j.ai_count"></span>
                 <span class="badge" style="opacity:.7" x-show="!j.online">已下线</span>
+              </div>
+            </div>
+          </template>
+        </div>
+        </div><!-- /公司内容 (x-show=!companyJobDetail) -->
+
+        <!-- 岗位详情 (公司抽屉内嵌, 不离开当前页面) -->
+        <div x-show="companyJobDetail" x-cloak class="cd-inset-detail">
+          <!-- 加载中 -->
+          <div class="obs-drill-empty" x-show="companyJobDetail && companyJobDetail.loading" style="padding:48px 0;">加载中...</div>
+
+          <template x-if="companyJobDetail && !companyJobDetail.loading && companyJobDetail.data">
+            <div class="obs-detail">
+              <div class="cd-inset-head">
+                <button class="obs-drill-back" @click="backToCompany()" title="返回公司"><i data-lucide="arrow-left"></i></button>
+                <span class="cd-inset-title">岗位详情</span>
+              </div>
+              <div class="obs-detail-title" x-text="companyJobDetail.data.job?.title"></div>
+              <div class="obs-detail-meta">
+                <span class="obs-detail-salary" x-text="companyJobDetail.data.job?.salary?.raw || '面议'"></span>
+                <span x-text="companyJobDetail.data.company?.name || companyJobDetail.data.job?.company_name || '未知公司'"></span>
+                <span x-text="(companyJobDetail.data.job?.city || '') + (companyJobDetail.data.job?.district ? ' ' + companyJobDetail.data.job.district : '')"></span>
+                <span x-text="companyJobDetail.data.job?.experience?.raw || '经验不限'"></span>
+                <span x-text="companyJobDetail.data.job?.education?.raw || '学历不限'"></span>
+              </div>
+              <div class="obs-detail-tags" x-show="companyJobDetail.data.job?.skills && companyJobDetail.data.job.skills.length > 0">
+                <template x-for="sk in (companyJobDetail.data.job?.skills || [])" :key="sk">
+                  <span class="obs-tag" x-text="sk"></span>
+                </template>
+              </div>
+              <div class="obs-detail-grid">
+                <div class="obs-detail-item"><span class="label">行业</span><span class="v" x-text="companyJobDetail.data.company?.industry || '-'"></span></div>
+                <div class="obs-detail-item"><span class="label">阶段</span><span class="v" x-text="companyJobDetail.data.company?.stage || '-'"></span></div>
+                <div class="obs-detail-item"><span class="label">规模</span><span class="v" x-text="companyJobDetail.data.company?.scale_raw || '-'"></span></div>
+                <div class="obs-detail-item" x-show="companyJobDetail.data.job?.welfare && companyJobDetail.data.job.welfare.length">
+                  <span class="label">福利</span>
+                  <span class="v" x-text="(companyJobDetail.data.job?.welfare || []).join('、')"></span>
+                </div>
+                <div class="obs-detail-item" x-show="companyJobDetail.data.job?.address" style="grid-column: 1 / -1">
+                  <span class="label">地址</span>
+                  <span class="v" x-text="companyJobDetail.data.job?.address"></span>
+                </div>
+              </div>
+              <div class="obs-detail-section" x-show="companyJobDetail.data.jd_text || companyJobDetail.data.job?.jd?.full">
+                <div class="obs-detail-h">岗位描述</div>
+                <div class="obs-detail-text" x-text="companyJobDetail.data.jd_text || companyJobDetail.data.job?.jd?.full || '无 JD'"></div>
+              </div>
+              <div class="obs-detail-actions">
+                <a class="obs-detail-link" :href="companyJobDetail.data.job?.url" target="_blank">BOSS直聘原页 <i data-lucide="external-link"></i></a>
+                <button class="obs-detail-btn" @click="closeCompany(); selectJob(companyJobDetail.data.job?.job_id)">在主视图打开</button>
               </div>
             </div>
           </template>
@@ -1291,29 +1918,6 @@
   </div>
 
 </div>
-
-<script>
-  // Lucide 图标刷新: 用重入保护 + 防抖, 避免与 Alpine/自身 DOM 变化形成死循环
-  let _iconRefreshing = false;
-  let _iconRefreshTimer = null;
-  function refreshIcons() {
-    if (_iconRefreshing) return;
-    if (!window.lucide || !window.lucide.createIcons) return;
-    _iconRefreshing = true;
-    try { window.lucide.createIcons(); } catch(e) {}
-    _iconRefreshing = false;
-  }
-  // 防抖版本: 供 Alpine x-init 调用, 合并多次数据变化
-  function refreshIconsDebounced() {
-    if (_iconRefreshTimer) clearTimeout(_iconRefreshTimer);
-    _iconRefreshTimer = setTimeout(refreshIcons, 50);
-  }
-  window.refreshIconsDebounced = refreshIconsDebounced;
-  // 初次渲染
-  document.addEventListener('DOMContentLoaded', refreshIconsDebounced);
-  // Alpine 初始化完成
-  document.addEventListener('alpine:initialized', refreshIconsDebounced);
-</script>
 
 </body>
 </html>
