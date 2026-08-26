@@ -131,7 +131,7 @@
            x-effect="$store.core.view; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="resume">
       </div>
       <!-- VIEW: GUIDE (岛: views/guide.js + 模板: views/guide.html) -->
-      <div class="guide-panel" x-data="guidePanel()" x-show="$store.core.view === 'guide'" x-cloak
+      <div class="guide-island" x-data="guidePanel()" x-cloak
            @gaj:open-company.window="onOpenCompany($event.detail.brandId)"
            @gaj:refresh.window="onRefresh()"
            x-effect="$store.core.view === 'guide' && onFirstEnter(); items.length; mode; companyDetail; companyJobDetail; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="guide">

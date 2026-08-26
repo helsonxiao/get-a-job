@@ -7,12 +7,18 @@
    公司图鉴 (Guide)
    ============================================ */
 
+/* 视图内容容器 (随 $store.core.view 显隐) */
 .guide-panel {
   background: var(--gaj-bg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
+/* 岛挂载点: 不占布局, 让抽屉在任意视图上浮动 */
+.guide-island { display: contents; }
 
 /* 工具栏 (两行结构, 布局走 components.css .toolbar/.toolbar-row) */
 .guide-toolbar { padding: 0; }

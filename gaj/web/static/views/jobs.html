@@ -254,7 +254,7 @@
               <span class="label">公司</span>
               <span class="info-value" style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <span x-text="detail.company?.name || detail.job.company_name || '未知'"></span>
-                <button class="link-btn" @click="$store.core.openCompany(detail.company.brand_id)" x-show="detail.company && detail.company.brand_id" title="打开公司图鉴详情抽屉">
+                <button class="link-btn" @click="$store.core.openCompanyDrawer(detail.company.brand_id)" x-show="detail.company && detail.company.brand_id" title="打开公司图鉴详情抽屉">
                   <i data-lucide="building-2"></i><span>查看公司图鉴</span>
                 </button>
               </span>
@@ -559,7 +559,7 @@
               <i data-lucide="building-2"></i>
               <span>公司简介</span>
             </div>
-            <button class="link-btn" @click="$store.core.openCompany(detail.company.brand_id)" x-show="detail.company && detail.company.brand_id" style="margin-left:auto;">
+            <button class="link-btn" @click="$store.core.openCompanyDrawer(detail.company.brand_id)" x-show="detail.company && detail.company.brand_id" style="margin-left:auto;">
               <i data-lucide="external-link"></i><span>查看公司图鉴</span>
             </button>
           </div>

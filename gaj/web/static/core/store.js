@@ -107,9 +107,13 @@ document.addEventListener('alpine:init', () => {
       this.view = 'jobs';
       window.dispatchEvent(new CustomEvent('gaj:open-job', { detail: { jobId } }));
     },
-    // 跨视图跳转: 观察台 → 公司抽屉 (guidePanel 监听打开)
+    // 跨视图跳转: 观察台 → 公司图鉴视图并打开抽屉 (guidePanel 监听打开)
     openCompany(brandId) {
       this.view = 'guide';
+      window.dispatchEvent(new CustomEvent('gaj:open-company', { detail: { brandId } }));
+    },
+    // 就地打开公司抽屉: 不切换视图 (职位详情等场景, 抽屉为全局浮动层)
+    openCompanyDrawer(brandId) {
       window.dispatchEvent(new CustomEvent('gaj:open-company', { detail: { brandId } }));
     },
 

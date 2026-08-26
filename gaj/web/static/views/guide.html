@@ -3,6 +3,7 @@
      岛声明 (x-data/事件) 在 index.html 挂载点 [data-tpl="guide"],
      由 loader 在 Alpine 启动前注入本片段。
      ============================================ -->
+    <div class="guide-panel" x-show="$store.core.view === 'guide'">
     <div class="toolbar guide-toolbar">
       <div class="toolbar-row">
         <div class="guide-progress">
@@ -177,7 +178,9 @@
       </div>
     </div>
 
-  <!-- 公司详情抽屉 (属于 guide 岛, fixed 定位不占布局) -->
+    </div><!-- /guide-panel 视图内容 -->
+
+  <!-- 公司详情抽屉 (全局浮动层: 所有视图可打开, fixed 定位不占布局) -->
 <!-- Company Detail Drawer (公司详情抽屉) -->
   <div class="drawer-mask" x-show="companyDetail || companyDetailLoading" x-cloak
        @click="closeCompany()" x-transition.opacity></div>
