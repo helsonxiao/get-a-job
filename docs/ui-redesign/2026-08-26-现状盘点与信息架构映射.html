@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>坑位图鉴 UI/UX 迭代 · 现状盘点与信息架构映射</title>
+<style>
+  :root{
+    --bg:#0A0D12; --surface:#0F131A; --surface2:#151A23; --surface3:#1C2230;
+    --fg:#E3E8EF; --fg2:#98A2B3; --fg3:#677288; --border:#1A2030; --border2:#2A3245;
+    --blue:#5B8EF7; --green:#3FB950; --yellow:#D29922; --red:#F85149; --purple:#A78BFA; --orange:#DB6D28;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--fg);font-family:-apple-system,"PingFang SC","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;font-size:14px;line-height:1.65;padding:32px 20px 80px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:24px;font-weight:700;letter-spacing:-0.01em}
+  h2{font-size:18px;font-weight:600;margin:40px 0 14px;padding-left:10px;border-left:3px solid var(--blue)}
+  h3{font-size:15px;font-weight:600;margin:22px 0 10px;color:var(--fg)}
+  .meta{color:var(--fg2);font-size:13px;margin-top:8px}
+  .meta b{color:var(--fg)}
+  code{font-family:"SF Mono","Cascadia Code",Menlo,monospace;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--fg2)}
+  table{width:100%;border-collapse:collapse;margin:12px 0 20px;font-size:13px}
+  th{text-align:left;color:var(--fg2);font-weight:600;background:var(--surface2);padding:8px 10px;border:1px solid var(--border);white-space:nowrap}
+  td{padding:8px 10px;border:1px solid var(--border);color:var(--fg);vertical-align:top}
+  td:first-child{white-space:nowrap}
+  tr:hover td{background:var(--surface2)}
+  .tag{display:inline-block;padding:1px 8px;border-radius:9999px;font-size:12px;font-weight:600;white-space:nowrap}
+  .t-missing{background:rgba(248,81,73,.12);color:var(--red)}
+  .t-hidden{background:rgba(210,153,34,.12);color:var(--yellow)}
+  .t-hard{background:rgba(167,139,250,.12);color:var(--purple)}
+  .t-ok{background:rgba(63,185,80,.12);color:var(--green)}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin:10px 0}
+  .card-title{font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+  .card-title .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+  .ia{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;margin:14px 0}
+  .ia-header{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface2);font-size:13px}
+  .ia-body{display:flex;min-height:280px}
+  .ia-nav{width:200px;flex-shrink:0;border-right:1px solid var(--border);padding:12px;font-size:13px}
+  .ia-group{color:var(--fg3);font-size:11px;font-weight:600;margin:12px 0 4px;letter-spacing:.06em}
+  .ia-item{padding:5px 10px;border-radius:6px;color:var(--fg2);margin:2px 0}
+  .ia-item.on{background:rgba(91,142,247,.12);color:var(--blue)}
+  .ia-item.plan{color:var(--fg3);opacity:.6}
+  .ia-main{flex:1;padding:16px;display:flex;align-items:center;justify-content:center;color:var(--fg3);font-size:13px}
+  .ia-footer{padding:8px 16px;border-top:1px solid var(--border);color:var(--fg3);font-size:12px;background:var(--surface2)}
+  .shots{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
+  @media(max-width:860px){.shots{grid-template-columns:1fr}}
+  figure{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  figure img{width:100%;display:block}
+  figcaption{padding:8px 12px;font-size:12px;color:var(--fg2)}
+  .pill{display:inline-flex;align-items:center;gap:5px;padding:2px 10px;border-radius:9999px;background:var(--surface2);border:1px solid var(--border);font-size:12px;color:var(--fg2);margin:2px}
+  .pill b{color:var(--fg)}
+  .timeline{margin:14px 0}
+  .step{display:flex;gap:12px;position:relative;padding-bottom:16px}
+  .step::before{content:'';position:absolute;left:11px;top:24px;bottom:0;width:2px;background:var(--border2)}
+  .step:last-child::before{display:none}
+  .marker{width:24px;height:24px;border-radius:50%;background:var(--blue);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;z-index:1}
+  .step-title{font-weight:600;font-size:14px}
+  .step-text{color:var(--fg2);font-size:13px;margin-top:2px}
+  .warn{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.35);border-radius:var(--radius);padding:12px 16px;font-size:13px;color:var(--yellow);margin:12px 0}
+  .note{color:var(--fg2);font-size:13px}
+  a{color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>坑位图鉴 UI/UX 迭代 · 现状盘点与信息架构映射</h1>
+  <div class="meta">2026-08-26 ｜ 分支 <code>ui-redesign-20260826</code> ｜ 基线 <code>ui-baseline-20260826</code>（main @ 323d4ef）<br>
+  实测数据：258 职位 · 258 规则分 · 76 AI 分 · 1 收藏 · 95 忽略 · 城市：无锡(186)</div>
+
+  <h2>现状功能清单</h2>
+  <p class="note">5 个视图岛 + 共享外壳，共盘点 40+ 功能入口（明细见 Markdown 版文档）。以下为外壳与各视图要点。</p>
+  <table>
+    <tr><th>区域</th><th>入口数量</th><th>关键发现</th></tr>
+    <tr><td>应用外壳</td><td>14</td><td>顶栏 13 元素单行过载；6 统计胶囊仅展示不可点击；配置/简历为 toggle 语义</td></tr>
+    <tr><td>职位列表+详情</td><td>17</td><td>筛选 6 下拉无标签、排序 13 项无分组；详情操作栏双份；公司名不可跳转；AI 区用 🤖 emoji</td></tr>
+    <tr><td>公司图鉴</td><td>10</td><td>工具栏 8 控件单行过载；抽屉内容长但完整；四维雷达已有但无市场数据区块</td></tr>
+    <tr><td>市场观察台</td><td>9</td><td>4 Tab 结构清晰；行业无独立入口（TODO#3 前置缺口）；图表下钻链路完整</td></tr>
+    <tr><td>规则配置</td><td>7</td><td>AI 规则矫正入口隐藏（showCalibration=false）；长页无目录</td></tr>
+    <tr><td>主简历</td><td>4</td><td>功能简单，无大问题</td></tr>
+  </table>
+
+  <h2>TODO.md 需求落位映射</h2>
+  <table>
+    <tr><th>#</th><th>TODO</th><th>现状</th><th>新 IA 落位</th><th>标注</th></tr>
+    <tr><td>1</td><td>岗位详情打开公司详情抽屉</td><td>公司名不可点击，无跳公司链路</td><td>详情「基础信息」公司项 + 「公司简介」卡头加「查看公司图鉴」按钮，复用 openCompany 链路</td><td><span class="tag t-missing">缺失</span></td></tr>
+    <tr><td>2</td><td>公司图表与市场观察台融合</td><td>抽屉只有四维雷达，观察台无公司级入口</td><td>公司抽屉新增「市场数据」区块；观察台表格行「查看公司」双向打通</td><td><span class="tag t-hard">难找</span></td></tr>
+    <tr><td>3</td><td>行业观察 + 下钻 + 政策分析</td><td>行业仅内嵌维度，无独立视图</td><td>侧边导航「行业观察」分组项（本期规划占位）→ 行业列表/详情；政策分析远期叠加</td><td><span class="tag t-missing">缺失</span></td></tr>
+    <tr><td>4</td><td>岗位/公司详情展示市场关键指标</td><td>详情页无市场指标</td><td>职位详情「市场参考」区块 + 公司抽屉「市场对标」区块，复用 /api/observatory/salary，客户端缓存</td><td><span class="tag t-missing">缺失</span></td></tr>
+    <tr><td>5</td><td>市场数据优化规则与画像预期</td><td>AI 规则矫正已实现但入口隐藏</td><td>规则配置恢复「AI 规则矫正」卡片（保持开关控制），注明数据来源</td><td><span class="tag t-hidden">隐藏</span></td></tr>
+  </table>
+
+  <h2>现状问题清单</h2>
+  <div class="grid2">
+    <div class="card"><div class="card-title"><span class="dot" style="background:var(--red)"></span>结构性（承载能力）</div>
+      顶栏 13 元素过载 · 导航与操作无分层 · 配置/简历 toggle 语义不一致 · TODO#3 无落位 · 无工作台概念</div>
+    <div class="card"><div class="card-title"><span class="dot" style="background:var(--yellow)"></span>密度与层级（高频页）</div>
+      列表项关键信息无锚点 · 排序 13 项无分组 · 详情操作栏双份 · 148px 节导航吃紧 · 图鉴工具栏 8 控件</div>
+    <div class="card"><div class="card-title"><span class="dot" style="background:var(--purple)"></span>一致性与细节</div>
+      4 套面板容器 · 3 种 Tab 变体 · 按钮无 focus-visible · fg3 对比度 3.1:1 · emoji 图标（🤖 ⏳ 🎯）</div>
+    <div class="card"><div class="card-title"><span class="dot" style="background:var(--blue)"></span>已良好的部分（保留）</div>
+      图表纯 SVG 零依赖 · 任务轮询/SSE 日志 · 下钻抽屉链路 · 设计令牌体系 · 批量删除与分页</div>
+  </div>
+
+  <h2>新信息架构提案</h2>
+  <div class="ia">
+    <div class="ia-header">顶栏：品牌 + 可点击统计胶囊（直达筛选）+ 规则打分（primary 常驻）+ 批量（职位上下文）</div>
+    <div class="ia-body">
+      <div class="ia-nav">
+        <div class="ia-group">工作台</div>
+        <div class="ia-item on">📋 职位列表</div>
+        <div class="ia-item">🏢 公司图鉴</div>
+        <div class="ia-group">市场洞察</div>
+        <div class="ia-item">📡 市场观察台</div>
+        <div class="ia-item plan">🧭 行业观察 · 规划中</div>
+        <div class="ia-item plan">📜 行业政策 · 远期</div>
+        <div class="ia-group">配置</div>
+        <div class="ia-item">⚙️ 规则配置</div>
+        <div class="ia-item">📄 主简历</div>
+      </div>
+      <div class="ia-main">视图内容区 · 统一面板容器 + 统一工具栏（各视图岛）</div>
+    </div>
+    <div class="ia-footer">底部保留：实时日志面板（可折叠 · SSE 连接态）</div>
+  </div>
+  <p class="note">要点：主导航左侧化并分组，所有视图 1 次点击可达；TODO 新功能按组自然落位；统计胶囊点击直达「收藏/未打分/已忽略」等筛选；批量操作在职位列表常驻可见。</p>
+
+  <h2>基线截图（改造前，用于前后对比）</h2>
+  <div class="shots">
+    <figure><img src="assets/baseline/01-jobs.png" alt="职位列表基线"><figcaption>职位列表（顶栏 13 元素、筛选单行 6 下拉）</figcaption></figure>
+    <figure><img src="assets/baseline/02-guide.png" alt="公司图鉴基线"><figcaption>公司图鉴（工具栏 8 控件单行）</figcaption></figure>
+    <figure><img src="assets/baseline/03-observatory.png" alt="市场观察台基线"><figcaption>市场观察台（4 Tab）</figcaption></figure>
+    <figure><img src="assets/baseline/06-job-detail.png" alt="职位详情基线"><figcaption>职位详情（节导航 + 双份操作栏）</figcaption></figure>
+  </div>
+
+  <h2>改造计划</h2>
+  <div class="timeline">
+    <div class="step"><span class="marker">1</span><div><div class="step-title">P1 外壳：侧边导航 + 顶栏瘦身 + 统计胶囊可点击 + 公共组件层</div><div class="step-text">验证：5 视图均可打开，原功能入口不劣化</div></div></div>
+    <div class="step"><span class="marker">2</span><div><div class="step-title">P2 职位视图：筛选/排序分组、列表层级、详情操作栏收敛、公司跳转、市场参考区块</div><div class="step-text">验证：列表-详情全链路 CRUD 回归</div></div></div>
+    <div class="step"><span class="marker">3</span><div><div class="step-title">P3 图鉴/观察台：工具栏分层、公司抽屉市场数据区块、行业入口</div><div class="step-text">验证：三模式 + 抽屉 + 下钻回归</div></div></div>
+    <div class="step"><span class="marker">4</span><div><div class="step-title">P4 配置/简历：面板统一、矫正入口开关、焦点环、对比度</div><div class="step-text">验证：规则/画像保存回归</div></div></div>
+    <div class="step"><span class="marker">5</span><div><div class="step-title">P5 边界与回归：1280/1440/1920 × 80%-125% 缩放、长文本/空数据、前后对比截图</div><div class="step-text">验证：逐条对照验收标准；git 分支一步回滚</div></div></div>
+  </div>
+
+  <div class="warn">风险提示：观察台 salary 接口为全量聚合，详情页「市场参考」将做会话级缓存；TODO#3 行业观察仅做导航占位，业务实现需新增后端接口（超出本次范围）。</div>
+
+  <p class="note">完整明细（含逐入口表格）见同目录 Markdown 版：<a href="2026-08-26-现状盘点与信息架构映射.md">现状盘点与信息架构映射.md</a></p>
+</div>
+</body>
+</html>

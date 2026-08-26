@@ -3,12 +3,12 @@
      岛声明 (x-data/事件) 在 index.html 挂载点 [data-tpl="resume"],
      由 loader 在 Alpine 启动前注入本片段。
      ============================================ -->
-    <div class="config-tabs">
-      <button class="active">
+    <div class="tabs">
+      <button class="tab active">
         <i data-lucide="file-text"></i>
         <span>主简历 (Markdown)</span>
       </button>
-      <button @click="$store.core.switchView('jobs')" style="margin-left:auto; border-bottom: 2px solid transparent;">
+      <button class="tab tab-close" @click="$store.core.switchView('jobs')">
         <i data-lucide="x"></i>
         <span>关闭</span>
       </button>

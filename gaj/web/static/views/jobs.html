@@ -11,18 +11,21 @@
           <input type="text" placeholder="搜索职位/公司/技能..." x-model="filters.search" @input.debounce.300ms="loadJobs()">
         </div>
         <div class="filter-row">
+          <span class="filter-label">城市</span>
           <select class="filter-select" x-model="filters.city" @change="loadJobs()">
             <option value="">全部城市</option>
             <template x-for="c in $store.core.stats.cities || []" :key="c.value">
               <option :value="c.value" x-text="c.value + ' (' + c.count + ')'"></option>
             </template>
           </select>
+          <span class="filter-label">状态</span>
           <select class="filter-select" x-model="filters.status" @change="loadJobs()">
             <option value="">全部状态</option>
             <option value="PASS">通过</option>
             <option value="REVIEW">待复核</option>
             <option value="REJECTED">已淘汰</option>
           </select>
+          <span class="filter-label">打分</span>
           <select class="filter-select" x-model="filters.scored" @change="loadJobs()">
             <option value="all">全部</option>
             <option value="none">未打分</option>
@@ -30,30 +33,42 @@
             <option value="ai">有AI打分</option>
             <option value="no_ai">无AI打分</option>
           </select>
+          <span class="filter-label">收藏</span>
           <select class="filter-select" x-model="filters.favorite" @change="loadJobs()">
             <option value="all">全部收藏</option>
             <option value="only">只看收藏</option>
             <option value="exclude">排除收藏</option>
           </select>
+          <span class="filter-label">忽略</span>
           <select class="filter-select" x-model="filters.ignored" @change="loadJobs()">
             <option value="exclude">排除忽略</option>
             <option value="all">含忽略</option>
             <option value="only">只看忽略</option>
           </select>
-          <select class="filter-select" x-model="filters.sort" @change="loadJobs()">
-            <option value="best_total">最佳分数</option>
-            <option value="rule_total">规则分</option>
-            <option value="latest_ai_total">AI分</option>
-            <option value="salary_max">薪资上限</option>
-            <option value="salary_min">薪资下限</option>
-            <option value="salary_mid">薪资中位</option>
-            <option value="favorited_at">收藏时间</option>
-            <option value="last_seen">最近抓取</option>
-            <option value="first_seen">首次抓取</option>
-            <option value="quality_score">数据质量</option>
-            <option value="jd_length">JD长度</option>
-            <option value="exp_max">经验上限</option>
-            <option value="title">职位名</option>
+          <select class="filter-select" x-model="filters.sort" @change="loadJobs()" title="排序方式">
+            <optgroup label="综合">
+              <option value="best_total">最佳分数</option>
+              <option value="rule_total">规则分</option>
+              <option value="latest_ai_total">AI分</option>
+            </optgroup>
+            <optgroup label="薪资">
+              <option value="salary_max">薪资上限</option>
+              <option value="salary_min">薪资下限</option>
+              <option value="salary_mid">薪资中位</option>
+            </optgroup>
+            <optgroup label="时间">
+              <option value="favorited_at">收藏时间</option>
+              <option value="last_seen">最近抓取</option>
+              <option value="first_seen">首次抓取</option>
+            </optgroup>
+            <optgroup label="数据">
+              <option value="quality_score">数据质量</option>
+              <option value="jd_length">JD长度</option>
+              <option value="exp_max">经验上限</option>
+            </optgroup>
+            <optgroup label="其它">
+              <option value="title">职位名</option>
+            </optgroup>
           </select>
         </div>
       </div>
@@ -182,6 +197,7 @@
         <div class="detail-layout">
         <nav class="section-nav">
           <a class="nav-link" :class="{active: activeSection==='sec-basic'}" @click="scrollToSection('sec-basic')"><i data-lucide="info"></i>基础信息</a>
+          <a class="nav-link" :class="{active: activeSection==='sec-market'}" @click="scrollToSection('sec-market')" x-show="marketRef"><i data-lucide="line-chart"></i>市场参考</a>
           <a class="nav-link" :class="{active: activeSection==='sec-rule'}" @click="scrollToSection('sec-rule')" x-show="detail.rule_score"><i data-lucide="bar-chart-3"></i>规则打分</a>
           <a class="nav-link" :class="{active: activeSection==='sec-manual'}" @click="scrollToSection('sec-manual')"><i data-lucide="hand"></i>人工调分</a>
           <a class="nav-link" :class="{active: activeSection==='sec-ai'}" @click="scrollToSection('sec-ai')" x-show="detail.ai_scores && detail.ai_scores.length"><i data-lucide="bot"></i>AI打分</a>
@@ -234,7 +250,15 @@
             <span class="card-hint" x-text="'抓取于 ' + (detail.job.last_seen || '-')"></span>
           </div>
           <div class="info-grid">
-            <div class="info-item"><span class="label">公司</span><span class="info-value" x-text="detail.company?.name || detail.job.company_name || '未知'"></span></div>
+            <div class="info-item">
+              <span class="label">公司</span>
+              <span class="info-value" style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span x-text="detail.company?.name || detail.job.company_name || '未知'"></span>
+                <button class="link-btn" @click="$store.core.openCompany(detail.company.brand_id)" x-show="detail.company && detail.company.brand_id" title="打开公司图鉴详情抽屉">
+                  <i data-lucide="building-2"></i><span>查看公司图鉴</span>
+                </button>
+              </span>
+            </div>
             <div class="info-item"><span class="label">行业</span><span class="info-value" x-text="detail.company?.industry || '-'"></span></div>
             <div class="info-item"><span class="label">薪资</span><span class="info-value salary" style="color:var(--gaj-state-orange);font-weight:600" x-text="detail.job.salary?.raw || '面议'"></span></div>
             <div class="info-item"><span class="label">城市</span><span class="info-value" x-text="detail.job.city + (detail.job.district ? ' ' + detail.job.district : '')"></span></div>
@@ -257,6 +281,45 @@
           </div>
         </div>
 
+        <!-- 市场参考 (TODO#4 落位: 展示市场观察台关键指标, 复用 /api/observatory/salary) -->
+        <template x-if="marketRef">
+        <div class="detail-section" id="sec-market">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="line-chart" style="color: var(--gaj-state-purple);"></i>
+              <span>市场参考</span>
+            </div>
+            <span class="card-hint" x-text="'行业: ' + marketRef.industry + ' · 样本 ' + marketRef.market.count + ' 岗'"></span>
+          </div>
+          <div class="market-strip">
+            <div class="market-stat">
+              <span class="ms-label">行业薪资中位</span>
+              <span class="ms-value" x-text="marketRef.market.median != null ? marketRef.market.median + ' 万/年' : '—'"></span>
+            </div>
+            <div class="market-stat">
+              <span class="ms-label">全市场中位 (P50)</span>
+              <span class="ms-value" x-text="marketRef.overall.p50 != null ? marketRef.overall.p50 + ' 万/年' : '—'"></span>
+            </div>
+            <div class="market-stat">
+              <span class="ms-label">市场均值</span>
+              <span class="ms-value" x-text="marketRef.overall.mean != null ? marketRef.overall.mean + ' 万/年' : '—'"></span>
+            </div>
+            <div class="market-stat">
+              <span class="ms-label">本岗薪资</span>
+              <span class="ms-value salary" x-text="detail.job.salary?.raw || '面议'"></span>
+            </div>
+            <div class="market-vs" x-show="detail.job.salary?.mid_10k != null && marketRef.market.median != null">
+              <span class="badge" :class="detail.job.salary.mid_10k >= marketRef.market.median ? 'pass' : 'review'">
+                <i data-lucide="arrow-up-right" x-show="detail.job.salary.mid_10k >= marketRef.market.median"></i>
+                <i data-lucide="arrow-down-right" x-show="detail.job.salary.mid_10k < marketRef.market.median"></i>
+                <span x-text="(detail.job.salary.mid_10k >= marketRef.market.median ? '高于' : '低于') + '行业市场中位'"></span>
+              </span>
+              <span class="ms-hint">数据来自市场观察台 · 全量可见岗位聚合</span>
+            </div>
+          </div>
+        </div>
+
+        </template>
         <!-- Rule Score -->
         <div class="detail-section" id="sec-rule" x-show="detail.rule_score">
           <div class="card-header">
@@ -360,7 +423,7 @@
               <button class="primary" @click="saveManualOverride()" :disabled="manualSaving">
                 <i data-lucide="save"></i>
                 <span x-show="!manualSaving">保存</span>
-                <span x-show="manualSaving">⏳</span>
+                <span x-show="manualSaving"><i data-lucide="loader-2" class="spin"></i></span>
               </button>
               <button @click="clearManualOverride()" x-show="detail.job.manual_override && detail.job.manual_override.total != null" class="danger">
                 <i data-lucide="x"></i><span>清除</span>
@@ -398,7 +461,7 @@
           <template x-for="s in detail.ai_scores" :key="s._file || s.created_at">
             <div class="ai-score-section">
               <div class="header-row">
-                <span class="provider" x-text="'🤖 ' + s.provider"></span>
+                <span class="provider"><i data-lucide="bot"></i><span x-text="s.provider"></span></span>
                 <span class="badge" :class="s.status.toLowerCase()" x-text="s.status"></span>
                 <template x-if="s.status !== 'PARSE_FAILED'">
                   <span class="total" style="font-size:var(--gaj-font-size-lg)" x-text="(s.total_score || 0).toFixed(1) + '/10'"></span>
@@ -496,6 +559,9 @@
               <i data-lucide="building-2"></i>
               <span>公司简介</span>
             </div>
+            <button class="link-btn" @click="$store.core.openCompany(detail.company.brand_id)" x-show="detail.company && detail.company.brand_id" style="margin-left:auto;">
+              <i data-lucide="external-link"></i><span>查看公司图鉴</span>
+            </button>
           </div>
           <div class="jd-text" x-text="detail.company?.intro || ''"></div>
         </div>

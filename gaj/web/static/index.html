@@ -4,27 +4,28 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>坑位图鉴 — 个人猎头系统</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235B8EF7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Ccircle cx='12' cy='12' r='6'/%3E%3Ccircle cx='12' cy='12' r='2'/%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js"></script>
-<script src="/static/core/icons.js?v=12"></script>
-<script src="/static/core/store.js?v=12"></script>
-<script src="/static/views/jobs.js?v=12"></script>
-<script src="/static/views/guide.js?v=12"></script>
-<script src="/static/views/config.js?v=12"></script>
-<script src="/static/views/resume.js?v=12"></script>
-<script src="/static/views/observatory.js?v=12"></script>
-<link rel="stylesheet" href="/static/styles/base.css?v=12">
-<link rel="stylesheet" href="/static/style.css?v=12">
-<link rel="stylesheet" href="/static/styles/jobs.css?v=12">
-<link rel="stylesheet" href="/static/styles/guide.css?v=12">
-<link rel="stylesheet" href="/static/styles/config.css?v=12">
-<link rel="stylesheet" href="/static/styles/resume.css?v=12">
-<link rel="stylesheet" href="/static/styles/observatory.css?v=12">
-<link rel="stylesheet" href="/static/styles/calibration.css?v=12">
+<script src="/static/core/icons.js?v=13"></script>
+<script src="/static/core/store.js?v=13"></script>
+<script src="/static/views/jobs.js?v=13"></script>
+<script src="/static/views/guide.js?v=13"></script>
+<script src="/static/views/config.js?v=13"></script>
+<script src="/static/views/resume.js?v=13"></script>
+<script src="/static/views/observatory.js?v=13"></script>
+<link rel="stylesheet" href="/static/styles/base.css?v=13">
+<link rel="stylesheet" href="/static/style.css?v=13">
+<link rel="stylesheet" href="/static/styles/components.css?v=13">
+<link rel="stylesheet" href="/static/styles/jobs.css?v=13">
+<link rel="stylesheet" href="/static/styles/guide.css?v=13">
+<link rel="stylesheet" href="/static/styles/config.css?v=13">
+<link rel="stylesheet" href="/static/styles/resume.css?v=13">
+<link rel="stylesheet" href="/static/styles/observatory.css?v=13">
+<link rel="stylesheet" href="/static/styles/calibration.css?v=13">
 </head>
 <!--
   Alpine 组件岛架构 (ADR-001/ADR-002): body 只做 store 引导, 无根组件。
-  - 本文件是应用骨架: 共享 UI (toast/header/log) + 各视图岛的挂载点 ([data-tpl])
+  - 本文件是应用骨架: 共享 UI (toast/侧边导航/header/log) + 各视图岛的挂载点 ([data-tpl])
   - 每个视图 = 挂载点 (岛声明) + views/<name>.js (逻辑) + views/<name>.html (模板)
   - 模板由 body 末尾的 loader 在 Alpine 加载前 fetch 注入, 保证岛扫描时 DOM 完整
   - 共享态走 $store.core, 视图切换唯一状态 $store.core.view
@@ -43,69 +44,46 @@
 
 <div class="app-shell">
 
-  <!-- Header (共享层: stats/视图切换/全局动作) -->
+  <!-- Header (共享层: 品牌/统计胶囊/全局动作) -->
   <div class="header">
     <h1><i data-lucide="target"></i> 坑位图鉴</h1>
     <div class="stats">
-      <span class="stat-pill">
+      <button class="stat-pill" @click="$store.core.openJobsWithFilter({search:'', city:'', status:'', scored:'all', favorite:'all', ignored:'exclude', sort:'best_total'})" title="查看全部职位（重置筛选）">
         <i data-lucide="briefcase"></i>
         <span class="stat-num" x-text="$store.core.stats.total || 0"></span>
         <span>职位</span>
-      </span>
-      <span class="stat-pill">
+      </button>
+      <button class="stat-pill" @click="$store.core.openJobsWithFilter({sort:'rule_total'})" title="按规则分排序查看">
         <i data-lucide="check-circle" style="color: var(--gaj-state-success);"></i>
         <span class="stat-num" x-text="$store.core.stats.scored_rule || 0"></span>
         <span>规则打分</span>
-      </span>
-      <span class="stat-pill">
+      </button>
+      <button class="stat-pill" @click="$store.core.openJobsWithFilter({scored:'ai'})" title="只看有 AI 打分的职位">
         <i data-lucide="bot" style="color: var(--gaj-state-purple);"></i>
         <span class="stat-num" x-text="$store.core.stats.scored_ai || 0"></span>
         <span>AI打分</span>
-      </span>
-      <span class="stat-pill">
+      </button>
+      <button class="stat-pill" @click="$store.core.openJobsWithFilter({scored:'none'})" title="只看未打分的职位">
         <i data-lucide="clock" style="color: var(--gaj-foreground-3);"></i>
         <span class="stat-num" x-text="$store.core.stats.unscored || 0"></span>
         <span>未打分</span>
-      </span>
-      <span class="stat-pill">
+      </button>
+      <button class="stat-pill" @click="$store.core.openJobsWithFilter({favorite:'only'})" title="只看收藏的职位">
         <i data-lucide="star" style="color: var(--gaj-state-warning);"></i>
         <span class="stat-num" x-text="$store.core.stats.favorite || 0"></span>
         <span>收藏</span>
-      </span>
-      <span class="stat-pill" x-show="$store.core.stats.ignored > 0">
+      </button>
+      <button class="stat-pill" x-show="$store.core.stats.ignored > 0" @click="$store.core.openJobsWithFilter({ignored:'only'})" title="只看已忽略的职位">
         <i data-lucide="eye-off" style="color: var(--gaj-foreground-3);"></i>
         <span class="stat-num" x-text="$store.core.stats.ignored || 0"></span>
         <span>已忽略</span>
-      </span>
+      </button>
     </div>
     <div class="actions">
-      <div class="view-switch">
-        <button :class="{active: $store.core.view === 'jobs'}" @click="$store.core.switchView('jobs')" title="岗位分数排名列表">
-          <i data-lucide="briefcase"></i>
-          <span>职位列表</span>
-        </button>
-        <button :class="{active: $store.core.view === 'guide'}" @click="$store.core.switchView('guide')" title="公司维度图鉴: 排名/象限/对比">
-          <i data-lucide="library-big"></i>
-          <span>公司图鉴</span>
-        </button>
-        <button :class="{active: $store.core.view === 'observatory'}" @click="$store.core.switchView('observatory')" title="市场观察台: 薪资定价曲线">
-          <i data-lucide="radar"></i>
-          <span>市场观察台</span>
-        </button>
-      </div>
-      <button @click="$dispatch('gaj:toggle-select')" :class="{primary: $store.core.ui.selectMode}" x-show="$store.core.view !== 'guide'">
+      <button @click="$dispatch('gaj:toggle-select')" :class="{primary: $store.core.ui.selectMode}" x-show="$store.core.view === 'jobs'">
         <i data-lucide="list-checks"></i>
         <span x-show="!$store.core.ui.selectMode">批量</span>
         <span x-show="$store.core.ui.selectMode">退出批量</span>
-      </button>
-      <button @click="$store.core.toggleView('config')" :class="{primary: $store.core.view === 'config'}">
-        <i data-lucide="settings"></i>
-        <span>规则配置</span>
-      </button>
-      <button @click="$store.core.toggleView('resume')" :class="{primary: $store.core.view === 'resume'}">
-        <i data-lucide="file-text"></i>
-        <span x-show="!$store.core.resumeExists">上传简历</span>
-        <span x-show="$store.core.resumeExists">简历已上传</span>
       </button>
       <button @click="$store.core.scoreAll()" :disabled="$store.core.taskRunning('score-all')" class="primary">
         <i data-lucide="zap"></i>
@@ -115,31 +93,63 @@
     </div>
   </div>
 
-  <!-- VIEW: CONFIG (岛: views/config.js + 模板: views/config.html) -->
-  <div class="config-panel" x-data="configPanel()" x-show="$store.core.view === 'config'" x-cloak style="flex:1;"
-       @gaj:refresh.window="onRefresh()"
-       x-effect="$store.core.view; configTab; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="config">
-</div>
-  <!-- VIEW: RESUME (岛: views/resume.js + 模板: views/resume.html) -->
-  <div class="config-panel" x-data="resumePanel()" x-show="$store.core.view === 'resume'" x-cloak style="flex:1;"
-       x-effect="$store.core.view; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="resume">
-</div>
-  <!-- VIEW: GUIDE (岛: views/guide.js + 模板: views/guide.html) -->
-  <div class="guide-panel" x-data="guidePanel()" x-show="$store.core.view === 'guide'" x-cloak style="flex:1;"
-       @gaj:open-company.window="onOpenCompany($event.detail.brandId)"
-       @gaj:refresh.window="onRefresh()"
-       x-effect="$store.core.view === 'guide' && onFirstEnter(); items.length; mode; companyDetail; companyJobDetail; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="guide">
-</div>
-  <!-- VIEW: OBSERVATORY (岛: views/observatory.js + 模板: views/observatory.html) -->
-  <div class="observatory-panel" x-data="observatoryPanel()" x-show="$store.core.view === 'observatory'" x-cloak x-effect="drill; drillDetail; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="observatory">
-</div>
-  <!-- VIEW: JOBS (岛: views/jobs.js + 模板: views/jobs.html) -->
-  <div class="main" x-data="jobsPanel()" x-show="$store.core.view === 'jobs'"
-       @gaj:open-job.window="onOpenJob($event.detail.jobId)"
-       @gaj:toggle-select.window="onToggleSelect()"
-       @gaj:refresh.window="onRefresh()"
-       x-effect="jobs.length; selectedJobId; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="jobs">
-</div>
+  <div class="app-body">
+
+    <!-- Sidebar 主导航 (分组: 工作台 / 市场洞察 / 配置) -->
+    <nav class="sidebar" aria-label="主导航">
+      <div class="sidebar-group">工作台</div>
+      <button class="sidebar-item" :class="{active: $store.core.view === 'jobs'}" @click="$store.core.switchView('jobs')">
+        <i data-lucide="briefcase"></i><span class="nav-label">职位列表</span>
+      </button>
+      <button class="sidebar-item" :class="{active: $store.core.view === 'guide'}" @click="$store.core.switchView('guide')">
+        <i data-lucide="library-big"></i><span class="nav-label">公司图鉴</span>
+      </button>
+      <div class="sidebar-group">市场洞察</div>
+      <button class="sidebar-item" :class="{active: $store.core.view === 'observatory'}" @click="$store.core.switchView('observatory')">
+        <i data-lucide="radar"></i><span class="nav-label">市场观察台</span>
+      </button>
+      <button class="sidebar-item" disabled title="行业观察规划中, 将在后续版本开放">
+        <i data-lucide="telescope"></i><span class="nav-label">行业观察</span><span class="nav-badge">规划</span>
+      </button>
+      <div class="sidebar-group">配置</div>
+      <button class="sidebar-item" :class="{active: $store.core.view === 'config'}" @click="$store.core.switchView('config')">
+        <i data-lucide="settings"></i><span class="nav-label">规则配置</span>
+      </button>
+      <button class="sidebar-item" :class="{active: $store.core.view === 'resume'}" @click="$store.core.switchView('resume')">
+        <i data-lucide="file-text"></i><span class="nav-label" x-text="$store.core.resumeExists ? '主简历' : '上传简历'"></span>
+      </button>
+    </nav>
+
+    <div class="view-host">
+      <!-- VIEW: CONFIG (岛: views/config.js + 模板: views/config.html) -->
+      <div class="config-panel" x-data="configPanel()" x-show="$store.core.view === 'config'" x-cloak
+           @gaj:refresh.window="onRefresh()"
+           x-effect="$store.core.view; configTab; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="config">
+      </div>
+      <!-- VIEW: RESUME (岛: views/resume.js + 模板: views/resume.html) -->
+      <div class="config-panel" x-data="resumePanel()" x-show="$store.core.view === 'resume'" x-cloak
+           x-effect="$store.core.view; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="resume">
+      </div>
+      <!-- VIEW: GUIDE (岛: views/guide.js + 模板: views/guide.html) -->
+      <div class="guide-panel" x-data="guidePanel()" x-show="$store.core.view === 'guide'" x-cloak
+           @gaj:open-company.window="onOpenCompany($event.detail.brandId)"
+           @gaj:refresh.window="onRefresh()"
+           x-effect="$store.core.view === 'guide' && onFirstEnter(); items.length; mode; companyDetail; companyJobDetail; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="guide">
+      </div>
+      <!-- VIEW: OBSERVATORY (岛: views/observatory.js + 模板: views/observatory.html) -->
+      <div class="observatory-panel" x-data="observatoryPanel()" x-show="$store.core.view === 'observatory'" x-cloak x-effect="drill; drillDetail; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="observatory">
+      </div>
+      <!-- VIEW: JOBS (岛: views/jobs.js + 模板: views/jobs.html) -->
+      <div class="main" x-data="jobsPanel()" x-show="$store.core.view === 'jobs'"
+           @gaj:open-job.window="onOpenJob($event.detail.jobId)"
+           @gaj:toggle-select.window="onToggleSelect()"
+           @gaj:refresh.window="onRefresh()"
+           x-effect="jobs.length; selectedJobId; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="jobs">
+      </div>
+    </div>
+
+  </div>
+
   <!-- Log Panel (共享层: logs/sseConnected 走 $store.core, 展开态亦在 store) -->
   <div class="log-panel" :class="{collapsed: !$store.core.logOpen}"
        x-effect="$store.core.logs.length; $nextTick(() => { const b = $el.querySelector('.log-body'); if (b) b.scrollTop = b.scrollHeight; })">
@@ -172,7 +182,7 @@
       用"先注入后加载"保证 Alpine 扫描时全部视图 DOM 已就位) -->
 <script>
 (function () {
-  var VER = '12';
+  var VER = '13';
   var nodes = Array.prototype.slice.call(document.querySelectorAll('[data-tpl]'));
   Promise.all(nodes.map(function (n) {
     return fetch('/static/views/' + n.dataset.tpl + '.html?v=' + VER)

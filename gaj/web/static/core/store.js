@@ -72,6 +72,36 @@ document.addEventListener('alpine:init', () => {
     // config/resume 类面板按钮语义: 再点一次回到 jobs 视图
     toggleView(v) { this.view = (this.view === v) ? 'jobs' : v; },
 
+    // 统计胶囊直达: 切到职位视图并预置筛选 (jobsPanel 监听 'gaj:jobs-filters' 合并)
+    openJobsWithFilter(preset) {
+      this.view = 'jobs';
+      window.dispatchEvent(new CustomEvent('gaj:jobs-filters', { detail: preset || {} }));
+    },
+
+    // 市场观察数据 (salary 聚合): 会话级缓存 10 分钟, 详情页/公司抽屉共用
+    marketCache: { data: null, fetchedAt: 0 },
+    async ensureMarket() {
+      const now = Date.now();
+      if (this.marketCache.data && (now - this.marketCache.fetchedAt) < 10 * 60 * 1000) {
+        return this.marketCache.data;
+      }
+      const d = await this.api('/api/observatory/salary');
+      if (d && d.overall) {
+        this.marketCache = { data: d, fetchedAt: now };
+        return d;
+      }
+      return null;
+    },
+    // 取某行业市场定价; 未命中 (样本不足/不在 Top10) 返回 null
+    async marketForIndustry(industry) {
+      if (!industry) return null;
+      const d = await this.ensureMarket();
+      if (!d) return null;
+      const hit = (d.by_industry || []).find(x => x.name === industry);
+      if (!hit) return null;
+      return { industry, market: hit, overall: d.overall };
+    },
+
     // 跨视图跳转: 观察台/图鉴抽屉 → 职位详情 (jobsPanel 监听加载)
     openJob(jobId) {
       this.view = 'jobs';

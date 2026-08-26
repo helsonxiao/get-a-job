@@ -14,16 +14,8 @@
   overflow: hidden;
 }
 
-/* 工具栏 */
-.guide-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 16px;
-  padding: 10px 20px;
-  border-bottom: 1px solid var(--gaj-border);
-  background: var(--gaj-surface);
-}
+/* 工具栏 (两行结构, 布局走 components.css .toolbar/.toolbar-row) */
+.guide-toolbar { padding: 0; }
 .guide-progress {
   display: inline-flex;
   align-items: center;
@@ -536,3 +528,22 @@
 .cd-ai-history { margin-top: 12px; border-top: 1px dashed var(--gaj-border); padding-top: 8px; }
 .cd-ai-h-h { font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); margin-bottom: 6px; font-weight: 600; }
 .cd-ai-h-item { display: flex; align-items: center; gap: 8px; font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); padding: 4px 0; }
+
+/* === 公司抽屉: 市场数据区块 === */
+.cd-market {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.cdm-stat {
+  flex: 1;
+  min-width: 120px;
+  background: var(--gaj-bg);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-md);
+  padding: 10px 14px;
+}
+.cdm-label { display: block; font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); margin-bottom: 4px; }
+.cdm-value { font-size: var(--gaj-font-size-md); font-weight: 700; color: var(--gaj-foreground); font-variant-numeric: tabular-nums; }
+.cdm-vs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
+.cdm-hint { font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); }

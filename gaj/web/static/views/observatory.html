@@ -3,17 +3,17 @@
      岛声明 (x-data/事件) 在 index.html 挂载点 [data-tpl="observatory"],
      由 loader 在 Alpine 启动前注入本片段。
      ============================================ -->
-    <div class="obs-tabs">
-      <button class="obs-tab" :class="{active: tab === 'salary'}" @click="setTab('salary')">
+    <div class="tabs">
+      <button class="tab" :class="{active: tab === 'salary'}" @click="setTab('salary')">
         <i data-lucide="trending-up"></i> 薪资定价
       </button>
-      <button class="obs-tab" :class="{active: tab === 'geo'}" @click="setTab('geo')">
+      <button class="tab" :class="{active: tab === 'geo'}" @click="setTab('geo')">
         <i data-lucide="map"></i> 区域热力
       </button>
-      <button class="obs-tab" :class="{active: tab === 'radar'}" @click="setTab('radar')">
+      <button class="tab" :class="{active: tab === 'radar'}" @click="setTab('radar')">
         <i data-lucide="shield-alert"></i> 信号雷达
       </button>
-      <button class="obs-tab" :class="{active: tab === 'skills'}" @click="setTab('skills')">
+      <button class="tab" :class="{active: tab === 'skills'}" @click="setTab('skills')">
         <i data-lucide="bar-chart-3"></i> 技能热度
       </button>
     </div>

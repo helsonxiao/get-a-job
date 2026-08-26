@@ -21,6 +21,7 @@ document.addEventListener('alpine:init', () => {
     mode: 'cards',            // cards | quadrant | compare
     companyDetail: null,
     companyDetailLoading: false,
+    companyMarket: null,
     // 公司抽屉内嵌岗位详情: 抽屉内点击岗位不离开当前页面
     companyJobDetail: null,
     compareIds: [],
@@ -74,9 +75,34 @@ document.addEventListener('alpine:init', () => {
       this.companyDetailLoading = true;
       this.companyDetail = null;
       this.companyJobDetail = null;
+      this.companyMarket = null;
       const d = await this.$store.core.api('/api/companies/' + encodeURIComponent(brandId));
       if (d) this.companyDetail = d;
       this.companyDetailLoading = false;
+      // 市场数据区块 (TODO#2/#4 落位): 在招岗位薪资 vs 行业市场中位, 静默失败
+      if (d) this.loadCompanyMarket(d);
+    },
+
+    // 公司抽屉「市场数据」: 客户端从现有数据派生, 不新增后端接口
+    async loadCompanyMarket(d) {
+      const industry = d.company?.industry;
+      const market = await this.$store.core.marketForIndustry(industry);
+      if (!market) { this.companyMarket = null; return; }
+      const jobs = (d.jobs || []).filter(j => j.salary_min != null && j.salary_max != null);
+      let rangeMin = null, rangeMax = null;
+      for (const j of jobs) {
+        if (rangeMin == null || j.salary_min < rangeMin) rangeMin = j.salary_min;
+        if (rangeMax == null || j.salary_max > rangeMax) rangeMax = j.salary_max;
+      }
+      const midAvg = d.stats?.salary_mid_avg != null ? d.stats.salary_mid_avg : null;
+      this.companyMarket = {
+        industry,
+        sampleCount: jobs.length,
+        totalCount: d.job_count || 0,
+        rangeMin, rangeMax, midAvg,
+        median: market.market.median,
+        overall: market.overall,
+      };
     },
 
     closeCompany() { this.companyDetail = null; this.companyDetailLoading = false; this.companyJobDetail = null; },

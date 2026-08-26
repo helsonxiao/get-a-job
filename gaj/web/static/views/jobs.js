@@ -16,6 +16,7 @@ document.addEventListener('alpine:init', () => {
     selectedJobId: null,
     detail: null,
     detailLoading: false,
+    marketRef: null,
     manualEdit: { total: '', note: '' },
     manualSaving: false,
     reparseFile: '',
@@ -26,6 +27,20 @@ document.addEventListener('alpine:init', () => {
     init() {
       this.loadJobs();
       this.initListWidth();
+      // 统计胶囊直达筛选 (store.openJobsWithFilter 派发)
+      window.addEventListener('gaj:jobs-filters', (e) => {
+        const preset = e.detail || {};
+        for (const k of ['search', 'city', 'status', 'scored', 'favorite', 'ignored', 'sort']) {
+          if (preset[k] !== undefined) this.filters[k] = preset[k];
+        }
+        this.filters.offset = 0;
+        this.loadJobs();
+      });
+    },
+
+    // 市场参考: 复用 store 层会话缓存
+    async marketForIndustry(industry) {
+      return this.$store.core.marketForIndustry(industry);
     },
 
     async loadJobs() {
@@ -49,9 +64,16 @@ document.addEventListener('alpine:init', () => {
       this.selectedJobId = id;
       this.detailLoading = true;
       this.detail = null;
+      this.marketRef = null;
       const d = await this.$store.core.api('/api/jobs/' + encodeURIComponent(id));
       if (d) this.detail = d;
       this.detailLoading = false;
+      // 市场参考: 静默预取, 失败不影响详情展示
+      if (d && d.company && d.company.industry) {
+        this.marketForIndustry(d.company.industry).then(m => {
+          if (this.selectedJobId === id) this.marketRef = m;
+        }).catch(() => {});
+      }
     },
 
     // 列表宽度拖拽

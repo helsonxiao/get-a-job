@@ -768,3 +768,66 @@
   .title-actions { width: 100%; }
   .title-actions button { padding: 4px 8px; font-size: var(--gaj-font-size-xs); }
 }
+
+/* === 新增: 筛选标签 + 行内链接按钮 + 市场参考 === */
+.filter-label {
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-3);
+  line-height: 26px;
+  user-select: none;
+}
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: var(--gaj-radius-pill);
+  border: 1px solid var(--gaj-primary-border);
+  background: var(--gaj-primary-muted);
+  color: var(--gaj-primary);
+  font-size: var(--gaj-font-size-xs);
+  font-weight: 500;
+  cursor: pointer;
+  line-height: 1.6;
+  white-space: nowrap;
+  transition: all var(--gaj-transition-fast);
+}
+.link-btn:hover { background: var(--gaj-primary); color: #fff; }
+.link-btn [data-lucide] { width: 11px; height: 11px; }
+
+.market-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.market-stat {
+  flex: 1;
+  min-width: 130px;
+  background: var(--gaj-bg);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-md);
+  padding: 10px 14px;
+}
+.market-stat .ms-label {
+  display: block;
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-3);
+  margin-bottom: 4px;
+}
+.market-stat .ms-value {
+  font-size: var(--gaj-font-size-lg);
+  font-weight: 700;
+  color: var(--gaj-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.market-stat .ms-value.salary { color: var(--gaj-state-orange); }
+.market-vs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+  margin-top: 2px;
+}
+.market-vs .ms-hint { font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); }

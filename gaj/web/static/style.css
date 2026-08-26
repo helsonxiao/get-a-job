@@ -108,11 +108,24 @@ input::placeholder { color: var(--gaj-foreground-3); }
 }
 .stat-pill [data-lucide] { width: 13px; height: 13px; }
 .stat-pill .stat-num { color: var(--gaj-foreground); font-weight: 600; font-variant-numeric: tabular-nums; }
+button.stat-pill {
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--gaj-transition-fast);
+}
+button.stat-pill:hover {
+  background: var(--gaj-surface-3);
+  border-color: var(--gaj-border-hover);
+  color: var(--gaj-foreground);
+  transform: translateY(-1px);
+}
+button.stat-pill:active { transform: translateY(0); }
 .header .actions {
   margin-left: auto;
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+  align-items: center;
 }
 .header .actions button [data-lucide] { width: 14px; height: 14px; }
 
@@ -273,27 +286,108 @@ input::placeholder { color: var(--gaj-foreground-3); }
   .header .actions { flex-wrap: wrap; gap: 4px; }
   .header .actions button { padding: 4px 8px; font-size: var(--gaj-font-size-xs); }
 }
-/* 顶栏视图切换 */
-.view-switch {
-  display: inline-flex;
-  align-items: center;
-  background: var(--gaj-surface-2);
-  border: 1px solid var(--gaj-border);
-  border-radius: var(--gaj-radius-md);
-  padding: 2px;
-  gap: 2px;
+
+/* === App Body: 侧边导航 + 视图宿主 === */
+.app-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
 }
-.view-switch button {
-  background: transparent;
+.sidebar {
+  width: 176px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px;
+  background: var(--gaj-surface);
+  border-right: 1px solid var(--gaj-border);
+  overflow-y: auto;
+}
+.sidebar-group {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--gaj-foreground-4);
+  margin: 14px 8px 4px;
+  text-transform: uppercase;
+  user-select: none;
+}
+.sidebar-group:first-child { margin-top: 2px; }
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
   border: none;
-  border-radius: 6px;
-  padding: 5px 12px;
+  border-radius: var(--gaj-radius-md);
+  background: transparent;
   color: var(--gaj-foreground-2);
   font-size: var(--gaj-font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: all var(--gaj-transition-fast);
 }
-.view-switch button:hover { background: var(--gaj-surface-hover); color: var(--gaj-foreground); }
-.view-switch button.active {
+.sidebar-item:hover { background: var(--gaj-surface-2); color: var(--gaj-foreground); }
+.sidebar-item.active {
   background: var(--gaj-primary-muted);
   color: var(--gaj-primary);
   box-shadow: inset 0 0 0 1px var(--gaj-primary-border);
+}
+.sidebar-item [data-lucide] { width: 15px; height: 15px; flex-shrink: 0; }
+.sidebar-item .nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-item .nav-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--gaj-foreground-3);
+  background: var(--gaj-surface-3);
+  border-radius: var(--gaj-radius-pill);
+  padding: 1px 7px;
+  flex-shrink: 0;
+}
+.sidebar-item[disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
+  color: var(--gaj-foreground-3);
+}
+.sidebar-item[disabled]:hover { background: transparent; }
+.view-host {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.view-host > [x-data] {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* === Responsive: 侧边导航 (桌面优先, 窄屏降级) === */
+@media (max-width: 1100px) {
+  .sidebar { width: 148px; }
+}
+@media (max-width: 900px) {
+  .sidebar { width: 52px; padding: 12px 6px; }
+  .sidebar .nav-label, .sidebar .nav-badge, .sidebar-group { display: none; }
+  .sidebar-item { justify-content: center; padding: 8px; }
+}
+@media (max-width: 700px) {
+  .app-body { flex-direction: column; }
+  .sidebar {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--gaj-border);
+    padding: 6px 8px;
+    gap: 4px;
+  }
+  .sidebar-group { display: none; }
+  .sidebar .nav-label { display: inline; }
+  .sidebar .nav-badge { display: none; }
+  .sidebar-item { width: auto; flex-shrink: 0; padding: 5px 10px; }
 }
