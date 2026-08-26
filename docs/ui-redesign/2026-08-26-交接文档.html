@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>坑位图鉴 UI/UX 迭代 · 交接文档</title>
+<style>
+  :root{--bg:#0A0D12;--surface:#0F131A;--surface2:#151A23;--surface3:#1C2230;--fg:#E3E8EF;--fg2:#98A2B3;--fg3:#677288;--border:#1A2030;--border2:#2A3245;--blue:#5B8EF7;--green:#3FB950;--yellow:#D29922;--red:#F85149;--purple:#A78BFA;--orange:#DB6D28;--radius:10px}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--fg);font-family:-apple-system,"PingFang SC","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;font-size:14px;line-height:1.65;padding:32px 20px 80px}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:23px;font-weight:700}
+  h2{font-size:17px;font-weight:600;margin:36px 0 12px;padding-left:10px;border-left:3px solid var(--blue)}
+  h3{font-size:14px;font-weight:600;margin:18px 0 8px}
+  .meta{color:var(--fg2);font-size:13px;margin-top:8px}
+  code{font-family:"SF Mono","Cascadia Code",Menlo,monospace;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--fg2)}
+  table{width:100%;border-collapse:collapse;margin:10px 0 18px;font-size:13px}
+  th{text-align:left;color:var(--fg2);font-weight:600;background:var(--surface2);padding:7px 10px;border:1px solid var(--border);white-space:nowrap}
+  td{padding:7px 10px;border:1px solid var(--border);vertical-align:top}
+  tr:hover td{background:var(--surface2)}
+  .ok{color:var(--green);font-weight:600}.todo{color:var(--yellow);font-weight:600}.hold{color:var(--purple);font-weight:600}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin:10px 0;font-size:13px;color:var(--fg2)}
+  .card b{color:var(--fg)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+  .ia{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;margin:12px 0;font-size:13px}
+  .ia-row{display:flex;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border)}
+  .ia-row:last-child{border-bottom:none}
+  .ia-nav{width:170px;flex-shrink:0;border-right:1px solid var(--border);padding:10px}
+  .ia-nav .g{color:var(--fg3);font-size:11px;font-weight:600;margin:8px 0 3px}
+  .ia-nav .i{padding:4px 8px;border-radius:6px;color:var(--fg2)}
+  .ia-nav .i.on{background:rgba(91,142,247,.12);color:var(--blue)}
+  .ia-nav .i.plan{color:var(--fg3);opacity:.6}
+  .pre{font-family:"SF Mono",Menlo,monospace;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;overflow-x:auto;color:var(--fg2);margin:8px 0;line-height:1.6}
+</style>
+</head>
+<body><div class="wrap">
+  <h1>坑位图鉴 UI/UX 迭代 · 交接文档</h1>
+  <div class="meta">2026-08-26 ｜ 分支 <code>ui-redesign-20260826</code> @ <code>e21937d</code> ｜ 基线 <code>main</code> @ <code>323d4ef</code>（tag <code>ui-baseline-20260826</code>）<br>本次只动前端 <code>gaj/web/static/</code>，后端接口与数据结构零改动，<code>data/</code> 数据未受影响</div>
+
+  <h2>一、新界面结构</h2>
+  <div class="ia">
+    <div class="ia-row">顶栏：品牌 ｜ 统计胶囊（可点击→直达筛选）｜ 批量* ｜ 规则打分（primary）</div>
+    <div style="display:flex;min-height:210px">
+      <div class="ia-nav">
+        <div class="g">工作台</div><div class="i on">· 职位列表</div><div class="i">· 公司图鉴</div>
+        <div class="g">市场洞察</div><div class="i">· 市场观察台</div><div class="i plan">· 行业观察（规划）</div>
+        <div class="g">配置</div><div class="i">· 规则配置</div><div class="i">· 主简历</div>
+      </div>
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--fg3);font-size:13px;padding:14px">视图内容区（view-host）</div>
+    </div>
+    <div class="ia-row">底部：实时日志（可折叠，保留）</div>
+  </div>
+  <div class="card">* 批量按钮仅在职位列表视图显示。<b>导航规则</b>：所有视图 1 次点击可达（`$store.core.view` 单一真相源）；统计胶囊走 `openJobsWithFilter(preset)` + `gaj:jobs-filters` 事件；跨视图链路沿用 `store.openJob/openCompany`。</div>
+
+  <h2>二、样式变量与公共组件位置</h2>
+  <table>
+    <tr><th>文件</th><th>职责</th></tr>
+    <tr><td><code>styles/base.css</code></td><td><b>设计令牌唯一来源</b>（--gaj-*）。本次微调：fg3 提亮（对比度）、新增 --gaj-focus-ring</td></tr>
+    <tr><td><code>styles/components.css</code></td><td><b>新增公共组件层</b>：焦点环 / .tabs / .toolbar-row / .stat-card / .state-empty / .spin</td></tr>
+    <tr><td><code>style.css</code></td><td>外壳：header / sidebar（分组导航）/ view-host / log-panel / toast / 按钮 / 可点击 stat-pill</td></tr>
+    <tr><td><code>styles/&lt;view&gt;.css</code></td><td>各视图专属样式（沿用命名）</td></tr>
+  </table>
+  <div class="card"><b>使用约定</b>：新页面优先用组件层积木，不另写一套；改视觉顺序：令牌 → 组件层 → 视图层。</div>
+
+  <h2>三、TODO.md 落位状态</h2>
+  <table>
+    <tr><th>#</th><th>需求</th><th>状态</th><th>位置 / 说明</th></tr>
+    <tr><td>1</td><td>岗位详情打开公司抽屉</td><td class="ok">✅ 已实现</td><td>职位详情「基础信息」公司项 +「公司简介」卡头「查看公司图鉴」按钮</td></tr>
+    <tr><td>2</td><td>公司图表与观察台融合</td><td class="ok">✅ 已实现(轻量)</td><td>公司抽屉「市场数据」区块：样本/薪资区间/均薪 vs 行业市场中位（客户端派生，无后端改动）</td></tr>
+    <tr><td>3</td><td>行业观察+下钻+政策</td><td class="todo">🚧 规划占位</td><td>侧边导航「行业观察」禁用项+徽标；实现需新建 industry 视图三件套 + 后端聚合接口（超出本次范围）</td></tr>
+    <tr><td>4</td><td>详情展示市场指标</td><td class="ok">✅ 已实现(轻量)</td><td>职位详情「市场参考」区块，复用 /api/observatory/salary + 会话缓存 10 分钟（store.ensureMarket）</td></tr>
+    <tr><td>5</td><td>市场数据优化规则/画像</td><td class="hold">🕓 入口保留</td><td>config.js `showCalibration: false` 翻 true 恢复「AI 规则矫正」入口（后端能力完整）</td></tr>
+  </table>
+  <div class="card">⚠ 市场参考/市场数据依赖 salary 聚合的行业 Top10（样本≥2）；不在 Top10 的行业区块自动隐藏，属预期。</div>
+
+  <h2>四、后续叠加新功能的做法</h2>
+  <div class="grid2">
+    <div class="card"><b>加导航项</b>：index.html 侧边栏加 button.sidebar-item，@click="switchView('xxx')"，store 无需改</div>
+    <div class="card"><b>加视图岛</b>：views/xxx.html + views/xxx.js（Alpine.data）+ styles/xxx.css 三件套，挂载点 data-tpl 插进 view-host，资源引用 ?v= 版本号 +1</div>
+    <div class="card"><b>加全局动作</b>：放顶栏 .actions；仅某视图可见用 x-show 判断 view</div>
+    <div class="card"><b>统计胶囊</b>：加 button.stat-pill + openJobsWithFilter(preset)，preset 键与 jobsPanel.filters 一致</div>
+  </div>
+
+  <h2>五、验证记录（2026-08-26）</h2>
+  <table>
+    <tr><th>项</th><th>结果</th></tr>
+    <tr><td>服务启动 / 数据完整性</td><td>:8765 200 OK；258 职位/258 规则分/76 AI 分/1 收藏/95 忽略，改造前后一致</td></tr>
+    <tr><td>统计胶囊直达</td><td>收藏→1 条 · 已忽略→95 条 · 未打分→0 条 · 重置→258 条（真实数据）</td></tr>
+    <tr><td>公司跳转 / 市场参考 / 公司市场数据</td><td>抽屉打开正常；计算机软件 35 样本中位 27.95 万/年，本岗高于中位；公司 5 岗均薪 30.68 vs 27.95</td></tr>
+    <tr><td>边界宽度 × 缩放</td><td>1024~2400 八档 × 5 视图无横向溢出；80%/125% 缩放视口通过</td></tr>
+    <tr><td>空态/长文本/批量</td><td>空态正常 · 长 JD 无溢出 · 批量复选框正常</td></tr>
+    <tr><td>CRUD 回归 / 控制台</td><td>收藏 1→2→1、忽略往返，数据恢复基线；全交互路径 0 异常</td></tr>
+    <tr><td>截图对比</td><td>assets/baseline/（7 张）vs assets/after/（13 张）</td></tr>
+  </table>
+
+  <h2>六、回滚</h2>
+  <div class="pre">git switch main          # 一步回到改造前（main @ 323d4ef）
+git tag ui-baseline-20260826   # 基线标记仍在</div>
+</div></body></html>
