@@ -3,24 +3,27 @@
      岛声明 (x-data/事件) 在 index.html 挂载点 [data-tpl="guide"],
      由 loader 在 Alpine 启动前注入本片段。
      ============================================ -->
-    <div class="guide-toolbar">
-      <div class="guide-progress">
-        <i data-lucide="book-open"></i>
-        <span>图鉴进度: 已鉴定 <strong x-text="facets?.unlocked || 0"></strong> / <span x-text="facets?.total || 0"></span> 家公司</span>
-        <span class="guide-fav-count" :class="{active: favorite==='only'}"
-              @click="favorite = favorite==='only' ? 'all' : 'only'; loadGuideItems()"
-              title="想去清单">
-          <i data-lucide="heart"></i>
-          <span>想去</span>
-          <strong x-text="facets?.favorite || 0"></strong>
-        </span>
-      </div>
-      <div class="guide-controls">
-        <div class="leaderboard-switch" title="三榜即时切换">
+    <div class="guide-panel" x-show="$store.core.view === 'guide'">
+    <div class="toolbar guide-toolbar">
+      <div class="toolbar-row">
+        <div class="guide-progress">
+          <i data-lucide="book-open"></i>
+          <span>图鉴进度: 已鉴定 <strong x-text="facets?.unlocked || 0"></strong> / <span x-text="facets?.total || 0"></span> 家公司</span>
+          <span class="guide-fav-count" :class="{active: favorite==='only'}"
+                @click="favorite = favorite==='only' ? 'all' : 'only'; loadGuideItems()"
+                title="想去清单">
+            <i data-lucide="heart"></i>
+            <span>想去</span>
+            <strong x-text="facets?.favorite || 0"></strong>
+          </span>
+        </div>
+        <div class="leaderboard-switch spacer" title="三榜即时切换">
           <button :class="{active: sort==='score'}" @click="setGuideSort('score')"><i data-lucide="trophy"></i><span>分数榜</span></button>
           <button :class="{active: sort==='jobs'}" @click="setGuideSort('jobs')"><i data-lucide="flame"></i><span>招聘力度榜</span></button>
           <button :class="{active: sort==='salary'}" @click="setGuideSort('salary')"><i data-lucide="coins"></i><span>薪资榜</span></button>
         </div>
+      </div>
+      <div class="toolbar-row">
         <div class="guide-mode-switch">
           <button :class="{active: mode==='cards'}" @click="setGuideMode('cards')"><i data-lucide="layout-grid"></i><span>卡片墙</span></button>
           <button :class="{active: mode==='quadrant'}" @click="setGuideMode('quadrant')"><i data-lucide="scatter-chart"></i><span>象限图</span></button>
@@ -175,7 +178,9 @@
       </div>
     </div>
 
-  <!-- 公司详情抽屉 (属于 guide 岛, fixed 定位不占布局) -->
+    </div><!-- /guide-panel 视图内容 -->
+
+  <!-- 公司详情抽屉 (全局浮动层: 所有视图可打开, fixed 定位不占布局) -->
 <!-- Company Detail Drawer (公司详情抽屉) -->
   <div class="drawer-mask" x-show="companyDetail || companyDetailLoading" x-cloak
        @click="closeCompany()" x-transition.opacity></div>
@@ -240,6 +245,37 @@
             <text x="22" y="104" class="radar-label" text-anchor="end">WLB</text>
           </svg>
         </div>
+        <template x-if="companyMarket">
+        <div class="cd-section">
+          <div class="cd-h"><i data-lucide="line-chart" style="color: var(--gaj-state-purple);"></i>市场数据</div>
+          <div class="cd-market">
+            <div class="cdm-stat">
+              <span class="cdm-label">在招岗位</span>
+              <span class="cdm-value" x-text="(companyMarket.sampleCount || 0) + ' / ' + (companyMarket.totalCount || 0) + ' 岗'"></span>
+            </div>
+            <div class="cdm-stat" x-show="companyMarket.rangeMin != null">
+              <span class="cdm-label">薪资区间</span>
+              <span class="cdm-value" x-text="companyMarket.rangeMin + ' - ' + companyMarket.rangeMax + ' 万/年'"></span>
+            </div>
+            <div class="cdm-stat" x-show="companyMarket.midAvg != null">
+              <span class="cdm-label">公司均薪</span>
+              <span class="cdm-value" x-text="companyMarket.midAvg + ' 万/年'"></span>
+            </div>
+            <div class="cdm-stat">
+              <span class="cdm-label">行业市场中位</span>
+              <span class="cdm-value" x-text="companyMarket.median + ' 万/年'"></span>
+            </div>
+            <div class="cdm-vs" x-show="companyMarket.midAvg != null">
+              <span class="badge" :class="companyMarket.midAvg >= companyMarket.median ? 'pass' : 'review'">
+                <i data-lucide="arrow-up-right" x-show="companyMarket.midAvg >= companyMarket.median"></i>
+                <i data-lucide="arrow-down-right" x-show="companyMarket.midAvg < companyMarket.median"></i>
+                <span x-text="(companyMarket.midAvg >= companyMarket.median ? '高于' : '低于') + '行业市场中位'"></span>
+              </span>
+              <span class="cdm-hint">数据来自市场观察台 · 行业: <span x-text="companyMarket.industry"></span></span>
+            </div>
+          </div>
+        </div>
+        </template>
         <div class="cd-section">
           <div class="cd-h">
             <i data-lucide="sparkles" style="color: var(--gaj-state-purple);"></i>

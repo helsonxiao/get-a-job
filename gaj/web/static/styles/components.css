@@ -1,0 +1,104 @@
+/* ============================================
+   Get A Job — 公共组件层 (components)
+   跨视图统一组件规范: 焦点环 / Tab / 工具栏 / 统计卡 / 状态点 / 旋转动画。
+   视图专属样式仍在 styles/<view>.css, 本文件只放"所有视图共用"的积木。
+   ============================================ */
+
+/* === 焦点环 (键盘可达性, 所有可交互元素统一) === */
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible,
+a:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--gaj-primary);
+  outline-offset: 1px;
+  border-radius: var(--gaj-radius-sm);
+}
+
+/* === 统一 Tab 组件 (config / observatory / resume 共用, 下划线式) === */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 20px;
+  height: 44px;
+  border-bottom: 1px solid var(--gaj-border);
+  background: var(--gaj-surface);
+  flex-shrink: 0;
+}
+.tabs .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 16px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--gaj-foreground-2);
+  font-size: var(--gaj-font-size-md);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--gaj-transition-fast), border-color var(--gaj-transition-fast);
+}
+.tabs .tab:hover { color: var(--gaj-foreground); }
+.tabs .tab.active { color: var(--gaj-primary); border-bottom-color: var(--gaj-primary); }
+.tabs .tab [data-lucide] { width: 15px; height: 15px; }
+.tabs .tab-close { margin-left: auto; color: var(--gaj-foreground-3); }
+.tabs .tab-close:hover { color: var(--gaj-state-error); }
+
+/* === 统一工具栏 (两行结构: 主行 + 筛选行) === */
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--gaj-border);
+  background: var(--gaj-surface);
+  flex-shrink: 0;
+}
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 20px;
+  min-height: 40px;
+}
+.toolbar-row + .toolbar-row { border-top: 1px solid var(--gaj-border-subtle); padding-top: 8px; }
+.toolbar-row .spacer { margin-left: auto; }
+
+/* === 统计卡 (观察台/图鉴共用) === */
+.stat-card {
+  background: var(--gaj-surface);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-lg);
+  padding: 12px 16px;
+  min-width: 0;
+}
+.stat-card .label { font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); margin-bottom: 4px; }
+.stat-card .value { font-size: var(--gaj-font-size-2xl); font-weight: 700; color: var(--gaj-foreground); font-variant-numeric: tabular-nums; line-height: 1.2; }
+.stat-card .unit { font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); font-weight: 400; margin-left: 4px; }
+
+/* === 加载旋转图标 === */
+.spin { animation: gaj-spin 0.9s linear infinite; }
+@keyframes gaj-spin { to { transform: rotate(360deg); } }
+
+/* === 空态 / 加载态 (统一) === */
+.state-empty, .state-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 48px 24px;
+  color: var(--gaj-foreground-3);
+  font-size: var(--gaj-font-size-sm);
+  text-align: center;
+}
+.state-empty [data-lucide] { width: 32px; height: 32px; color: var(--gaj-foreground-4); }
+
+/* === 表头提示 (次要说明) === */
+.heading-hint {
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-3);
+  font-weight: 400;
+  margin-left: 8px;
+}

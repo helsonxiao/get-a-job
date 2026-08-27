@@ -12,39 +12,8 @@
   flex: 1;
   overflow: hidden;
 }
-.config-tabs {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  padding: 0 20px;
-  height: 44px;
-  border-bottom: 1px solid var(--gaj-border);
-  background: var(--gaj-surface);
-}
-.config-tabs button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 100%;
-  padding: 0 16px;
-  border: none;
-  background: transparent;
-  color: var(--gaj-foreground-2);
-  font-size: var(--gaj-font-size-md);
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  cursor: pointer;
-  transition: all var(--gaj-transition-fast);
-}
-.config-tabs button [data-lucide] { width: 16px; height: 16px; }
-.config-tabs button:hover { color: var(--gaj-foreground); background: transparent; }
-.config-tabs button.active {
-  color: var(--gaj-primary);
-  border-bottom-color: var(--gaj-primary);
-}
-.config-tabs button:active, .config-tabs button:focus { outline: none; box-shadow: none; }
 .config-body {
-  padding: 24px 32px;
+  padding: 20px 32px 40px;
   overflow-y: auto;
   flex: 1;
 }
@@ -127,7 +96,14 @@
   font-size: var(--gaj-font-size-xs);
 }
 .dim-max.over-cap { color: var(--gaj-state-error) !important; }
-.dim-cap-warn { color: var(--gaj-state-error); font-size: var(--gaj-font-size-xs); }
+.dim-cap-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--gaj-state-warning);
+  font-size: var(--gaj-font-size-xs);
+}
+.dim-cap-warn [data-lucide] { width: 12px; height: 12px; }
 
 .rule-grid {
   display: grid;
@@ -250,3 +226,7 @@
   .rule-grid { grid-template-columns: 1fr; }
   .profile-fields { grid-template-columns: 1fr; }
 }
+
+/* === Tab 与内容衔接 (config/resume 面板) === */
+.config-panel .tabs { flex-shrink: 0; }
+.config-panel .tabs + .config-body { padding-top: 20px; }

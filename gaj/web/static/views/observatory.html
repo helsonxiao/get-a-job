@@ -3,17 +3,17 @@
      岛声明 (x-data/事件) 在 index.html 挂载点 [data-tpl="observatory"],
      由 loader 在 Alpine 启动前注入本片段。
      ============================================ -->
-    <div class="obs-tabs">
-      <button class="obs-tab" :class="{active: tab === 'salary'}" @click="setTab('salary')">
+    <div class="tabs">
+      <button class="tab" :class="{active: tab === 'salary'}" @click="setTab('salary')">
         <i data-lucide="trending-up"></i> 薪资定价
       </button>
-      <button class="obs-tab" :class="{active: tab === 'geo'}" @click="setTab('geo')">
+      <button class="tab" :class="{active: tab === 'geo'}" @click="setTab('geo')">
         <i data-lucide="map"></i> 区域热力
       </button>
-      <button class="obs-tab" :class="{active: tab === 'radar'}" @click="setTab('radar')">
+      <button class="tab" :class="{active: tab === 'radar'}" @click="setTab('radar')">
         <i data-lucide="shield-alert"></i> 信号雷达
       </button>
-      <button class="obs-tab" :class="{active: tab === 'skills'}" @click="setTab('skills')">
+      <button class="tab" :class="{active: tab === 'skills'}" @click="setTab('skills')">
         <i data-lucide="bar-chart-3"></i> 技能热度
       </button>
     </div>
@@ -296,7 +296,7 @@
             <template x-if="drillDetail">
               <div class="title">
                 <button class="obs-drill-back" @click="backToDrillList()" title="返回列表"><i data-lucide="arrow-left"></i></button>
-                <span x-text="drillDetail.type === 'job' ? '岗位详情' : '公司详情'"></span>
+                <span x-text="drillDetail.type === 'job' ? '岗位详情' : ''"></span>
               </div>
             </template>
             <button class="obs-drill-close" @click="closeDrill()">关闭</button>
@@ -332,7 +332,7 @@
                 <template x-if="drill.mode === 'companies'">
                   <div>
                     <template x-for="c in drill.companies" :key="c.brand_id">
-                      <div class="obs-job-card obs-company-card" @click="openDrillCompany(c.brand_id)">
+                      <div class="obs-job-card obs-company-card" @click="openCompany(c.brand_id)">
                         <div class="jc-title" x-text="c.name || '匿名公司'"></div>
                         <div class="jc-meta">
                           <span x-show="c.industry" x-text="c.industry"></span>
@@ -361,7 +361,7 @@
                 <div class="obs-detail-meta">
                   <span class="obs-detail-salary" x-text="drillDetail.data.job?.salary?.raw || '面议'"></span>
                   <span class="obs-detail-company-link"
-                        @click="drillDetail.data.company?.brand_id && openDrillCompany(drillDetail.data.company.brand_id)"
+                        @click="drillDetail.data.company?.brand_id && openCompany(drillDetail.data.company.brand_id)"
                         x-text="drillDetail.data.company?.name || drillDetail.data.job?.company_name || '未知公司'"></span>
                   <span x-text="(drillDetail.data.job?.city || '') + (drillDetail.data.job?.district ? ' ' + drillDetail.data.job.district : '')"></span>
                   <span x-text="drillDetail.data.job?.experience?.raw || '经验不限'"></span>
@@ -399,54 +399,8 @@
               </div>
             </template>
 
-            <!-- 公司详情 (抽屉内嵌) -->
-            <template x-if="drillDetail && !drillDetail.loading && drillDetail.type === 'company' && drillDetail.data">
-              <div class="obs-detail">
-                <div class="obs-detail-title" x-text="drillDetail.data.company?.name"></div>
-                <div class="obs-detail-meta">
-                  <span class="obs-detail-score" x-show="drillDetail.data.stats?.company_score != null"
-                        x-text="(drillDetail.data.stats?.company_score ?? '?') + ' 分'"></span>
-                  <span class="obs-detail-tier" x-show="drillDetail.data.stats?.rank_tier"
-                        x-text="drillDetail.data.stats?.rank_tier"></span>
-                  <span x-show="drillDetail.data.company?.industry" x-text="drillDetail.data.company?.industry"></span>
-                  <span x-show="drillDetail.data.company?.stage" x-text="drillDetail.data.company?.stage"></span>
-                  <span x-show="drillDetail.data.company?.scale_raw" x-text="drillDetail.data.company?.scale_raw"></span>
-                  <span x-show="drillDetail.data.stats?.job_count != null" x-text="'在招 ' + drillDetail.data.stats.job_count + ' 岗'"></span>
-                  <span x-show="drillDetail.data.stats?.salary_mid_avg" x-text="'均薪 ' + drillDetail.data.stats.salary_mid_avg.toFixed(1) + '万'"></span>
-                </div>
-                <div class="obs-detail-section" x-show="drillDetail.data.company?.intro">
-                  <div class="obs-detail-h">公司简介</div>
-                  <div class="obs-detail-text" x-text="drillDetail.data.company?.intro"></div>
-                </div>
-                <div class="obs-detail-section" x-show="drillDetail.data.company?.business_scope">
-                  <div class="obs-detail-h">经营范围</div>
-                  <div class="obs-detail-text" x-text="drillDetail.data.company?.business_scope"></div>
-                </div>
-                <template x-if="(drillDetail.data.ai_scores || []).length > 0 && drillDetail.data.ai_scores[0].status !== 'PARSE_FAILED'">
-                  <div class="obs-detail-section">
-                    <div class="obs-detail-h">AI 评价</div>
-                    <div class="obs-detail-ai-worth" x-text="drillDetail.data.ai_scores[0].worth_joining"></div>
-                    <div class="obs-detail-text" x-text="drillDetail.data.ai_scores[0].business_analysis"></div>
-                  </div>
-                </template>
-                <div class="obs-detail-section" x-show="(drillDetail.data.jobs || []).length > 0">
-                  <div class="obs-detail-h">名下岗位 (<span x-text="drillDetail.data.jobs?.length"></span>)</div>
-                  <template x-for="j in (drillDetail.data.jobs || []).slice(0, 20)" :key="j.job_id">
-                    <div class="obs-job-card" @click="openDrillJob(j.job_id)">
-                      <div class="jc-title" x-text="j.title"></div>
-                      <div class="jc-meta">
-                        <span class="jc-salary" x-text="j.salary_min != null ? (j.salary_min + '-' + j.salary_max + '万') : '面议'"></span>
-                        <span x-text="(j.city || '') + (j.district ? ' ' + j.district : '')"></span>
-                        <span x-text="j.exp_min != null ? j.exp_min + '年' : '不限'"></span>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-                <div class="obs-detail-actions">
-                  <button class="obs-detail-btn" @click="$store.core.openCompany(drillDetail.data.company?.brand_id)">在主视图打开</button>
-                </div>
-              </div>
-            </template>
+            
+
           </div>
         </div>
       </div>

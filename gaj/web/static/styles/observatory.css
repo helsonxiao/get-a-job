@@ -7,36 +7,9 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 20px;
+  padding: 0 20px 16px;
 }
-
-.obs-tabs {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--gaj-border);
-  padding-bottom: 0;
-}
-
-.obs-tab {
-  background: none;
-  border: none;
-  color: var(--gaj-foreground-2);
-  font-size: var(--gaj-font-size-md);
-  padding: 8px 16px;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color var(--gaj-transition-fast), border-color var(--gaj-transition-fast);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.obs-tab:hover { color: var(--gaj-foreground); }
-.obs-tab.active {
-  color: var(--gaj-primary);
-  border-bottom-color: var(--gaj-primary);
-}
+.observatory-panel .tabs { margin: 0 -20px 16px; }
 
 .obs-section {
   margin-bottom: 24px;

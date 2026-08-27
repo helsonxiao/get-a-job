@@ -41,7 +41,7 @@ document.addEventListener('alpine:init', () => {
         this.drill = {
           title: label,
           mode: 'companies',
-          sub: (d ? d.total : 0) + ' 家公司 · 点击卡片在抽屉内查看详情',
+          sub: (d ? d.total : 0) + ' 家公司 · 点击卡片查看公司详情',
           loading: false,
           jobs: [],
           companies: d ? d.items : [],
@@ -96,13 +96,11 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
-    // 公司点击: 抽屉打开 → 在抽屉内加载公司详情; 否则 → 跳公司图鉴抽屉 (store 切 view)
+    // 公司查看统一走全局公司抽屉 (公司图鉴/职位列表/观察台三处复用):
+    // 就地打开, 不切视图; 若下钻抽屉开着先关闭 (避免 z 层级叠加)
     openCompany(brandId) {
-      if (this.drill) {
-        this.openDrillCompany(brandId);
-      } else {
-        Alpine.store('core').openCompany(brandId);
-      }
+      if (this.drill) this.closeDrill();
+      Alpine.store('core').openCompanyDrawer(brandId);
     },
 
     // 岗位卡片点击: 抽屉打开 → 在抽屉内加载岗位详情; 否则 → 跳职位视图详情 (store 切 view)
@@ -119,13 +117,6 @@ document.addEventListener('alpine:init', () => {
       this.drillDetail = { type: 'job', loading: true, data: null };
       const d = await Alpine.store('core').api('/api/jobs/' + encodeURIComponent(jobId));
       this.drillDetail = { type: 'job', loading: false, data: d };
-    },
-
-    // 抽屉内嵌: 加载公司详情
-    async openDrillCompany(brandId) {
-      this.drillDetail = { type: 'company', loading: true, data: null };
-      const d = await Alpine.store('core').api('/api/companies/' + encodeURIComponent(brandId));
-      this.drillDetail = { type: 'company', loading: false, data: d };
     },
 
     async load(tab) {

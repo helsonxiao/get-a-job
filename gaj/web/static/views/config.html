@@ -3,16 +3,16 @@
      岛声明 (x-data/事件) 在 index.html 挂载点 [data-tpl="config"],
      由 loader 在 Alpine 启动前注入本片段。
      ============================================ -->
-    <div class="config-tabs">
-      <button :class="{active: configTab==='rules'}" @click="configTab='rules'">
+    <div class="tabs">
+      <button class="tab" :class="{active: configTab==='rules'}" @click="configTab='rules'">
         <i data-lucide="bar-chart-3"></i>
         <span>规则概览</span>
       </button>
-      <button :class="{active: configTab==='profile'}" @click="configTab='profile'">
+      <button class="tab" :class="{active: configTab==='profile'}" @click="configTab='profile'">
         <i data-lucide="user"></i>
         <span>画像编辑</span>
       </button>
-      <button @click="$store.core.switchView('jobs')" style="margin-left:auto; border-bottom: 2px solid transparent;">
+      <button class="tab tab-close" @click="$store.core.switchView('jobs')">
         <i data-lucide="x"></i>
         <span>关闭</span>
       </button>
@@ -211,7 +211,7 @@
                 <strong x-text="dim.label"></strong>
                 <span class="dim-max" :class="{'over-cap': parseFloat(dimMaxSum(dim)) > 10}"
                       x-text="'当前满分 '+dimMaxSum(dim)+' / 默认 '+dim.default_max_score"></span>
-                <span class="dim-cap-warn" x-show="parseFloat(dimMaxSum(dim)) > 10">⚠ 超过封顶10, 实际最多算10分</span>
+                <span class="dim-cap-warn" x-show="parseFloat(dimMaxSum(dim)) > 10"><i data-lucide="alert-triangle"></i>超过封顶10, 实际最多算10分</span>
               </div>
               <div class="rule-grid">
                 <template x-for="item in dim.items" :key="item.code">

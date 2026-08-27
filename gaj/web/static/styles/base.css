@@ -14,7 +14,7 @@
   /* --- Foreground / text --- */
   --gaj-foreground: #E3E8EF;
   --gaj-foreground-2: #98A2B3;
-  --gaj-foreground-3: #5C6573;
+  --gaj-foreground-3: #677288;
   --gaj-foreground-4: #3D4452;
 
   /* --- Brand primary (single hue: blue) --- */
@@ -49,6 +49,9 @@
   --gaj-radius-md: 8px;
   --gaj-radius-lg: 12px;
   --gaj-radius-pill: 9999px;
+
+  /* --- Focus ring --- */
+  --gaj-focus-ring: 0 0 0 2px rgba(91, 142, 247, 0.35);
 
   /* --- Shadows (subtle, dark-mode appropriate) --- */
   --gaj-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.20), 0 1px 1px rgba(0, 0, 0, 0.10);
