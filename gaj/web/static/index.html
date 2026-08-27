@@ -144,7 +144,7 @@
       <!-- VIEW: INDUSTRY (岛: views/industry.js + 模板: views/industry.html) -->
       <div class="industry-panel" x-data="industryPanel()" x-show="$store.core.view === 'industry'" x-cloak
            @gaj:open-industry.window="onOpenIndustry($event.detail)"
-           x-effect="$store.core.view; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="industry">
+           x-effect="$store.core.view; items.length; detail; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="industry">
       </div>
       <!-- VIEW: JOBS (岛: views/jobs.js + 模板: views/jobs.html) -->
       <div class="main" x-data="jobsPanel()" x-show="$store.core.view === 'jobs'"
