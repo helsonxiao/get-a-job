@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>行业观察功能设计文档</title>
+<style>
+  :root{--bg:#0A0D12;--surface:#0F131A;--surface2:#151A23;--surface3:#1C2230;--fg:#E3E8EF;--fg2:#98A2B3;--fg3:#677288;--border:#1A2030;--border2:#2A3245;--blue:#5B8EF7;--green:#3FB950;--yellow:#D29922;--red:#F85149;--purple:#A78BFA;--orange:#DB6D28;--radius:10px}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--fg);font-family:-apple-system,"PingFang SC","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;font-size:14px;line-height:1.65;padding:32px 20px 80px}
+  .wrap{max-width:1020px;margin:0 auto}
+  h1{font-size:23px;font-weight:700}
+  h2{font-size:17px;font-weight:600;margin:36px 0 12px;padding-left:10px;border-left:3px solid var(--blue)}
+  h3{font-size:14px;font-weight:600;margin:18px 0 8px}
+  .meta{color:var(--fg2);font-size:13px;margin-top:8px}
+  code{font-family:"SF Mono","Cascadia Code",Menlo,monospace;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--fg2)}
+  table{width:100%;border-collapse:collapse;margin:10px 0 18px;font-size:13px}
+  th{text-align:left;color:var(--fg2);font-weight:600;background:var(--surface2);padding:7px 10px;border:1px solid var(--border);white-space:nowrap}
+  td{padding:7px 10px;border:1px solid var(--border);vertical-align:top}
+  tr:hover td{background:var(--surface2)}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin:10px 0;font-size:13px;color:var(--fg2)}
+  .card b{color:var(--fg)}
+  .card-title{font-weight:600;color:var(--fg);margin-bottom:6px;font-size:14px}
+  .rec{background:rgba(91,142,247,.08);border:1px solid rgba(91,142,247,.35)}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  @media(max-width:900px){.grid3{grid-template-columns:1fr}}
+  .tree{font-family:"SF Mono",Menlo,monospace;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;overflow-x:auto;color:var(--fg2);line-height:1.7;white-space:pre}
+  .badge{display:inline-block;padding:1px 8px;border-radius:9999px;font-size:12px;font-weight:600}
+  .b-rec{background:rgba(91,142,247,.15);color:var(--blue)}
+  .b-min{background:rgba(63,185,80,.12);color:var(--green)}
+  .b-far{background:rgba(167,139,250,.12);color:var(--purple)}
+  .warn{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.35);border-radius:var(--radius);padding:12px 16px;font-size:13px;color:var(--yellow);margin:12px 0}
+</style>
+</head>
+<body><div class="wrap">
+  <h1>行业观察功能设计文档</h1>
+  <div class="meta">2026-08-27 ｜ 对应 TODO#3（行业观察 + 下钻 + 远期政策分析）｜ 数据实测：258 岗位 · 12+ 行业（计算机软件 35 / 智能硬件 23 / 自动化设备 19 / 汽车研发制造 12 / 医疗器械 11 / 人工智能 11 / 光伏 9 / 互联网 9 / 半导体 8 / 储能 8…）</div>
+
+  <h2>一、背景与目标</h2>
+  <div class="card">求职决策三个层次：<b>岗位层</b>（值不值得投）→ <b>公司层</b>（值不值得去）→ <b>行业层</b>（值不值得待）。当前已有岗位打分与公司图鉴，行业层是缺失一环——行业选择往往比具体岗位更影响长期收益。<br><br>
+  <b>本期目标</b>：①行业总览（在招规模/薪资/风险一眼可见）②行业下钻（薪资结构/技能/信号/代表公司）③与岗位详情链路打通 ④零成本起步，尽量复用现有聚合数据。<br>
+  <b>非目标</b>：行业趋势时间序列（数据积累不足）、行业政策分析（列入路线图）、后端数据模型改动。</div>
+
+  <h2>二、数据现状（能支撑什么）</h2>
+  <table>
+    <tr><th>数据</th><th>来源接口</th><th>可用字段</th><th>状态</th></tr>
+    <tr><td>行业分布</td><td>/api/stats</td><td>行业名 + 岗位数</td><td>✅ 现成</td></tr>
+    <tr><td>行业薪资</td><td>/api/observatory/salary</td><td>by_industry：中位 + 样本（Top10，样本≥2）</td><td>✅ 现成</td></tr>
+    <tr><td>行业信号</td><td>/api/observatory/radar</td><td>加班重/外包/出差 + 红旗率（样本≥3）</td><td>✅ 现成</td></tr>
+    <tr><td>技能×行业</td><td>/api/observatory/skills</td><td>每技能 top_industries</td><td>✅ 现成</td></tr>
+    <tr><td>行业岗位下钻</td><td>/api/jobs?industry=X</td><td>完整岗位列表（35 条实测）</td><td>✅ 现成</td></tr>
+    <tr><td>单行业薪资分位/经验-学历结构</td><td>—</td><td>—</td><td>⚠ 缺口（需新聚合接口，或 A 方案降级口径）</td></tr>
+  </table>
+
+  <h2>三、方案对比</h2>
+  <div class="grid3">
+    <div class="card"><div class="card-title"><span class="badge b-min">A · 最小</span> 观察台内嵌 Tab</div>
+      纯前端：观察台加第 5 个 Tab「行业观察」，总览表 + 行业详情抽屉（复用 obs-drill）。<br><br>
+      <b>后端</b>：无<br><b>工期</b>：0.5-1 天<br><b>优点</b>：最快、零后端<br><b>缺点</b>：详情空间受限，政策分析无处挂载</div>
+    <div class="card rec"><div class="card-title"><span class="badge b-rec">B · 推荐</span> 独立行业观察视图</div>
+      启用侧边导航占位项，独立视图：行业卡片墙 + 完整行业详情页。<br><br>
+      <b>后端</b>：+1 只读聚合接口（约 60 行 SQLite 查询）<br><b>工期</b>：2-3 天<br><b>优点</b>：行业一等公民、空间充足、政策分析有挂载位、与图鉴/职位平级<br><b>缺点</b>：比 A 多一个接口</div>
+    <div class="card"><div class="card-title"><span class="badge b-far">C · 远期</span> 完整洞察中心</div>
+      B + 行业横向对比 + 趋势（需数据积累）+ 政策分析（外部数据源 + AI 解读）。<br><br>
+      <b>后端</b>：+接口 +数据源 +AI 编排<br><b>工期</b>：1-2 周<br><b>定位</b>：二期迭代方向，本期不单独实施</div>
+  </div>
+
+  <h2>四、推荐方案 B 页面结构</h2>
+  <div class="tree">行业观察视图 (侧边导航 · 市场洞察组)
+├─ 顶栏: 搜索行业 + 排序切换 (岗位数/薪资/红旗率) + 样本说明
+├─ 行业卡片墙 (网格)
+│   卡片: 行业名 | 在招 N 岗 | 薪资中位 + 市场溢价徽标 | 红旗率徽标 | 技能 Top3
+├─ 行业详情页 (视图内, 空间充足)
+│   ├─ 头部: 四指标 (岗位数/公司数/薪资中位/红旗率)
+│   ├─ 薪资结构: 行业中位 vs 市场 P25/P50/P75 + 经验-薪资折线 (行业口径)
+│   ├─ 技能热度: 行业技能 Top10 (需求数 + 溢价)
+│   ├─ 信号雷达: 加班重/外包/出差 + 红旗率 vs 全市场
+│   ├─ 代表公司 Top8 → 点击开全局公司抽屉
+│   ├─ 岗位列表 → 点击进现有职位详情
+│   └─ [远期] 行业政策分析: 预留挂载位
+└─ 联动: 观察台图表行加「查看行业」入口</div>
+  <div class="card"><b>实现要点</b>：后端在 <code>store/observatory.py</code> 新增 <code>observatory_industry_detail(conn, industry)</code>（按行业过滤重算薪资分位/经验-薪资/技能 Top/红旗信号/代表公司，约 60 行纯 SQLite）；前端按组件岛模式新增 <code>views/industry.html/js/css</code> 三件套；侧边导航「行业观察」占位项启用。<b>样本 &lt;5 的行业详情页降级</b>（只出概览卡，不出分位图）避免误导；「未知」行业默认排除、底部单列。</div>
+
+  <h2>五、联动与路线图</h2>
+  <table>
+    <tr><th>功能</th><th>联动</th></tr>
+    <tr><td>职位详情「市场参考」</td><td>行业详情提供更细口径，远期反哺</td></tr>
+    <tr><td>公司抽屉「市场数据」</td><td>行业代表公司 → 全局公司抽屉（已就绪）</td></tr>
+    <tr><td>规则配置 AI 矫正（TODO#5）</td><td>行业数据可作为矫正建议输入（远期）</td></tr>
+    <tr><td>行业政策分析（TODO#3 后半）</td><td>外部政策文本 + AI 解读，挂载行业详情页预留区块</td></tr>
+  </table>
+  <div class="warn">风险提示：行业样本差异大（储能 8 岗 vs 计算机软件 35 岗），详情页按样本量降级展示；行业名为 BOSS 直聘口径，"未知"占 75 岗需单独处理。</div>
+</div></body></html>
