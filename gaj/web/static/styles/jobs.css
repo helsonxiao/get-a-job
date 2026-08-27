@@ -745,7 +745,14 @@
 @media (max-width: 900px) {
   .list-panel { width: 320px; }
   .info-grid { grid-template-columns: 1fr; }
-  .section-nav { width: 128px; }
+  /* 窄屏: 隐藏详情节导航, 空间全部给内容 */
+  .section-nav { display: none; }
+  .detail-content { padding: 16px 20px 24px; }
+  .detail-layout { display: block; }
+  .sticky-job-summary { flex-wrap: wrap; }
+  .sticky-job-summary .sjs-actions { flex-wrap: wrap; }
+  .sticky-job-summary .sjs-actions button { padding: 3px 8px; }
+  .sticky-job-summary .sjs-title { max-width: 180px; }
 }
 @media (max-width: 700px) {
   .section-nav { display: none; }
