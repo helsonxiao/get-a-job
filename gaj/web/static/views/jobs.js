@@ -12,7 +12,7 @@ document.addEventListener('alpine:init', () => {
     jobs: [],
     jobsTotal: 0,
     jobsLoading: false,
-    filters: { search: '', city: '', status: '', scored: 'all', favorite: 'all', ignored: 'exclude', sort: 'best_total', offset: 0 },
+    filters: { search: '', city: '', status: '', scored: 'all', favorite: 'all', ignored: 'exclude', sort: 'best_total', offset: 0, industry: '', district: '' },
     selectedJobId: null,
     detail: null,
     detailLoading: false,
@@ -30,7 +30,7 @@ document.addEventListener('alpine:init', () => {
       // 统计胶囊直达筛选 (store.openJobsWithFilter 派发)
       window.addEventListener('gaj:jobs-filters', (e) => {
         const preset = e.detail || {};
-        for (const k of ['search', 'city', 'status', 'scored', 'favorite', 'ignored', 'sort']) {
+        for (const k of ['search', 'city', 'status', 'scored', 'favorite', 'ignored', 'sort', 'industry', 'district']) {
           if (preset[k] !== undefined) this.filters[k] = preset[k];
         }
         this.filters.offset = 0;
@@ -48,6 +48,8 @@ document.addEventListener('alpine:init', () => {
       const p = new URLSearchParams();
       if (this.filters.search) p.set('search', this.filters.search);
       if (this.filters.city) p.set('city', this.filters.city);
+      if (this.filters.industry) p.set('industry', this.filters.industry);
+      if (this.filters.district) p.set('district', this.filters.district);
       if (this.filters.status) p.set('status', this.filters.status);
       if (this.filters.scored !== 'all') p.set('scored', this.filters.scored);
       if (this.filters.favorite !== 'all') p.set('favorite', this.filters.favorite);

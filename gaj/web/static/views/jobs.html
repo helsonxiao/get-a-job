@@ -72,6 +72,15 @@
           </select>
         </div>
       </div>
+      <!-- 主动筛选提示条 (行业观察下钻进入时显示, 可一键清除) -->
+      <div class="active-filter-bar" x-show="filters.industry || filters.district" x-cloak>
+        <span class="afb-label"><i data-lucide="filter"></i>当前筛选</span>
+        <span class="afb-chip" x-show="filters.industry" x-text="'行业: ' + filters.industry"></span>
+        <span class="afb-chip" x-show="filters.district" x-text="'区域: ' + filters.district"></span>
+        <button class="afb-clear" @click="filters.industry = ''; filters.district = ''; filters.offset = 0; loadJobs()">
+          <i data-lucide="x"></i><span>清除筛选</span>
+        </button>
+      </div>
       <!-- 批量操作工具栏 -->
       <div class="batch-bar" x-show="selectedIds.length > 0" x-cloak>
         <span x-text="'已选 ' + selectedIds.length + ' 个'"></span>

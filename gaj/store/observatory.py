@@ -583,7 +583,7 @@ def observatory_industry_detail(conn: sqlite3.Connection, industry: str) -> dict
     """
     rows = conn.execute(
         f"SELECT job_id, company_id, company_name, industry, salary_mid, exp_min,"
-        f" overtime, outsourcing, travel, skills, best_total"
+        f" edu_level, district, overtime, outsourcing, travel, skills, best_total"
         f" FROM jobs WHERE {_VISIBLE}"
     ).fetchall()
     ind_rows = _industry_buckets(rows, industry)
@@ -595,8 +595,9 @@ def observatory_industry_detail(conn: sqlite3.Connection, industry: str) -> dict
     }
     if not ind_rows:
         base.update({
-            "salary": None, "by_exp": [], "top_skills": [], "signals": None,
-            "top_companies": [], "market_median": None,
+            "salary": None, "by_exp": [], "by_edu": [], "top_skills": [],
+            "signals": None, "top_companies": [], "top_districts": [],
+            "market_median": None,
         })
         return base
 
@@ -626,6 +627,14 @@ def observatory_industry_detail(conn: sqlite3.Connection, industry: str) -> dict
         vals = [r["salary_mid"] for r in ind_rows if pred(r["exp_min"]) and r["salary_mid"]]
         if len(vals) >= _MIN_SALARY:
             by_exp.append({"bucket": bucket, "label": label, "median": _median(vals), "count": len(vals)})
+
+    # 学历-薪资 (行业口径)
+    edu_labels = {0: "不限", 1: "高中及以下", 2: "大专", 3: "本科", 4: "硕士", 5: "博士"}
+    by_edu = []
+    for lvl in sorted(edu_labels):
+        vals = [r["salary_mid"] for r in ind_rows if r["edu_level"] == lvl and r["salary_mid"]]
+        if len(vals) >= _MIN_SALARY:
+            by_edu.append({"level": lvl, "label": edu_labels[lvl], "median": _median(vals), "count": len(vals)})
 
     # 技能 Top10 (行业口径, 小写归一聚合)
     skill_counter: Counter = Counter()
@@ -691,6 +700,28 @@ def observatory_industry_detail(conn: sqlite3.Connection, industry: str) -> dict
     top_companies.sort(key=lambda x: x["job_count"], reverse=True)
     top_companies = top_companies[:8]
 
+    # 区域分布 Top10 (区县维度: 岗位数/公司数/均薪, 样本>=2)
+    dist_map: dict[str, dict] = defaultdict(lambda: {"job_count": 0, "company_ids": set(), "salaries": []})
+    for r in ind_rows:
+        d = dist_map[r["district"] or _UNKNOWN]
+        d["job_count"] += 1
+        if r["company_id"]:
+            d["company_ids"].add(r["company_id"])
+        if r["salary_mid"]:
+            d["salaries"].append(r["salary_mid"])
+    top_districts = []
+    for name, d in dist_map.items():
+        if name == _UNKNOWN or d["job_count"] < _MIN_SALARY:
+            continue
+        top_districts.append({
+            "district": name,
+            "job_count": d["job_count"],
+            "company_count": len(d["company_ids"]),
+            "avg_salary": round(sum(d["salaries"]) / len(d["salaries"]), 2) if d["salaries"] else None,
+        })
+    top_districts.sort(key=lambda x: x["job_count"], reverse=True)
+    top_districts = top_districts[:10]
+
     # 全市场中位 (对比基准)
     all_salaries = [r["salary_mid"] for r in rows if r["salary_mid"]]
     market_median = _median(all_salaries) if len(all_salaries) >= _MIN_SALARY else None
@@ -698,9 +729,11 @@ def observatory_industry_detail(conn: sqlite3.Connection, industry: str) -> dict
     base.update({
         "salary": salary,
         "by_exp": by_exp,
+        "by_edu": by_edu,
         "top_skills": top_skills,
         "signals": signals,
         "top_companies": top_companies,
+        "top_districts": top_districts,
         "market_median": market_median,
     })
     return base

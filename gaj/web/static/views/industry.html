@@ -135,6 +135,18 @@
                 </div>
               </template>
             </div>
+            <div class="ind-byexp" x-show="detail.by_edu && detail.by_edu.length">
+              <div class="ind-byexp-title">学历-薪资（行业口径）</div>
+              <template x-for="e in detail.by_edu" :key="e.level">
+                <div class="ind-bar-row small">
+                  <span class="ind-bar-label" x-text="e.label"></span>
+                  <div class="ind-bar-track">
+                    <div class="ind-bar-fill edu" :style="'width:' + Math.min(100, (e.median / (detail.market_median * 2)) * 100) + '%'"></div>
+                  </div>
+                  <span class="ind-bar-value" x-text="e.median + ' (' + e.count + ')'"></span>
+                </div>
+              </template>
+            </div>
           </div>
 
           <!-- 技能热度 -->
@@ -165,6 +177,24 @@
               <div class="ind-signal"><span class="ind-signal-label">外包</span><span class="ind-signal-value warn" x-text="detail.signals.outsourcing + ' 岗'"></span></div>
               <div class="ind-signal"><span class="ind-signal-label">出差</span><span class="ind-signal-value warn" x-text="detail.signals.travel + ' 岗'"></span></div>
               <div class="ind-signal"><span class="ind-signal-label">行业红旗率</span><span class="ind-signal-value" :class="redFlagClass(detail.signals.red_flag_rate)" x-text="Math.round(detail.signals.red_flag_rate * 100) + '%'"></span></div>
+            </div>
+          </div>
+
+          <!-- 区域分布 (行业口径机会热力) -->
+          <div class="ind-section" x-show="detail.top_districts && detail.top_districts.length">
+            <div class="ind-section-title"><i data-lucide="map"></i>区域分布 <span class="ind-section-hint">行业岗位聚集区域 · 点击查看该区域岗位</span></div>
+            <div class="ind-districts">
+              <template x-for="d in detail.top_districts" :key="d.district">
+                <div class="ind-district" @click="openDistrictJobs(d.district)">
+                  <div class="ind-district-name" x-text="d.district"></div>
+                  <div class="ind-district-track"><div class="ind-district-fill" :style="'width:' + Math.min(100, (d.job_count / detail.top_districts[0].job_count) * 100) + '%'"></div></div>
+                  <div class="ind-district-meta">
+                    <span x-text="d.job_count + ' 岗'"></span>
+                    <span x-text="d.company_count + ' 家'"></span>
+                    <span x-show="d.avg_salary != null" x-text="'均薪 ' + d.avg_salary + ' 万'"></span>
+                  </div>
+                </div>
+              </template>
             </div>
           </div>
 

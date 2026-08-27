@@ -107,6 +107,12 @@ document.addEventListener('alpine:init', () => {
     // 跨视图: 公司 → 全局公司抽屉; 岗位 → 职位列表
     openCompany(brandId) { this.$store.core.openCompanyDrawer(brandId); },
     openJob(jobId) { this.$store.core.openJob(jobId); },
+    // 区域下钻: 职位列表带 行业+区域 筛选
+    openDistrictJobs(district) {
+      this.$store.core.openJobsWithFilter({
+        industry: this.detailName, district: district, city: '', sort: 'best_total',
+      });
+    },
 
     // 技能溢价 vs 全市场中位
     skillPremiumText(avg, market) {
