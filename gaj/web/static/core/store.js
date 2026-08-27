@@ -17,8 +17,11 @@
 document.addEventListener('alpine:init', () => {
   Alpine.store('core', {
     // ---- 视图路由 (单一真相源) ----
-    // jobs | guide | observatory | config | resume
+    // jobs | guide | observatory | industry | config | resume
     view: 'jobs',
+
+    // ---- 主题 (日/夜; 初始化由 head 内联脚本写入 data-theme) ----
+    theme: document.documentElement.getAttribute('data-theme') || 'dark',
 
     // ---- 跨视图共享状态 ----
     toasts: [],
@@ -35,6 +38,16 @@ document.addEventListener('alpine:init', () => {
     ui: { selectMode: false },
     // 日志面板展开态 (各操作触发任务后置 true 提示看进度)
     logOpen: false,
+
+    // 切换日/夜主题: 写 <html data-theme> + localStorage 持久化
+    toggleTheme() {
+      this.theme = (this.theme === 'light') ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', this.theme);
+      try { localStorage.setItem('gaj-theme', this.theme); } catch (e) {}
+      if (window.refreshIconsDebounced) {
+        setTimeout(() => window.refreshIconsDebounced(), 60);
+      }
+    },
 
     // ---- 内部句柄 ----
     _sse: null,

@@ -362,7 +362,7 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(15, 19, 26, 0.92);
+  background: var(--gaj-surface-glass);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--gaj-border);
