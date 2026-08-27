@@ -1,0 +1,54 @@
+/* ============================================
+   Get A Job — 公司象限散点图共享样式 (市场观察/行业观察/图鉴共用)
+   ============================================ */
+.quadrant-wrap { display: flex; flex-direction: column; gap: 10px; }
+.quadrant-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-3);
+}
+.quadrant-hint i { width: 13px; height: 13px; }
+.quadrant-svg {
+  width: 100%;
+  height: auto;
+  background: var(--gaj-surface);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-lg);
+}
+.qgrid { stroke: var(--gaj-border); stroke-width: 1; }
+.qaxis { fill: var(--gaj-foreground-3); font-size: 11px; font-family: var(--gaj-font-mono); }
+.qsweet { fill: var(--gaj-foreground-4); font-size: 12px; }
+.qbubble {
+  fill: var(--gaj-primary-muted);
+  stroke: var(--gaj-primary);
+  stroke-width: 1.5;
+  cursor: pointer;
+  transition: fill var(--gaj-transition-fast);
+}
+.qbubble:hover { fill: var(--gaj-primary-border); stroke-width: 2.5; }
+.qbubble.tier-s { stroke: #F0B429; fill: rgba(240, 180, 41, .14); }
+.qbubble.tier-a { stroke: var(--gaj-primary); }
+.qbubble.tier-b { stroke: var(--gaj-state-success); fill: var(--gaj-state-success-muted); }
+.qbubble.tier-c { stroke: var(--gaj-foreground-3); fill: rgba(255, 255, 255, .04); }
+.quadrant-unknown {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-3);
+}
+.quadrant-unknown .qu-title { display: inline-flex; align-items: center; gap: 4px; margin-right: 4px; }
+.quadrant-unknown .qu-title [data-lucide] { width: 13px; height: 13px; }
+.qu-chip {
+  padding: 2px 9px;
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-pill);
+  background: var(--gaj-surface-2);
+  color: var(--gaj-foreground-2);
+  cursor: pointer;
+  transition: all var(--gaj-transition-fast);
+}
+.qu-chip:hover { border-color: var(--gaj-primary-border); color: var(--gaj-primary); }

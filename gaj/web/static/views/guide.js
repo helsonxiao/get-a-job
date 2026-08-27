@@ -1,6 +1,6 @@
 /* ============================================
    Get A Job — 公司图鉴视图岛 (guidePanel)
-   三榜卡片墙/象限气泡图/四维雷达对比 + 公司详情抽屉
+   三榜卡片墙/四维雷达对比 + 公司详情抽屉
    (含抽屉内嵌岗位详情、公司级 AI 评价、想去清单)。
    模板: index.html <!-- VIEW: GUIDE --> 区段。
 
@@ -18,7 +18,7 @@ document.addEventListener('alpine:init', () => {
     stage: '',
     favorite: 'all',
     sort: 'score',            // score(分数榜) | jobs(招聘力度榜) | salary(薪资榜)
-    mode: 'cards',            // cards | quadrant | compare
+    mode: 'cards',            // cards | compare
     companyDetail: null,
     companyDetailLoading: false,
     companyMarket: null,
@@ -83,11 +83,11 @@ document.addEventListener('alpine:init', () => {
       if (d) this.loadCompanyMarket(d);
     },
 
-    // 公司抽屉「市场数据」: 客户端从现有数据派生, 不新增后端接口
+    // 公司抽屉「市场数据」: 行业分位 (industry detail) + 公司侧数据派生
     async loadCompanyMarket(d) {
       const industry = d.company?.industry;
-      const market = await this.$store.core.marketForIndustry(industry);
-      if (!market) { this.companyMarket = null; return; }
+      if (!industry) { this.companyMarket = null; return; }
+      const ind = await this.$store.core.api('/api/observatory/industry/' + encodeURIComponent(industry));
       const jobs = (d.jobs || []).filter(j => j.salary_min != null && j.salary_max != null);
       let rangeMin = null, rangeMax = null;
       for (const j of jobs) {
@@ -95,13 +95,18 @@ document.addEventListener('alpine:init', () => {
         if (rangeMax == null || j.salary_max > rangeMax) rangeMax = j.salary_max;
       }
       const midAvg = d.stats?.salary_mid_avg != null ? d.stats.salary_mid_avg : null;
+      if (!ind || !ind.salary) { this.companyMarket = null; return; }
       this.companyMarket = {
         industry,
         sampleCount: jobs.length,
         totalCount: d.job_count || 0,
         rangeMin, rangeMax, midAvg,
-        median: market.market.median,
-        overall: market.overall,
+        p25: ind.salary.p25,
+        p50: ind.salary.p50,
+        p75: ind.salary.p75,
+        marketMedian: ind.market_median,
+        // 行业平均每公司岗位数 (规模对标基准)
+        avgCompanyJobs: ind.company_count > 0 ? Math.round(ind.job_count / ind.company_count * 10) / 10 : null,
       };
     },
 
@@ -235,75 +240,6 @@ document.addEventListener('alpine:init', () => {
     },
 
     // ---- 象限图 (内联 SVG, 不引图表库) ----
-
-    quadrantData() {
-      const pts = [];
-      const unknown = [];
-      for (const c of this.items) {
-        if (c.company_score == null) continue;
-        if (c.salary_mid_avg == null) { unknown.push(c); continue; }
-        pts.push(c);
-      }
-      const xMax = Math.max(20, ...pts.map(c => c.salary_mid_avg)) * 1.1;
-      return { pts, unknown, xMax };
-    },
-
-    quadrantXY(c, xMax) {
-      // viewBox 760x440, 绘图区 x:[60,730] y:[20,390]
-      return {
-        x: 60 + (c.salary_mid_avg / xMax) * 670,
-        y: 390 - (c.company_score / 10) * 370,
-      };
-    },
-
-    quadrantXTicks(xMax) {
-      const step = xMax > 60 ? 20 : 10;
-      const out = [];
-      for (let v = step; v <= xMax; v += step) out.push(v);
-      return out;
-    },
-
-    bubbleR(c) { return 7 + Math.min(13, (c.job_count || 1) * 1.6); },
-
-    // SVG 内部不能用 <template x-for> (HTML 解析器会把它移出 svg, 导致循环变量 undefined),
-    // 所以网格/气泡/散点都拼成字符串走 x-html 渲染, 点击用事件委托
-    _esc(s) {
-      return String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-      }[ch]));
-    },
-
-    quadrantGridSvg(qd) {
-      let out = '';
-      for (const v of this.quadrantXTicks(qd.xMax)) {
-        const x = (60 + (v / qd.xMax) * 670).toFixed(1);
-        out += `<line x1="${x}" y1="390" x2="${x}" y2="20" class="qgrid"></line>`
-             + `<text x="${x}" y="410" class="qaxis" text-anchor="middle">${v}</text>`;
-      }
-      for (const v of [2, 4, 6, 8, 10]) {
-        const y = 390 - v * 37;
-        out += `<line x1="60" y1="${y}" x2="730" y2="${y}" class="qgrid"></line>`
-             + `<text x="48" y="${y + 4}" class="qaxis" text-anchor="end">${v}</text>`;
-      }
-      return out;
-    },
-
-    quadrantBubblesSvg(qd) {
-      return qd.pts.map(c => {
-        const p = this.quadrantXY(c, qd.xMax);
-        const title = this._esc(
-          c.name + ' · 分 ' + (c.company_score != null ? c.company_score.toFixed(1) : '?')
-          + ' · 均薪 ' + c.salary_mid_avg.toFixed(1) + '万 · ' + (c.job_count || 0) + '岗');
-        return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${this.bubbleR(c).toFixed(1)}" `
-             + `class="qbubble ${this.tierClass(c.rank_tier)}" data-brand="${this._esc(c.brand_id)}">`
-             + `<title>${title}</title></circle>`;
-      }).join('');
-    },
-
-    quadrantClick(e) {
-      const t = e.target.closest ? e.target.closest('circle[data-brand]') : null;
-      if (t) this.openCompany(t.getAttribute('data-brand'));
-    },
 
     // ---- 四维雷达 (对比模式 + 公司抽屉共用) ----
 

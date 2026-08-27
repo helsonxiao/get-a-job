@@ -91,9 +91,22 @@ document.addEventListener('alpine:init', () => {
       if (d) this.detail = d;
       this.detailLoading = false;
       this.loadPreviewJobs(name);
+      this.loadIndustryQuadrant(name);
     },
 
     backToList() { this.detail = null; this.detailName = null; },
+
+    // 详情页公司象限 (该行业公司, 复用 gajQuadrant)
+    indCompanies: [],
+    indQd: null,
+    indQuadrantLoading: false,
+    async loadIndustryQuadrant(name) {
+      this.indQuadrantLoading = true;
+      const d = await this.$store.core.api('/api/companies?industry=' + encodeURIComponent(name) + '&limit=500');
+      this.indCompanies = d ? d.items : [];
+      this.indQd = window.gajQuadrant.build(this.indCompanies);
+      this.indQuadrantLoading = false;
+    },
 
     // 详情页岗位预览 (Top 20, 复用职位列表接口)
     async loadPreviewJobs(name) {
@@ -102,6 +115,13 @@ document.addEventListener('alpine:init', () => {
       const d = await this.$store.core.api('/api/jobs?' + p.toString());
       if (d) { this.previewJobs = d.items || []; this.previewTotal = d.total || 0; }
       this.previewLoading = false;
+    },
+
+    indQuadrantGridSvg(qd) { return window.gajQuadrant.gridSvg(qd); },
+    indQuadrantBubblesSvg(qd) { return window.gajQuadrant.bubblesSvg(qd); },
+    onIndQuadrantClick(e) {
+      const brandId = window.gajQuadrant.hitBrand(e);
+      if (brandId) this.openCompany(brandId);
     },
 
     // 跨视图: 公司 → 全局公司抽屉; 岗位 → 职位列表

@@ -17,6 +17,10 @@ document.addEventListener('alpine:init', () => {
     // 抽屉内嵌详情: { type:'job'|'company', loading, data }
     // drill 存在时点击岗位/公司 → 在抽屉内继续查看, 不离开观察台
     drillDetail: null,
+    // 公司象限 Tab
+    quadrantCompanies: null,
+    quadrantQd: null,
+    quadrantLoading: false,
 
     init() {
       this.load('salary');
@@ -103,6 +107,22 @@ document.addEventListener('alpine:init', () => {
       Alpine.store('core').openCompanyDrawer(brandId);
     },
 
+    // ---- 公司象限 (gajQuadrant 共享组件) ----
+    async loadQuadrant() {
+      if (this.quadrantCompanies) { this.quadrantQd = window.gajQuadrant.build(this.quadrantCompanies); return; }
+      this.quadrantLoading = true;
+      const d = await Alpine.store('core').api('/api/companies?limit=500');
+      this.quadrantCompanies = d ? d.items : [];
+      this.quadrantQd = window.gajQuadrant.build(this.quadrantCompanies);
+      this.quadrantLoading = false;
+    },
+    quadrantGridSvg(qd) { return window.gajQuadrant.gridSvg(qd); },
+    quadrantBubblesSvg(qd) { return window.gajQuadrant.bubblesSvg(qd); },
+    onQuadrantClick(e) {
+      const brandId = window.gajQuadrant.hitBrand(e);
+      if (brandId) this.openCompany(brandId);
+    },
+
     // 岗位卡片点击: 抽屉打开 → 在抽屉内加载岗位详情; 否则 → 跳职位视图详情 (store 切 view)
     openJob(jobId) {
       if (this.drill) {
@@ -120,6 +140,10 @@ document.addEventListener('alpine:init', () => {
     },
 
     async load(tab) {
+      if (tab === 'quadrant') {
+        await this.loadQuadrant();
+        return;
+      }
       this.loading = true;
       const d = await Alpine.store('core').api('/api/observatory/' + tab);
       if (d) this[tab] = d;

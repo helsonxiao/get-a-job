@@ -303,29 +303,53 @@
           <div class="market-strip">
             <div class="market-stat">
               <span class="ms-label">行业薪资中位</span>
-              <span class="ms-value" x-text="marketRef.market.median != null ? marketRef.market.median + ' 万/年' : '—'"></span>
+              <span class="ms-value" x-text="marketRef.market.p50 != null ? marketRef.market.p50 + ' 万/年' : '—'"></span>
             </div>
             <div class="market-stat">
               <span class="ms-label">全市场中位 (P50)</span>
-              <span class="ms-value" x-text="marketRef.overall.p50 != null ? marketRef.overall.p50 + ' 万/年' : '—'"></span>
+              <span class="ms-value" x-text="marketRef.overall?.p50 != null ? marketRef.overall.p50 + ' 万/年' : '—'"></span>
             </div>
             <div class="market-stat">
               <span class="ms-label">市场均值</span>
-              <span class="ms-value" x-text="marketRef.overall.mean != null ? marketRef.overall.mean + ' 万/年' : '—'"></span>
+              <span class="ms-value" x-text="marketRef.overall?.mean != null ? marketRef.overall.mean + ' 万/年' : '—'"></span>
             </div>
             <div class="market-stat">
               <span class="ms-label">本岗薪资</span>
               <span class="ms-value salary" x-text="detail.job.salary?.raw || '面议'"></span>
             </div>
-            <div class="market-vs" x-show="detail.job.salary?.mid_10k != null && marketRef.market.median != null">
-              <span class="badge" :class="detail.job.salary.mid_10k >= marketRef.market.median ? 'pass' : 'review'">
-                <i data-lucide="arrow-up-right" x-show="detail.job.salary.mid_10k >= marketRef.market.median"></i>
-                <i data-lucide="arrow-down-right" x-show="detail.job.salary.mid_10k < marketRef.market.median"></i>
-                <span x-text="(detail.job.salary.mid_10k >= marketRef.market.median ? '高于' : '低于') + '行业市场中位'"></span>
+            <div class="market-vs" x-show="jobAnnualWan() != null && marketRef.market.p50 != null">
+              <span class="badge" :class="jobAnnualWan() >= marketRef.market.p50 ? 'pass' : 'review'">
+                <i data-lucide="arrow-up-right" x-show="jobAnnualWan() >= marketRef.market.p50"></i>
+                <i data-lucide="arrow-down-right" x-show="jobAnnualWan() < marketRef.market.p50"></i>
+                <span x-text="(jobAnnualWan() >= marketRef.market.p50 ? '高于' : '低于') + '行业薪资中位'"></span>
               </span>
               <span class="ms-hint">数据来自市场观察 · 全量可见岗位聚合</span>
             </div>
           </div>
+          <!-- 行业分位条: 本岗在市场分位中的位置 -->
+          <div class="pct-track-wrap" x-show="marketRef.market.p25 != null && jobAnnualWan() != null">
+            <div class="pct-track" :class="{over: jobAnnualWan() > marketRef.market.p75, under: jobAnnualWan() < marketRef.market.p25}">
+              <div class="pct-zone p25" :style="'left:0;width:' + (marketRef.market.p25 / marketRef.market.p75 * 100) + '%'"></div>
+              <div class="pct-zone p50" :style="'left:' + (marketRef.market.p25 / marketRef.market.p75 * 100) + '%;width:' + ((marketRef.market.p50 - marketRef.market.p25) / marketRef.market.p75 * 100) + '%'"></div>
+              <div class="pct-zone p75" :style="'left:' + (marketRef.market.p50 / marketRef.market.p75 * 100) + '%;width:' + ((marketRef.market.p75 - marketRef.market.p50) / marketRef.market.p75 * 100) + '%'"></div>
+              <span class="pct-tick p25" :style="'left:' + (marketRef.market.p25 / marketRef.market.p75 * 100) + '%'" x-text="'P25 ' + marketRef.market.p25"></span>
+              <span class="pct-tick p50" :style="'left:' + (marketRef.market.p50 / marketRef.market.p75 * 100) + '%'" x-text="'P50 ' + marketRef.market.p50"></span>
+              <span class="pct-tick p75" :style="'left:' + (marketRef.market.p75 / marketRef.market.p75 * 100) + '%'" x-text="'P75 ' + marketRef.market.p75"></span>
+              <span class="pct-marker" :style="'left:' + Math.min(100, jobAnnualWan() / marketRef.market.p75 * 100) + '%'" :title="'本岗 ' + jobAnnualWan() + ' 万/年'"></span>
+            </div>
+            <div class="pct-legend">
+              <span>本岗 <strong x-text="jobAnnualWan() + ' 万/年'"></strong> 位于行业薪资分位</span>
+              <span class="pct-hint" x-text="jobAnnualWan() > marketRef.market.p75 ? '· 高于行业 P75，属高位' : (jobAnnualWan() < marketRef.market.p25 ? '· 低于行业 P25，属低位' : '· 处于行业 P25-P75 主流区间')"></span>
+            </div>
+          </div>
+          <!-- 经验对标 (template x-if: 无匹配桶时不渲染不求值) -->
+          <template x-if="expBenchmark()">
+            <div class="exp-bench">
+              <i data-lucide="trending-up"></i>
+              <span>行业 <strong x-text="expBenchmark().label"></strong> 经验段薪资中位 <strong x-text="expBenchmark().median + ' 万/年'"></strong></span>
+              <span class="ms-hint" x-show="jobAnnualWan() != null" x-text="jobAnnualWan() >= expBenchmark().median ? '· 本岗高于该经验段中位' : '· 本岗低于该经验段中位'"></span>
+            </div>
+          </template>
         </div>
 
         </template>

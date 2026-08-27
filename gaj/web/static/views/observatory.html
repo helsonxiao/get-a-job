@@ -16,6 +16,9 @@
       <button class="tab" :class="{active: tab === 'skills'}" @click="setTab('skills')">
         <i data-lucide="bar-chart-3"></i> 技能热度
       </button>
+      <button class="tab" :class="{active: tab === 'quadrant'}" @click="setTab('quadrant')">
+        <i data-lucide="scatter-chart"></i> 公司象限
+      </button>
     </div>
 
     <!-- 薪资定价 (S2) -->
@@ -281,6 +284,43 @@
               </table>
             </div>
           </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- 公司象限 (市场视角: x=均薪 y=公司分 气泡=在招) -->
+    <template x-if="tab === 'quadrant'">
+      <div>
+        <div class="state-loading" x-show="quadrantLoading">加载中...</div>
+        <div class="state-empty" x-show="!quadrantLoading && (!quadrantQd || quadrantQd.pts.length === 0)">
+          <i data-lucide="scatter-chart"></i>
+          <div>暂无公司象限数据（需公司分 + 均薪样本）</div>
+        </div>
+        <template x-if="!quadrantLoading && quadrantQd">
+        <div class="obs-section" x-show="quadrantQd.pts.length > 0">
+          <div class="obs-section-title">
+            <i data-lucide="scatter-chart"></i> 公司象限
+            <span class="obs-meta" x-text="'有效 ' + quadrantQd.pts.length + ' 家' + (quadrantQd.unknown.length ? ' · 薪资未知 ' + quadrantQd.unknown.length + ' 家' : '')"></span>
+            <span class="obs-meta">点击气泡查看公司详情</span>
+          </div>
+          <div class="quadrant-wrap">
+            <div class="quadrant-hint">
+              <i data-lucide="info"></i>
+              <span>x = 公司均薪(万/年) · y = 公司分 · 气泡大小 = 在招岗位数 · 点击气泡打开公司抽屉</span>
+            </div>
+            <svg viewBox="0 0 760 440" class="quadrant-svg" @click="onQuadrantClick($event)">
+              <g x-html="quadrantGridSvg(quadrantQd)"></g>
+              <text x="726" y="36" class="qsweet" text-anchor="end">高分 · 高薪甜蜜点 ↗</text>
+              <g x-html="quadrantBubblesSvg(quadrantQd)"></g>
+            </svg>
+            <div class="quadrant-unknown" x-show="quadrantQd.unknown.length > 0">
+              <span class="qu-title"><i data-lucide="help-circle"></i>薪资未知, 无法定位 x 轴 (<span x-text="quadrantQd.unknown.length"></span> 家)</span>
+              <template x-for="c in quadrantQd.unknown" :key="c.brand_id">
+                <span class="qu-chip" @click="openCompany(c.brand_id)" x-text="c.name"></span>
+              </template>
+            </div>
+          </div>
+        </div>
         </template>
       </div>
     </template>

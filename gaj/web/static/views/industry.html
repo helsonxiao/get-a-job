@@ -215,6 +215,36 @@
             </div>
           </div>
 
+          <!-- 公司象限 (行业视角: 该行业公司在均薪-分数空间的分布) -->
+          <div class="ind-section" x-show="indQuadrantLoading || indQd">
+            <div class="state-loading" x-show="indQuadrantLoading" style="padding:20px;">加载中...</div>
+            <template x-if="!indQuadrantLoading && indQd && (indQd.pts.length > 0 || indQd.unknown.length > 0)">
+              <div>
+                <div class="ind-section-title"><i data-lucide="scatter-chart"></i>公司象限 <span class="ind-section-hint" x-text="'该行业 ' + (indQd.pts.length + indQd.unknown.length) + ' 家公司 · 点击气泡打开公司抽屉'"></span></div>
+                <div class="quadrant-wrap">
+                  <div class="quadrant-hint">
+                    <i data-lucide="info"></i>
+                    <span>x = 公司均薪(万/年) · y = 公司分 · 气泡大小 = 在招岗位数</span>
+                  </div>
+                  <svg viewBox="0 0 760 440" class="quadrant-svg" @click="onIndQuadrantClick($event)">
+                    <g x-html="indQuadrantGridSvg(indQd)"></g>
+                    <text x="726" y="36" class="qsweet" text-anchor="end">高分 · 高薪甜蜜点 ↗</text>
+                    <g x-html="indQuadrantBubblesSvg(indQd)"></g>
+                  </svg>
+                  <div class="quadrant-unknown" x-show="indQd.unknown.length > 0">
+                    <span class="qu-title"><i data-lucide="help-circle"></i>薪资未知, 无法定位 x 轴 (<span x-text="indQd.unknown.length"></span> 家)</span>
+                    <template x-for="c in indQd.unknown" :key="c.brand_id">
+                      <span class="qu-chip" @click="openCompany(c.brand_id)" x-text="c.name"></span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <template x-if="!indQuadrantLoading && indQd && indQd.pts.length === 0 && indQd.unknown.length === 0">
+              <div class="state-empty" style="padding:20px;">该行业暂无公司数据</div>
+            </template>
+          </div>
+
           <!-- 岗位预览 -->
           <div class="ind-section">
             <div class="ind-section-title"><i data-lucide="briefcase"></i>岗位预览 <span class="ind-section-hint" x-text="'共 ' + previewTotal + ' 岗 · 点击进入职位列表'"></span></div>

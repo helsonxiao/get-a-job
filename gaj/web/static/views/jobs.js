@@ -38,9 +38,45 @@ document.addEventListener('alpine:init', () => {
       });
     },
 
-    // 市场参考: 复用 store 层会话缓存
+    // 市场参考: 行业分位+经验 (industry detail) + 全市场分位 (salary 缓存)
     async marketForIndustry(industry) {
-      return this.$store.core.marketForIndustry(industry);
+      if (!industry) return null;
+      const overall = await this.$store.core.ensureMarket();
+      const d = await this.$store.core.api('/api/observatory/industry/' + encodeURIComponent(industry));
+      if (!d || !d.salary) return null;
+      return {
+        industry,
+        market: d.salary,        // {p25, p50, p75, mean, count}
+        by_exp: d.by_exp || [],  // [{label, median, count}]
+        overall: overall ? overall.overall : null,
+      };
+    },
+
+    // 经验对标: 岗位经验要求匹配行业经验-薪资桶
+    expBenchmark() {
+      const m = this.marketRef;
+      if (!m || !m.by_exp || !m.by_exp.length || !this.detail) return null;
+      const exp = this.detail.job?.experience || {};
+      let bucket = null;
+      if (exp.unlimited || exp.min_years == null) {
+        bucket = m.by_exp.find(x => x.bucket === 'unlimited');
+      } else if (exp.min_years < 3) {
+        bucket = m.by_exp.find(x => x.bucket === '0-3');
+      } else if (exp.min_years < 5) {
+        bucket = m.by_exp.find(x => x.bucket === '3-5');
+      } else if (exp.min_years < 8) {
+        bucket = m.by_exp.find(x => x.bucket === '5-8');
+      } else {
+        bucket = m.by_exp.find(x => x.bucket === '8+');
+      }
+      return bucket || null;
+    },
+
+    // 本岗年薪 (万/年, 与市场口径一致)
+    jobAnnualWan() {
+      const sal = this.detail?.job?.salary;
+      if (!sal || sal.mid_10k == null) return null;
+      return Math.round(sal.mid_10k * 10) / 10;
     },
 
     async loadJobs() {
