@@ -18,26 +18,26 @@
 <title>坑位图鉴 — 个人猎头系统</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235B8EF7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Ccircle cx='12' cy='12' r='6'/%3E%3Ccircle cx='12' cy='12' r='2'/%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js"></script>
-<script src="/static/core/icons.js?v=26"></script>
-<script src="/static/core/store.js?v=26"></script>
-<script src="/static/views/jobs.js?v=26"></script>
-<script src="/static/views/guide.js?v=26"></script>
-<script src="/static/views/config.js?v=26"></script>
-<script src="/static/views/resume.js?v=26"></script>
-<script src="/static/views/observatory.js?v=26"></script>
-<script src="/static/views/industry.js?v=26"></script>
-<script src="/static/core/quadrant.js?v=26"></script>
-<link rel="stylesheet" href="/static/styles/base.css?v=26">
-<link rel="stylesheet" href="/static/style.css?v=26">
-<link rel="stylesheet" href="/static/styles/components.css?v=26">
-<link rel="stylesheet" href="/static/styles/jobs.css?v=26">
-<link rel="stylesheet" href="/static/styles/guide.css?v=26">
-<link rel="stylesheet" href="/static/styles/config.css?v=26">
-<link rel="stylesheet" href="/static/styles/resume.css?v=26">
-<link rel="stylesheet" href="/static/styles/observatory.css?v=26">
-<link rel="stylesheet" href="/static/styles/industry.css?v=26">
-<link rel="stylesheet" href="/static/styles/quadrant.css?v=26">
-<link rel="stylesheet" href="/static/styles/calibration.css?v=26">
+<script src="/static/core/icons.js?v=27"></script>
+<script src="/static/core/store.js?v=27"></script>
+<script src="/static/views/jobs.js?v=27"></script>
+<script src="/static/views/guide.js?v=27"></script>
+<script src="/static/views/config.js?v=27"></script>
+<script src="/static/views/resume.js?v=27"></script>
+<script src="/static/views/observatory.js?v=27"></script>
+<script src="/static/views/industry.js?v=27"></script>
+<script src="/static/core/quadrant.js?v=27"></script>
+<link rel="stylesheet" href="/static/styles/base.css?v=27">
+<link rel="stylesheet" href="/static/style.css?v=27">
+<link rel="stylesheet" href="/static/styles/components.css?v=27">
+<link rel="stylesheet" href="/static/styles/jobs.css?v=27">
+<link rel="stylesheet" href="/static/styles/guide.css?v=27">
+<link rel="stylesheet" href="/static/styles/config.css?v=27">
+<link rel="stylesheet" href="/static/styles/resume.css?v=27">
+<link rel="stylesheet" href="/static/styles/observatory.css?v=27">
+<link rel="stylesheet" href="/static/styles/industry.css?v=27">
+<link rel="stylesheet" href="/static/styles/quadrant.css?v=27">
+<link rel="stylesheet" href="/static/styles/calibration.css?v=27">
 </head>
 <!--
   Alpine 组件岛架构 (ADR-001/ADR-002): body 只做 store 引导, 无根组件。
@@ -207,7 +207,7 @@
       用"先注入后加载"保证 Alpine 扫描时全部视图 DOM 已就位) -->
 <script>
 (function () {
-  var VER = '26';
+  var VER = '27';
   var nodes = Array.prototype.slice.call(document.querySelectorAll('[data-tpl]'));
   Promise.all(nodes.map(function (n) {
     return fetch('/static/views/' + n.dataset.tpl + '.html?v=' + VER)
