@@ -79,7 +79,9 @@
             <!-- 行业中位数 -->
             <template x-if="salary.by_industry && salary.by_industry.length > 0">
               <div class="obs-section">
-                <div class="obs-section-title"><i data-lucide="building-2"></i> 行业薪资中位数 (Top 10) <span class="obs-meta">点击柱条下钻岗位</span></div>
+                <div class="obs-section-title"><i data-lucide="building-2"></i> 行业薪资中位数 (Top 10) <span class="obs-meta">点击柱条下钻岗位</span>
+                  <button class="obs-industry-link" @click="$store.core.openIndustry()"><i data-lucide="telescope"></i><span>行业观察</span></button>
+                </div>
                 <div class="obs-chart">
                   <svg preserveAspectRatio="xMinYMin meet" @click="onChartClick($event)"
                        x-effect="salary && salary.by_industry && $el.setAttribute('viewBox', '0 0 560 ' + (16 + salary.by_industry.length * 28))"
@@ -204,7 +206,9 @@
             </template>
             <template x-if="radar.by_industry && radar.by_industry.length > 0">
               <div class="obs-section">
-                <div class="obs-section-title"><i data-lucide="alert-triangle"></i> 行业红旗率 Top 8 <span class="obs-meta">点击下钻</span></div>
+                <div class="obs-section-title"><i data-lucide="alert-triangle"></i> 行业红旗率 Top 8 <span class="obs-meta">点击下钻</span>
+                  <button class="obs-industry-link" @click="$store.core.openIndustry()"><i data-lucide="telescope"></i><span>行业观察</span></button>
+                </div>
                 <div class="obs-chart">
                   <svg preserveAspectRatio="xMinYMin meet" @click="onChartClick($event)"
                        x-effect="radar && radar.by_industry && $el.setAttribute('viewBox', '0 0 520 ' + radarIndustryHeight())"

@@ -6,22 +6,24 @@
 <title>坑位图鉴 — 个人猎头系统</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235B8EF7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Ccircle cx='12' cy='12' r='6'/%3E%3Ccircle cx='12' cy='12' r='2'/%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js"></script>
-<script src="/static/core/icons.js?v=15"></script>
-<script src="/static/core/store.js?v=15"></script>
-<script src="/static/views/jobs.js?v=15"></script>
-<script src="/static/views/guide.js?v=15"></script>
-<script src="/static/views/config.js?v=15"></script>
-<script src="/static/views/resume.js?v=15"></script>
-<script src="/static/views/observatory.js?v=15"></script>
-<link rel="stylesheet" href="/static/styles/base.css?v=15">
-<link rel="stylesheet" href="/static/style.css?v=15">
-<link rel="stylesheet" href="/static/styles/components.css?v=15">
-<link rel="stylesheet" href="/static/styles/jobs.css?v=15">
-<link rel="stylesheet" href="/static/styles/guide.css?v=15">
-<link rel="stylesheet" href="/static/styles/config.css?v=15">
-<link rel="stylesheet" href="/static/styles/resume.css?v=15">
-<link rel="stylesheet" href="/static/styles/observatory.css?v=15">
-<link rel="stylesheet" href="/static/styles/calibration.css?v=15">
+<script src="/static/core/icons.js?v=16"></script>
+<script src="/static/core/store.js?v=16"></script>
+<script src="/static/views/jobs.js?v=16"></script>
+<script src="/static/views/guide.js?v=16"></script>
+<script src="/static/views/config.js?v=16"></script>
+<script src="/static/views/resume.js?v=16"></script>
+<script src="/static/views/observatory.js?v=16"></script>
+<script src="/static/views/industry.js?v=16"></script>
+<link rel="stylesheet" href="/static/styles/base.css?v=16">
+<link rel="stylesheet" href="/static/style.css?v=16">
+<link rel="stylesheet" href="/static/styles/components.css?v=16">
+<link rel="stylesheet" href="/static/styles/jobs.css?v=16">
+<link rel="stylesheet" href="/static/styles/guide.css?v=16">
+<link rel="stylesheet" href="/static/styles/config.css?v=16">
+<link rel="stylesheet" href="/static/styles/resume.css?v=16">
+<link rel="stylesheet" href="/static/styles/observatory.css?v=16">
+<link rel="stylesheet" href="/static/styles/industry.css?v=16">
+<link rel="stylesheet" href="/static/styles/calibration.css?v=16">
 </head>
 <!--
   Alpine 组件岛架构 (ADR-001/ADR-002): body 只做 store 引导, 无根组件。
@@ -108,8 +110,8 @@
       <button class="sidebar-item" :class="{active: $store.core.view === 'observatory'}" @click="$store.core.switchView('observatory')">
         <i data-lucide="radar"></i><span class="nav-label">市场观察台</span>
       </button>
-      <button class="sidebar-item" disabled title="行业观察规划中, 将在后续版本开放">
-        <i data-lucide="telescope"></i><span class="nav-label">行业观察</span><span class="nav-badge">规划</span>
+      <button class="sidebar-item" :class="{active: $store.core.view === 'industry'}" @click="$store.core.switchView('industry')">
+        <i data-lucide="telescope"></i><span class="nav-label">行业观察</span><span class="nav-badge">新</span>
       </button>
       <div class="sidebar-group">配置</div>
       <button class="sidebar-item" :class="{active: $store.core.view === 'config'}" @click="$store.core.switchView('config')">
@@ -138,6 +140,11 @@
       </div>
       <!-- VIEW: OBSERVATORY (岛: views/observatory.js + 模板: views/observatory.html) -->
       <div class="observatory-panel" x-data="observatoryPanel()" x-show="$store.core.view === 'observatory'" x-cloak x-effect="drill; drillDetail; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="observatory">
+      </div>
+      <!-- VIEW: INDUSTRY (岛: views/industry.js + 模板: views/industry.html) -->
+      <div class="industry-panel" x-data="industryPanel()" x-show="$store.core.view === 'industry'" x-cloak
+           @gaj:open-industry.window="onOpenIndustry($event.detail)"
+           x-effect="$store.core.view; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="industry">
       </div>
       <!-- VIEW: JOBS (岛: views/jobs.js + 模板: views/jobs.html) -->
       <div class="main" x-data="jobsPanel()" x-show="$store.core.view === 'jobs'"
@@ -182,7 +189,7 @@
       用"先注入后加载"保证 Alpine 扫描时全部视图 DOM 已就位) -->
 <script>
 (function () {
-  var VER = '13';
+  var VER = '16';
   var nodes = Array.prototype.slice.call(document.querySelectorAll('[data-tpl]'));
   Promise.all(nodes.map(function (n) {
     return fetch('/static/views/' + n.dataset.tpl + '.html?v=' + VER)

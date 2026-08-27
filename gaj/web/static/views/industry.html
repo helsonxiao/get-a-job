@@ -1,0 +1,218 @@
+<!-- ============================================
+     VIEW: INDUSTRY — 行业观察 (逻辑 views/industry.js · 样式 styles/industry.css)
+     行业卡片墙 → 行业详情 (薪资结构/技能/信号/代表公司/岗位/政策占位)。
+     ============================================ -->
+    <!-- 工具栏: 列表态 = 搜索+排序; 详情态 = 返回+行业名 -->
+    <div class="toolbar ind-toolbar">
+      <template x-if="!detail">
+        <div class="toolbar-row">
+          <span class="ind-title"><i data-lucide="telescope"></i>行业观察</span>
+          <span class="ind-sub">共 <strong x-text="items.length"></strong> 个行业 · 样本不足自动降级</span>
+          <span class="spacer"></span>
+          <div class="ind-sort">
+            <button :class="{active: sort==='jobs'}" @click="sort='jobs'">岗位数</button>
+            <button :class="{active: sort==='salary'}" @click="sort='salary'">薪资</button>
+            <button :class="{active: sort==='redflag'}" @click="sort='redflag'">红旗率</button>
+          </div>
+          <input class="ind-search" type="text" placeholder="搜索行业..." x-model="search">
+        </div>
+      </template>
+      <template x-if="detail">
+        <div class="toolbar-row">
+          <button class="ind-back" @click="backToList()"><i data-lucide="arrow-left"></i><span>返回行业列表</span></button>
+          <span class="ind-title" x-text="detail.name"></span>
+          <span class="ind-sub" x-text="'共 ' + detail.job_count + ' 岗 · ' + detail.company_count + ' 家公司'"></span>
+        </div>
+      </template>
+    </div>
+
+    <!-- ===== 列表态: 行业卡片墙 ===== -->
+    <div class="ind-body" x-show="!detail">
+      <div class="state-loading" x-show="loading">加载中...</div>
+      <div class="state-empty" x-show="!loading && filteredItems().length === 0">
+        <i data-lucide="telescope"></i>
+        <div>没有匹配的行业</div>
+      </div>
+      <div class="ind-grid" x-show="!loading && filteredItems().length > 0">
+        <template x-for="ind in filteredItems()" :key="ind.name">
+          <div class="ind-card" @click="openIndustry(ind.name)">
+            <div class="ind-card-top">
+              <span class="ind-card-name" x-text="ind.name"></span>
+              <span class="ind-card-jobs" x-text="ind.job_count + ' 岗'"></span>
+            </div>
+            <div class="ind-card-metrics">
+              <div class="ind-card-m">
+                <span class="icm-label">薪资中位</span>
+                <span class="icm-value" x-text="ind.salary_median != null ? ind.salary_median + ' 万' : '—'"></span>
+                <span class="ind-premium" :class="premiumClass(premiumPct(ind.salary_median))"
+                      x-show="premiumPct(ind.salary_median) != null"
+                      x-text="(premiumPct(ind.salary_median) > 0 ? '+' : '') + premiumPct(ind.salary_median) + '%'"></span>
+              </div>
+              <div class="ind-card-m">
+                <span class="icm-label">红旗率</span>
+                <span class="icm-value" :class="redFlagClass(ind.red_flag_rate)"
+                      x-text="ind.red_flag_rate != null ? Math.round(ind.red_flag_rate * 100) + '%' : '—'"></span>
+              </div>
+              <div class="ind-card-m">
+                <span class="icm-label">公司</span>
+                <span class="icm-value" x-text="ind.company_count + ' 家'"></span>
+              </div>
+            </div>
+            <div class="ind-card-skills" x-show="ind.top_skills && ind.top_skills.length">
+              <template x-for="sk in ind.top_skills" :key="sk.name">
+                <span class="tag" x-text="sk.name"></span>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div class="ind-unknown" x-show="unknownJobCount > 0">
+        <i data-lucide="help-circle"></i>
+        <span>另有 <strong x-text="unknownJobCount"></strong> 个岗位行业未知，未计入以上行业统计</span>
+      </div>
+    </div>
+
+    <!-- ===== 详情态 ===== -->
+    <div class="ind-body" x-show="detail" x-cloak>
+      <div class="state-loading" x-show="detailLoading">加载中...</div>
+      <template x-if="detail && !detailLoading">
+        <div class="ind-detail">
+          <!-- 头部四指标 -->
+          <div class="ind-detail-head">
+            <div class="ind-stat">
+              <span class="ind-stat-label">在招岗位</span>
+              <span class="ind-stat-value" x-text="detail.job_count"></span>
+            </div>
+            <div class="ind-stat">
+              <span class="ind-stat-label">涉及公司</span>
+              <span class="ind-stat-value" x-text="detail.company_count"></span>
+            </div>
+            <div class="ind-stat">
+              <span class="ind-stat-label">薪资中位</span>
+              <span class="ind-stat-value" x-text="detail.salary?.p50 != null ? detail.salary.p50 + ' 万/年' : '—'"></span>
+            </div>
+            <div class="ind-stat">
+              <span class="ind-stat-label">红旗率</span>
+              <span class="ind-stat-value" :class="redFlagClass(detail.signals?.red_flag_rate)"
+                    x-text="detail.signals?.red_flag_rate != null ? Math.round(detail.signals.red_flag_rate * 100) + '%' : '—'"></span>
+            </div>
+          </div>
+
+          <!-- 薪资结构 -->
+          <div class="ind-section" x-show="detail.salary">
+            <div class="ind-section-title"><i data-lucide="trending-up"></i>薪资结构 <span class="ind-section-hint" x-text="'样本 ' + detail.salary?.count + ' 岗 · 万元/年'"></span></div>
+            <div class="ind-salary-bars">
+              <div class="ind-bar-row">
+                <span class="ind-bar-label">行业 P25</span>
+                <div class="ind-bar-track"><div class="ind-bar-fill" :style="'width:' + Math.min(100, (detail.salary.p25 / (detail.market_median * 2)) * 100) + '%'"></div></div>
+                <span class="ind-bar-value" x-text="detail.salary.p25"></span>
+              </div>
+              <div class="ind-bar-row">
+                <span class="ind-bar-label">行业 P50</span>
+                <div class="ind-bar-track"><div class="ind-bar-fill strong" :style="'width:' + Math.min(100, (detail.salary.p50 / (detail.market_median * 2)) * 100) + '%'"></div></div>
+                <span class="ind-bar-value" x-text="detail.salary.p50"></span>
+              </div>
+              <div class="ind-bar-row">
+                <span class="ind-bar-label">行业 P75</span>
+                <div class="ind-bar-track"><div class="ind-bar-fill" :style="'width:' + Math.min(100, (detail.salary.p75 / (detail.market_median * 2)) * 100) + '%'"></div></div>
+                <span class="ind-bar-value" x-text="detail.salary.p75"></span>
+              </div>
+              <div class="ind-bar-row">
+                <span class="ind-bar-label">全市场 P50</span>
+                <div class="ind-bar-track"><div class="ind-bar-fill market" :style="'width:' + Math.min(100, (detail.market_median / (detail.market_median * 2)) * 100) + '%'"></div></div>
+                <span class="ind-bar-value" x-text="detail.market_median"></span>
+              </div>
+            </div>
+            <div class="ind-byexp" x-show="detail.by_exp && detail.by_exp.length">
+              <div class="ind-byexp-title">经验-薪资（行业口径）</div>
+              <template x-for="e in detail.by_exp" :key="e.bucket">
+                <div class="ind-bar-row small">
+                  <span class="ind-bar-label" x-text="e.label"></span>
+                  <div class="ind-bar-track">
+                    <div class="ind-bar-fill exp" :style="'width:' + Math.min(100, (e.median / (detail.market_median * 2)) * 100) + '%'"></div>
+                  </div>
+                  <span class="ind-bar-value" x-text="e.median + ' (' + e.count + ')'"></span>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- 技能热度 -->
+          <div class="ind-section" x-show="detail.top_skills && detail.top_skills.length">
+            <div class="ind-section-title"><i data-lucide="bar-chart-3"></i>技能热度 Top 10 <span class="ind-section-hint">需求岗位 · 均薪 (万/年)</span></div>
+            <table class="ind-table">
+              <thead><tr><th>#</th><th>技能</th><th>需求岗</th><th>招聘公司</th><th>均薪</th><th>相对市场中位</th></tr></thead>
+              <tbody>
+                <template x-for="(s, i) in detail.top_skills" :key="s.name">
+                  <tr>
+                    <td class="ind-rank" x-text="i + 1"></td>
+                    <td x-text="s.name"></td>
+                    <td x-text="s.demand_count"></td>
+                    <td x-text="s.company_count"></td>
+                    <td x-text="s.avg_salary != null ? s.avg_salary : '—'"></td>
+                    <td><span class="ind-premium" :class="skillPremiumClass(s.avg_salary, detail.market_median)" x-text="skillPremiumText(s.avg_salary, detail.market_median)"></span></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 红旗信号 -->
+          <div class="ind-section" x-show="detail.signals">
+            <div class="ind-section-title"><i data-lucide="shield-alert"></i>红旗信号 <span class="ind-section-hint">样本 ≥3 才有信号统计</span></div>
+            <div class="ind-signals">
+              <div class="ind-signal"><span class="ind-signal-label">加班重</span><span class="ind-signal-value warn" x-text="detail.signals.heavy_overtime + ' 岗'"></span></div>
+              <div class="ind-signal"><span class="ind-signal-label">外包</span><span class="ind-signal-value warn" x-text="detail.signals.outsourcing + ' 岗'"></span></div>
+              <div class="ind-signal"><span class="ind-signal-label">出差</span><span class="ind-signal-value warn" x-text="detail.signals.travel + ' 岗'"></span></div>
+              <div class="ind-signal"><span class="ind-signal-label">行业红旗率</span><span class="ind-signal-value" :class="redFlagClass(detail.signals.red_flag_rate)" x-text="Math.round(detail.signals.red_flag_rate * 100) + '%'"></span></div>
+            </div>
+          </div>
+
+          <!-- 代表公司 -->
+          <div class="ind-section" x-show="detail.top_companies && detail.top_companies.length">
+            <div class="ind-section-title"><i data-lucide="building-2"></i>代表公司 Top 8 <span class="ind-section-hint">点击查看公司图鉴详情</span></div>
+            <div class="ind-companies">
+              <template x-for="c in detail.top_companies" :key="c.brand_id">
+                <div class="ind-company" @click="openCompany(c.brand_id)">
+                  <div class="ind-company-name" x-text="c.name"></div>
+                  <div class="ind-company-meta">
+                    <span x-text="'在招 ' + c.job_count + ' 岗'"></span>
+                    <span x-show="c.best_score != null" x-text="'最佳 ' + c.best_score + ' 分'"></span>
+                    <span x-show="c.avg_salary != null" x-text="'均薪 ' + c.avg_salary + ' 万'"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- 岗位预览 -->
+          <div class="ind-section">
+            <div class="ind-section-title"><i data-lucide="briefcase"></i>岗位预览 <span class="ind-section-hint" x-text="'共 ' + previewTotal + ' 岗 · 点击进入职位列表'"></span></div>
+            <div class="state-loading" x-show="previewLoading" style="padding:20px;">加载中...</div>
+            <div class="ind-jobs" x-show="!previewLoading">
+              <template x-for="j in previewJobs" :key="j.job_id">
+                <div class="ind-job" @click="openJob(j.job_id)">
+                  <div class="ind-job-title" x-text="j.title"></div>
+                  <div class="ind-job-meta">
+                    <span x-text="j.company_name || '未知'"></span>
+                    <span x-show="j.city" x-text="j.city"></span>
+                    <span class="ind-job-salary" x-text="j.salary_raw || '面议'"></span>
+                    <span class="score-label" :class="(j.rule_status || 'none').toLowerCase()"
+                          x-text="j.best_total != null ? j.best_total.toFixed(1) + ' 分' : '未打分'"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- 政策分析占位 (TODO#3 远期) -->
+          <div class="ind-section ind-policy">
+            <div class="ind-section-title"><i data-lucide="scroll-text"></i>行业政策分析 <span class="ind-badge-plan">规划中</span></div>
+            <div class="ind-policy-body">
+              <p>后续版本将接入行业相关政策文本，结合 AI 解读「政策对求职者/行业薪资的影响」，并落位在此区块。</p>
+              <span class="ind-policy-hint">数据源接入与 AI 编排在路线图中，当前为挂载位占位。</span>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>

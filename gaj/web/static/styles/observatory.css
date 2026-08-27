@@ -621,3 +621,21 @@
   border-color: var(--gaj-primary-border);
 }
 .obs-detail-link i, .obs-detail-btn i { width: 14px; height: 14px; }
+
+/* === 行业观察联动入口 (观察台区块标题) === */
+.obs-industry-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-pill);
+  background: var(--gaj-surface-2);
+  color: var(--gaj-foreground-2);
+  font-size: var(--gaj-font-size-xs);
+  cursor: pointer;
+  transition: all var(--gaj-transition-fast);
+}
+.obs-industry-link:hover { border-color: var(--gaj-primary-border); color: var(--gaj-primary); background: var(--gaj-primary-muted); }
+.obs-industry-link [data-lucide] { width: 12px; height: 12px; }

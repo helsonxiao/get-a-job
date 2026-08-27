@@ -116,6 +116,11 @@ document.addEventListener('alpine:init', () => {
     openCompanyDrawer(brandId) {
       window.dispatchEvent(new CustomEvent('gaj:open-company', { detail: { brandId } }));
     },
+    // 跨视图跳转: 行业观察 (观察台联动入口; name 缺省进列表)
+    openIndustry(name) {
+      this.view = 'industry';
+      window.dispatchEvent(new CustomEvent('gaj:open-industry', { detail: { name: name || null } }));
+    },
 
     // ---- Stats ----
     async loadStats() {

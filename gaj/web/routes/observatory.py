@@ -37,3 +37,17 @@ async def api_obs_skills(top_n: int = Query(40, le=200)) -> dict:
     """技能热度榜: 需求岗位数 + 招聘公司数 + 均薪 + 薪资溢价。"""
     with index.session() as conn:
         return observatory.observatory_skill_leaderboard(conn, top_n=top_n)
+
+
+@router.get("/industry")
+async def api_obs_industry_list() -> dict:
+    """行业观察: 行业总览列表 (岗位/公司/薪资/红旗/技能, 排除未知)。"""
+    with index.session() as conn:
+        return observatory.observatory_industry_list(conn)
+
+
+@router.get("/industry/{name}")
+async def api_obs_industry_detail(name: str) -> dict:
+    """行业观察: 单行业详情 (薪资分位/经验/技能/信号/代表公司)。"""
+    with index.session() as conn:
+        return observatory.observatory_industry_detail(conn, name)

@@ -1,0 +1,250 @@
+/* ============================================
+   Get A Job — 行业观察视图样式 (对应 views/industry.js)
+   行业卡片墙 + 行业详情 (薪资结构/技能/信号/公司/岗位/政策占位)。
+   ============================================ */
+.industry-panel {
+  background: var(--gaj-bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.ind-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px 20px 32px; }
+
+/* === 工具栏 === */
+.ind-toolbar .ind-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--gaj-font-size-md);
+  font-weight: 600;
+  color: var(--gaj-foreground);
+}
+.ind-toolbar .ind-title [data-lucide] { width: 15px; height: 15px; color: var(--gaj-primary); }
+.ind-toolbar .ind-sub { font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); }
+.ind-toolbar .ind-sub strong { color: var(--gaj-foreground-2); }
+.ind-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--gaj-radius-md);
+  border: 1px solid var(--gaj-border);
+  background: var(--gaj-surface-2);
+  color: var(--gaj-foreground-2);
+  font-size: var(--gaj-font-size-sm);
+  cursor: pointer;
+  transition: all var(--gaj-transition-fast);
+}
+.ind-back:hover { background: var(--gaj-surface-3); color: var(--gaj-foreground); border-color: var(--gaj-border-hover); }
+.ind-search {
+  background: var(--gaj-surface-2);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-md);
+  color: var(--gaj-foreground);
+  padding: 5px 10px;
+  font-size: var(--gaj-font-size-sm);
+  width: 160px;
+}
+.ind-search:focus { border-color: var(--gaj-primary); }
+.ind-sort {
+  display: inline-flex;
+  background: var(--gaj-surface-2);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-md);
+  padding: 2px;
+  gap: 2px;
+}
+.ind-sort button {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: var(--gaj-foreground-2);
+  font-size: var(--gaj-font-size-sm);
+  cursor: pointer;
+}
+.ind-sort button:hover { background: var(--gaj-surface-hover); color: var(--gaj-foreground); }
+.ind-sort button.active { background: var(--gaj-primary-muted); color: var(--gaj-primary); box-shadow: inset 0 0 0 1px var(--gaj-primary-border); }
+
+/* === 行业卡片墙 === */
+.ind-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.ind-card {
+  background: var(--gaj-surface);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-lg);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all var(--gaj-transition-fast);
+}
+.ind-card:hover {
+  border-color: var(--gaj-border-hover);
+  background: var(--gaj-surface-2);
+  transform: translateY(-1px);
+}
+.ind-card-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.ind-card-name { font-size: var(--gaj-font-size-md); font-weight: 600; color: var(--gaj-foreground); }
+.ind-card-jobs { font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); }
+.ind-card-metrics {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+.ind-card-m { min-width: 0; }
+.icm-label { display: block; font-size: 10px; color: var(--gaj-foreground-3); margin-bottom: 2px; }
+.icm-value { font-size: var(--gaj-font-size-md); font-weight: 700; color: var(--gaj-foreground); font-variant-numeric: tabular-nums; }
+.ind-card-skills { display: flex; gap: 4px; flex-wrap: wrap; }
+.ind-unknown {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-3);
+}
+.ind-unknown [data-lucide] { width: 13px; height: 13px; }
+.ind-unknown strong { color: var(--gaj-foreground-2); }
+
+/* === 溢价 / 红旗率徽标 === */
+.ind-premium {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: var(--gaj-radius-pill);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.ind-premium.premium-up { background: var(--gaj-state-success-muted); color: var(--gaj-state-success); }
+.ind-premium.premium-down { background: var(--gaj-state-error-muted); color: var(--gaj-state-error); }
+.ind-premium.premium-flat { background: var(--gaj-surface-3); color: var(--gaj-foreground-2); }
+.icm-value.flag-high, .ind-stat-value.flag-high { color: var(--gaj-state-error); }
+.icm-value.flag-mid, .ind-stat-value.flag-mid { color: var(--gaj-state-warning); }
+.icm-value.flag-low, .ind-stat-value.flag-low { color: var(--gaj-state-success); }
+
+/* === 行业详情 === */
+.ind-detail { max-width: 980px; }
+.ind-detail-head {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.ind-stat {
+  background: var(--gaj-surface);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-lg);
+  padding: 12px 16px;
+}
+.ind-stat-label { display: block; font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); margin-bottom: 4px; }
+.ind-stat-value { font-size: var(--gaj-font-size-xl); font-weight: 700; color: var(--gaj-foreground); font-variant-numeric: tabular-nums; }
+.ind-section {
+  background: var(--gaj-surface);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-lg);
+  padding: 16px 18px;
+  margin-bottom: 12px;
+}
+.ind-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--gaj-font-size-md);
+  font-weight: 600;
+  color: var(--gaj-foreground);
+  margin-bottom: 12px;
+}
+.ind-section-title [data-lucide] { width: 15px; height: 15px; color: var(--gaj-primary); }
+.ind-section-hint { font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); font-weight: 400; margin-left: auto; }
+
+/* 薪资条 */
+.ind-salary-bars { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.ind-bar-row { display: flex; align-items: center; gap: 10px; }
+.ind-bar-row.small { margin-top: 2px; }
+.ind-bar-label { width: 90px; flex-shrink: 0; font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-2); }
+.ind-bar-track { flex: 1; height: 8px; background: var(--gaj-surface-3); border-radius: var(--gaj-radius-pill); overflow: hidden; }
+.ind-bar-fill { height: 100%; border-radius: var(--gaj-radius-pill); background: var(--gaj-primary); opacity: .75; }
+.ind-bar-fill.strong { background: var(--gaj-primary); opacity: 1; }
+.ind-bar-fill.market { background: var(--gaj-foreground-3); }
+.ind-bar-fill.exp { height: 6px; background: var(--gaj-state-purple); opacity: .8; }
+.ind-bar-value { width: 64px; flex-shrink: 0; text-align: right; font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-2); font-variant-numeric: tabular-nums; }
+.ind-byexp-title { font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); margin-bottom: 8px; }
+
+/* 技能表 */
+.ind-table { width: 100%; border-collapse: collapse; font-size: var(--gaj-font-size-sm); }
+.ind-table th { text-align: left; color: var(--gaj-foreground-3); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--gaj-border); font-size: var(--gaj-font-size-xs); }
+.ind-table td { padding: 7px 8px; border-bottom: 1px solid var(--gaj-border-subtle); }
+.ind-table tr:hover td { background: var(--gaj-surface-2); }
+.ind-rank { color: var(--gaj-foreground-3); font-variant-numeric: tabular-nums; }
+
+/* 红旗信号 */
+.ind-signals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.ind-signal { background: var(--gaj-bg); border: 1px solid var(--gaj-border); border-radius: var(--gaj-radius-md); padding: 10px 14px; }
+.ind-signal-label { display: block; font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); margin-bottom: 4px; }
+.ind-signal-value { font-size: var(--gaj-font-size-md); font-weight: 700; color: var(--gaj-foreground); font-variant-numeric: tabular-nums; }
+.ind-signal-value.warn { color: var(--gaj-state-warning); }
+
+/* 代表公司 */
+.ind-companies { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.ind-company {
+  background: var(--gaj-bg);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-md);
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: all var(--gaj-transition-fast);
+}
+.ind-company:hover { border-color: var(--gaj-primary-border); background: var(--gaj-primary-muted); }
+.ind-company-name { font-size: var(--gaj-font-size-sm); font-weight: 600; color: var(--gaj-foreground); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ind-company-meta { display: flex; gap: 8px; font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); flex-wrap: wrap; }
+
+/* 岗位预览 */
+.ind-jobs { display: flex; flex-direction: column; }
+.ind-job {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--gaj-border-subtle);
+  cursor: pointer;
+  transition: background var(--gaj-transition-fast);
+}
+.ind-job:last-child { border-bottom: none; }
+.ind-job:hover { background: var(--gaj-surface-2); }
+.ind-job-title { font-size: var(--gaj-font-size-sm); font-weight: 600; color: var(--gaj-foreground); margin-bottom: 3px; }
+.ind-job-meta { display: flex; gap: 10px; font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); flex-wrap: wrap; align-items: center; }
+.ind-job-salary { color: var(--gaj-state-orange); font-weight: 600; }
+.ind-job .score-label { font-size: var(--gaj-font-size-xs); }
+
+/* 政策分析占位 */
+.ind-policy { border-style: dashed; }
+.ind-policy .ind-section-title { margin-bottom: 8px; }
+.ind-badge-plan {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--gaj-foreground-3);
+  background: var(--gaj-surface-3);
+  border-radius: var(--gaj-radius-pill);
+  padding: 1px 8px;
+}
+.ind-policy-body p { font-size: var(--gaj-font-size-sm); color: var(--gaj-foreground-2); line-height: 1.6; }
+.ind-policy-hint { display: block; margin-top: 6px; font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); }
+
+/* === Responsive === */
+@media (max-width: 900px) {
+  .ind-detail-head { grid-template-columns: repeat(2, 1fr); }
+  .ind-signals { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 700px) {
+  .ind-grid { grid-template-columns: 1fr; }
+  .ind-bar-label { width: 68px; }
+}

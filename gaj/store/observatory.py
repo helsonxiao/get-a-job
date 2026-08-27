@@ -479,3 +479,228 @@ def observatory_skill_leaderboard(conn: sqlite3.Connection, top_n: int = 40) -> 
     items.sort(key=lambda x: x["demand_count"], reverse=True)
     items = items[:top_n]
     return {"market_avg_salary": market_avg, "items": items}
+
+
+# ============================================================
+# 行业观察 (TODO#3): 行业总览列表 + 单行业详情聚合
+# 口径与 salary/radar/skills 一致; 样本不足字段自动降级 (None/空)。
+# ============================================================
+
+#: 行业总览/详情的样本门槛: 薪资与技能需要样本>=2, 红旗信号需要样本>=3
+_MIN_SALARY = 2
+_MIN_SIGNAL = 3
+
+
+def _industry_buckets(rows: list[sqlite3.Row], industry: str) -> list[sqlite3.Row]:
+    """按行业过滤 visible 岗位行 (行业名归一匹配)。"""
+    return [r for r in rows if _norm(r["industry"]) == industry]
+
+
+def observatory_industry_list(conn: sqlite3.Connection) -> dict:
+    """行业总览列表。
+
+    按行业聚合: 岗位数 / 公司数 / 薪资中位+样本 / 红旗信号 / 技能 Top3。
+    排除"未知"行业 (单独返回 unknown_job_count); 按岗位数降序。
+    返回:
+      items: [{name, job_count, company_count, salary_median, salary_count,
+               heavy_overtime, outsourcing, travel, red_flag_rate, top_skills}]
+      market_median: 全市场薪资中位 (溢价基准)
+      unknown_job_count: 未知行业岗位数
+    """
+    rows = conn.execute(
+        f"SELECT industry, company_id, salary_mid, overtime, outsourcing, travel,"
+        f" skills FROM jobs WHERE {_VISIBLE}"
+    ).fetchall()
+    if not rows:
+        return {"items": [], "market_median": None, "unknown_job_count": 0}
+
+    salaries = [r["salary_mid"] for r in rows if r["salary_mid"]]
+    market_median = _median(salaries) if len(salaries) >= _MIN_SALARY else None
+
+    ind_map: dict[str, dict] = defaultdict(lambda: {
+        "job_count": 0, "company_ids": set(), "salaries": [],
+        "heavy_ot": 0, "outsourcing": 0, "travel": 0, "skill_counter": Counter(),
+    })
+    for r in rows:
+        ind = _norm(r["industry"])
+        d = ind_map[ind]
+        d["job_count"] += 1
+        if r["company_id"]:
+            d["company_ids"].add(r["company_id"])
+        if r["salary_mid"]:
+            d["salaries"].append(r["salary_mid"])
+        if r["overtime"] == "heavy":
+            d["heavy_ot"] += 1
+        if r["outsourcing"]:
+            d["outsourcing"] += 1
+        if r["travel"] and r["travel"] != "none":
+            d["travel"] += 1
+        try:
+            sk = json.loads(r["skills"] or "[]")
+        except Exception:
+            sk = []
+        for s in sk:
+            if s:
+                d["skill_counter"][str(s).lower()] += 1
+
+    unknown_job_count = ind_map.get(_UNKNOWN, {}).get("job_count", 0)
+    items = []
+    for name, d in ind_map.items():
+        if name == _UNKNOWN:
+            continue
+        salary_median = _median(d["salaries"]) if len(d["salaries"]) >= _MIN_SALARY else None
+        top_skills = [
+            {"name": k, "count": v}
+            for k, v in d["skill_counter"].most_common(3)
+        ]
+        red_flag_count = d["heavy_ot"] + d["outsourcing"] + d["travel"]
+        items.append({
+            "name": name,
+            "job_count": d["job_count"],
+            "company_count": len(d["company_ids"]),
+            "salary_median": salary_median,
+            "salary_count": len(d["salaries"]),
+            "heavy_overtime": d["heavy_ot"],
+            "outsourcing": d["outsourcing"],
+            "travel": d["travel"],
+            "red_flag_count": red_flag_count,
+            "red_flag_rate": round(red_flag_count / d["job_count"], 4) if d["job_count"] else None,
+            "top_skills": top_skills,
+        })
+    items.sort(key=lambda x: x["job_count"], reverse=True)
+    return {
+        "items": items,
+        "market_median": market_median,
+        "unknown_job_count": unknown_job_count,
+    }
+
+
+def observatory_industry_detail(conn: sqlite3.Connection, industry: str) -> dict:
+    """单行业详情聚合。
+
+    薪资分位 (P25/P50/P75/均值, 行业口径) / 经验-薪资 / 技能 Top10 /
+    红旗信号 / 代表公司 Top8 / 行业岗位数。样本不足字段自动降级。
+    """
+    rows = conn.execute(
+        f"SELECT job_id, company_id, company_name, industry, salary_mid, exp_min,"
+        f" overtime, outsourcing, travel, skills, best_total"
+        f" FROM jobs WHERE {_VISIBLE}"
+    ).fetchall()
+    ind_rows = _industry_buckets(rows, industry)
+
+    base = {
+        "name": industry,
+        "job_count": len(ind_rows),
+        "company_count": len({r["company_id"] for r in ind_rows if r["company_id"]}),
+    }
+    if not ind_rows:
+        base.update({
+            "salary": None, "by_exp": [], "top_skills": [], "signals": None,
+            "top_companies": [], "market_median": None,
+        })
+        return base
+
+    # 薪资分位
+    salaries = [r["salary_mid"] for r in ind_rows if r["salary_mid"]]
+    salary = None
+    if len(salaries) >= _MIN_SALARY:
+        srt = sorted(salaries)
+        salary = {
+            "p25": _percentile(srt, 25),
+            "p50": _percentile(srt, 50),
+            "p75": _percentile(srt, 75),
+            "mean": round(sum(salaries) / len(salaries), 2),
+            "count": len(salaries),
+        }
+
+    # 经验-薪资 (行业口径, 复用 salary_pricing 的桶)
+    exp_buckets = [
+        ("0-3", "0-3年", lambda e: e is not None and e < 3),
+        ("3-5", "3-5年", lambda e: e is not None and 3 <= e < 5),
+        ("5-8", "5-8年", lambda e: e is not None and 5 <= e < 8),
+        ("8+", "8年+", lambda e: e is not None and e >= 8),
+        ("unlimited", "经验不限", lambda e: e is None),
+    ]
+    by_exp = []
+    for bucket, label, pred in exp_buckets:
+        vals = [r["salary_mid"] for r in ind_rows if pred(r["exp_min"]) and r["salary_mid"]]
+        if len(vals) >= _MIN_SALARY:
+            by_exp.append({"bucket": bucket, "label": label, "median": _median(vals), "count": len(vals)})
+
+    # 技能 Top10 (行业口径, 小写归一聚合)
+    skill_counter: Counter = Counter()
+    for r in ind_rows:
+        try:
+            sk = json.loads(r["skills"] or "[]")
+        except Exception:
+            sk = []
+        for s in sk:
+            if s:
+                skill_counter[str(s).lower()] += 1
+    top_skills = []
+    for name, cnt in skill_counter.most_common(10):
+        if cnt < _MIN_SALARY:
+            continue
+        vals = [r["salary_mid"] for r in ind_rows
+                if r["salary_mid"] and name in [str(s).lower() for s in json.loads(r["skills"] or "[]")]]
+        top_skills.append({
+            "name": name,
+            "demand_count": cnt,
+            "company_count": len({r["company_id"] for r in ind_rows if r["company_id"] and name in [str(s).lower() for s in json.loads(r["skills"] or "[]")]}),
+            "avg_salary": round(sum(vals) / len(vals), 2) if vals else None,
+        })
+
+    # 红旗信号
+    signals = None
+    if len(ind_rows) >= _MIN_SIGNAL:
+        heavy_ot = sum(1 for r in ind_rows if r["overtime"] == "heavy")
+        outsourcing = sum(1 for r in ind_rows if r["outsourcing"])
+        travel = sum(1 for r in ind_rows if r["travel"] and r["travel"] != "none")
+        red_flags = heavy_ot + outsourcing + travel
+        signals = {
+            "heavy_overtime": heavy_ot,
+            "outsourcing": outsourcing,
+            "travel": travel,
+            "red_flag_count": red_flags,
+            "red_flag_rate": round(red_flags / len(ind_rows), 4),
+        }
+
+    # 代表公司 Top8: 该行业公司在招数优先, 有公司分的按分数排前
+    comp_map: dict[str, dict] = defaultdict(lambda: {"name": "", "job_count": 0, "salaries": [], "scores": []})
+    for r in ind_rows:
+        cid = r["company_id"]
+        if not cid:
+            continue
+        d = comp_map[cid]
+        d["name"] = r["company_name"] or d["name"]
+        d["job_count"] += 1
+        if r["salary_mid"]:
+            d["salaries"].append(r["salary_mid"])
+        if r["best_total"] is not None:
+            d["scores"].append(r["best_total"])
+    top_companies = []
+    for cid, d in comp_map.items():
+        top_companies.append({
+            "brand_id": cid,
+            "name": d["name"],
+            "job_count": d["job_count"],
+            "avg_salary": round(sum(d["salaries"]) / len(d["salaries"]), 2) if d["salaries"] else None,
+            "best_score": round(max(d["scores"]), 1) if d["scores"] else None,
+        })
+    top_companies.sort(key=lambda x: (x["best_score"] is not None, x["best_score"]), reverse=True)
+    top_companies.sort(key=lambda x: x["job_count"], reverse=True)
+    top_companies = top_companies[:8]
+
+    # 全市场中位 (对比基准)
+    all_salaries = [r["salary_mid"] for r in rows if r["salary_mid"]]
+    market_median = _median(all_salaries) if len(all_salaries) >= _MIN_SALARY else None
+
+    base.update({
+        "salary": salary,
+        "by_exp": by_exp,
+        "top_skills": top_skills,
+        "signals": signals,
+        "top_companies": top_companies,
+        "market_median": market_median,
+    })
+    return base
