@@ -104,7 +104,7 @@ a:focus-visible, [tabindex]:focus-visible {
 }
 
 /* === 分位条 (岗位/公司市场定位: P25/P50/P75 区间 + 当前值菱形标记) === */
-.pct-track-wrap { position: relative; margin-top: 16px; }
+.pct-track-wrap { position: relative; margin-top: 16px; width: 100%; flex-basis: 100%; }
 .pct-track {
   position: relative;
   height: 10px;
@@ -165,6 +165,8 @@ a:focus-visible, [tabindex]:focus-visible {
   align-items: center;
   gap: 6px;
   margin-top: 10px;
+  width: 100%;
+  flex-basis: 100%;
   padding: 8px 12px;
   border-radius: var(--gaj-radius-md);
   background: var(--gaj-bg);
