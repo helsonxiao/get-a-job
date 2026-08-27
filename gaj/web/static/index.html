@@ -97,7 +97,7 @@
 
   <div class="app-body">
 
-    <!-- Sidebar 主导航 (分组: 工作台 / 市场洞察 / 配置) -->
+    <!-- Sidebar 主导航 (分组: 工作台 / 市场 / 配置) -->
     <nav class="sidebar" aria-label="主导航">
       <div class="sidebar-group">工作台</div>
       <button class="sidebar-item" :class="{active: $store.core.view === 'jobs'}" @click="$store.core.switchView('jobs')">
@@ -106,7 +106,7 @@
       <button class="sidebar-item" :class="{active: $store.core.view === 'guide'}" @click="$store.core.switchView('guide')">
         <i data-lucide="library-big"></i><span class="nav-label">公司图鉴</span>
       </button>
-      <div class="sidebar-group">市场洞察</div>
+      <div class="sidebar-group">市场</div>
       <button class="sidebar-item" :class="{active: $store.core.view === 'observatory'}" @click="$store.core.switchView('observatory')">
         <i data-lucide="radar"></i><span class="nav-label">市场观察台</span>
       </button>
