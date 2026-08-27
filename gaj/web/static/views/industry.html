@@ -198,17 +198,17 @@
             </div>
           </div>
 
-          <!-- 代表公司 -->
-          <div class="ind-section" x-show="detail.top_companies && detail.top_companies.length">
-            <div class="ind-section-title"><i data-lucide="building-2"></i>代表公司 Top 8 <span class="ind-section-hint">点击查看公司图鉴详情</span></div>
+          <!-- 代表公司 (与公司象限同源: 有分按公司分, 无分按在招) -->
+          <div class="ind-section" x-show="topCompanies().length > 0">
+            <div class="ind-section-title"><i data-lucide="building-2"></i>代表公司 Top 8 <span class="ind-section-hint">与下方公司象限同源 · 点击查看公司图鉴详情</span></div>
             <div class="ind-companies">
-              <template x-for="c in detail.top_companies" :key="c.brand_id">
+              <template x-for="c in topCompanies()" :key="c.brand_id">
                 <div class="ind-company" @click="openCompany(c.brand_id)">
                   <div class="ind-company-name" x-text="c.name"></div>
                   <div class="ind-company-meta">
-                    <span x-text="'在招 ' + c.job_count + ' 岗'"></span>
-                    <span x-show="c.best_score != null" x-text="'最佳 ' + c.best_score + ' 分'"></span>
-                    <span x-show="c.avg_salary != null" x-text="'均薪 ' + c.avg_salary + ' 万'"></span>
+                    <span x-text="'在招 ' + (c.job_count || 0) + ' 岗'"></span>
+                    <span x-show="c.company_score != null" x-text="'公司分 ' + c.company_score.toFixed(1)"></span>
+                    <span x-show="c.salary_mid_avg != null" x-text="'均薪 ' + c.salary_mid_avg + ' 万'"></span>
                   </div>
                 </div>
               </template>

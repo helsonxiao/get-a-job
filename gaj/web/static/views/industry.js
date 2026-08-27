@@ -96,6 +96,14 @@ document.addEventListener('alpine:init', () => {
 
     backToList() { this.detail = null; this.detailName = null; },
 
+    // 代表公司 Top8: 与公司象限同源 (indCompanies), 有公司分按分降序, 无分按在招数
+    topCompanies() {
+      const list = this.indCompanies || [];
+      const scored = list.filter(c => c.company_score != null).sort((a, b) => b.company_score - a.company_score);
+      const unscored = list.filter(c => c.company_score == null).sort((a, b) => (b.job_count || 0) - (a.job_count || 0));
+      return [...scored, ...unscored].slice(0, 8);
+    },
+
     // 详情页公司象限 (该行业公司, 复用 gajQuadrant)
     indCompanies: [],
     indQd: null,
