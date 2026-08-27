@@ -1,5 +1,5 @@
 /* ============================================
-   Get A Job — 市场观察台 (Alpine.data 岛)
+   Get A Job — 市场观察 (Alpine.data 岛)
    4 视角: G1 区域热力 / G2 信号雷达 / S1 技能热度 / S2 薪资定价
    通过 $store.core 调共享层; 跨视图跳转走 store.openJob/openCompany。
    所有图表纯 SVG, 无 CDN 依赖, 遵循项目硬约束。

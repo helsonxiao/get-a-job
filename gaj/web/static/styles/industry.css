@@ -248,3 +248,23 @@
   .ind-grid { grid-template-columns: 1fr; }
   .ind-bar-label { width: 68px; }
 }
+
+/* === 区域分布 (行业口径机会分布) === */
+.ind-districts { display: flex; flex-direction: column; gap: 6px; }
+.ind-district {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 12px;
+  background: var(--gaj-bg);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-md);
+  cursor: pointer;
+  transition: all var(--gaj-transition-fast);
+}
+.ind-district:hover { border-color: var(--gaj-primary-border); background: var(--gaj-primary-muted); }
+.ind-district-name { font-size: var(--gaj-font-size-sm); font-weight: 600; color: var(--gaj-foreground); }
+.ind-district-track { height: 6px; background: var(--gaj-surface-3); border-radius: var(--gaj-radius-pill); overflow: hidden; }
+.ind-district-fill { height: 100%; border-radius: var(--gaj-radius-pill); background: var(--gaj-primary); opacity: .8; }
+.ind-district-meta { display: flex; gap: 10px; font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); white-space: nowrap; }

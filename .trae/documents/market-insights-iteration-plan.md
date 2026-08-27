@@ -1,4 +1,4 @@
-# 就业市场观察台 — 功能迭代计划（v3）
+# 就业市场观察 — 功能迭代计划（v3）
 
 > 主题转向：从「找坑位」转向「看市场」。用户当前无迫切求职需求，更想以观察者视角把就业市场当样本研究，因此**调高市场观察类功能优先级、压低个人匹配类功能**。
 >
@@ -14,7 +14,7 @@
 
 ### 0.0 为何重构 — 量化触顶信号
 
-实测当前前端：[app.js](file:///Users/helsonxiao/Codes/get-a-job/gaj/web/static/app.js) **889 行 / ~220 个方法**（单个 `function app()` 返回的扁平 Alpine 根组件，4 个视图的逻辑全挤一起）；[index.html](file:///Users/helsonxiao/Codes/get-a-job/gaj/web/static/index.html) **1319 行**模板内联；[style.css](file:///Users/helsonxiao/Codes/get-a-job/gaj/web/static/style.css) **1980 行**。无构建工具、Alpine 本地化（`alpine.min.js`）是项目刻意取向。再加市场观察台 4 子模块会让 app.js 冲到 ~1100 行 / 280+ 方法。**单体文件触顶，需先重构再加功能。**
+实测当前前端：[app.js](file:///Users/helsonxiao/Codes/get-a-job/gaj/web/static/app.js) **889 行 / ~220 个方法**（单个 `function app()` 返回的扁平 Alpine 根组件，4 个视图的逻辑全挤一起）；[index.html](file:///Users/helsonxiao/Codes/get-a-job/gaj/web/static/index.html) **1319 行**模板内联；[style.css](file:///Users/helsonxiao/Codes/get-a-job/gaj/web/static/style.css) **1980 行**。无构建工具、Alpine 本地化（`alpine.min.js`）是项目刻意取向。再加市场观察 4 子模块会让 app.js 冲到 ~1100 行 / 280+ 方法。**单体文件触顶，需先重构再加功能。**
 
 ### 0.1 路线尽调结论 — 锁定 Alpine 组件岛
 
@@ -82,7 +82,7 @@ document.addEventListener('alpine:init', () => {
 
 ### 0.3 index.html 接线（模板内联，呼应用户选择）
 
-- 顶部 view-switch 加第三按钮 `市场观察台`（`@click="$store.app.openView('observatory')"` 或简单 `showObservatory=true`）。
+- 顶部 view-switch 加第三按钮 `市场观察`（`@click="$store.app.openView('observatory')"` 或简单 `showObservatory=true`）。
 - 新增 `<div x-data="observatoryPanel()" x-show="showObservatory">` 岛，内含 4 子 Tab 模板（**仍内联在 index.html，仅用注释严格分区**，不拆 fetch 加载，避免异步卡顿）。
 - 旧 `<div class="app-shell" x-data="app()">` 根壳**不动**，但需让 store 可达：新视图岛用 `$store.app.*` 访问共享态，旧视图仍用 `this.*`（过渡期共存，corral 模式）。
 - **关键接线坑（来自 corral ADR）**：Alpine CDN 版会在其 `defer` 脚本执行时自动 `start`，若新视图脚本在 Alpine 之后加载会错过 `alpine:init`。**所有新 `<script>` 必须放在 Alpine 的 `<script defer src="alpine.min.js">` 之前**（或在 `alpine:init` 监听器里注册，监听器本身要在 Alpine 脚本之前注册）。
@@ -102,7 +102,7 @@ document.addEventListener('alpine:init', () => {
 3. 脚本顺序坑验证：新视图岛在首次刷新后能正确初始化（不报 `observatoryPanel is not defined`）。
 4. `alpine:init` 监听器在 Alpine 加载前注册成功。
 
-> 通过 §0.5 后再进 §三，把市场观察台 4 子模块用新架构落地。这一步把"重构"和"新功能"绑在一个可交付单元里，避免重构空转。
+> 通过 §0.5 后再进 §三，把市场观察 4 子模块用新架构落地。这一步把"重构"和"新功能"绑在一个可交付单元里，避免重构空转。
 
 ---
 
@@ -158,13 +158,13 @@ document.addEventListener('alpine:init', () => {
 | ~~P-通勤~~ | ~~通勤友好度~~ | ~~🎯~~ | ~~gps × 居住地~~ | ~~同上，且 profile 经纬度为空，延后~~ | ~~P2~~ |
 | ~~R-招聘官~~ | ~~招聘官画像~~ | ~~🎯~~ | ~~boss~~ | ~~数据稀疏（多数 name/title 空），**降级/搁置**~~ | ~~P3~~ |
 
-**P0 选型理由**：G1 是用户点子且数据已具备（仅需轻量迁移）；G2 用独有的信号层数据，是平台不公开的「真相面」，观察价值最高且无可替代；S1/S2 是市场情报的基础设施。四者构成「市场观察台」首发阵容，全部复用现有数据。个人匹配类（P-*）因用户无迫切需求统一延后到 P2。
+**P0 选型理由**：G1 是用户点子且数据已具备（仅需轻量迁移）；G2 用独有的信号层数据，是平台不公开的「真相面」，观察价值最高且无可替代；S1/S2 是市场情报的基础设施。四者构成「市场观察」首发阵容，全部复用现有数据。个人匹配类（P-*）因用户无迫切需求统一延后到 P2。
 
 ---
 
-## 三、P0 本轮实施（市场观察台）
+## 三、P0 本轮实施（市场观察）
 
-新增顶级视图「市场观察台」（图标 `lucide:radar` 或 `lucide:globe`），与 `职位列表 / 公司图鉴` 并列。内含 4 个子模块（Tab 切换）。
+新增顶级视图「市场观察」（图标 `lucide:radar` 或 `lucide:globe`），与 `职位列表 / 公司图鉴` 并列。内含 4 个子模块（Tab 切换）。
 
 ### 3.0 前置：经纬度入索引（地理功能基座，必做）
 
@@ -210,7 +210,7 @@ def observatory_salary_pricing(conn) -> dict:
 ### 3.2 后端：HTTP 路由（[gaj/web/app.py](file:///Users/helsonxiao/Codes/get-a-job/gaj/web/app.py)，紧邻「公司图鉴」段之后）
 
 ```python
-# ---------------------------------------------------------------- 市场观察台
+# ---------------------------------------------------------------- 市场观察
 
 @app.get("/api/observatory/geo")
 async def api_obs_geo() -> dict:
@@ -241,7 +241,7 @@ async def api_obs_salary() -> dict:
 
 **[gaj/web/static/index.html](file:///Users/helsonxiao/Codes/get-a-job/gaj/web/static/index.html)**
 - `<head>` 在 Alpine 脚本**之前**插入 `<script src="/static/core/store.js">`、`<script src="/static/core/icons.js">`、`<script src="/static/views/observatory.js">`（§0.3 顺序坑）。
-- view-switch(L60-68) 加第三个按钮 `<i data-lucide="radar"></i><span>市场观察台</span>`，`@click` 切 `showObservatory`（用根壳 `app()` 上的一个布尔标志驱动显隐，新视图岛 `x-data="observatoryPanel()"` 内部状态自治）。
+- view-switch(L60-68) 加第三个按钮 `<i data-lucide="radar"></i><span>市场观察</span>`，`@click` 切 `showObservatory`（用根壳 `app()` 上的一个布尔标志驱动显隐，新视图岛 `x-data="observatoryPanel()"` 内部状态自治）。
 - 新增 `<div class="observatory-panel" x-data="observatoryPanel()" x-show="showObservatory">` 岛，内含 4 子 Tab 模板（**内联，注释严格分区**，不 fetch 加载）：
   1. **区域热力图**：纯 SVG 散点云（经纬度自适应缩放，无锡范围 120.3-120.5/31.4-31.7）+ `<circle>` 热力点（半径/色深 ∝ 岗位数），hover 显示格内 count/均薪/Top 行业/区域。无地图瓦片（遵循无 CDN 约束）。
   2. **信号雷达**：加班分档柱图 + 红旗公司榜表格（公司/岗位数/红旗类型）+ 外包率/出差率/黑名单命中数概览卡片。

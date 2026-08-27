@@ -67,14 +67,26 @@ document.addEventListener('alpine:init', () => {
       this.toasts = this.toasts.filter(t => t.id !== id);
     },
 
-    // ---- 视图切换 ----
-    switchView(v) { this.view = v; },
+    // ---- 视图切换 (hash 路由: 写入 #/view, 浏览器后退/前进可返回上一模块) ----
+    _VIEW_HASH: { jobs: 1, guide: 1, observatory: 1, industry: 1, config: 1, resume: 1 },
+    _setView(v) {
+      if (this.view === v) return;
+      this.view = v;
+      const h = '#/' + v;
+      if (location.hash !== h) location.hash = h;
+    },
+    switchView(v) { this._setView(v); },
     // config/resume 类面板按钮语义: 再点一次回到 jobs 视图
-    toggleView(v) { this.view = (this.view === v) ? 'jobs' : v; },
+    toggleView(v) { this._setView((this.view === v) ? 'jobs' : v); },
+    // hashchange: 浏览器前进/后退/手改 URL → 切视图 (不写回 hash 防循环)
+    _onHashChange() {
+      const v = (location.hash || '').replace(/^#\/?/, '');
+      if (this._VIEW_HASH[v] && this.view !== v) this.view = v;
+    },
 
     // 统计胶囊直达: 切到职位视图并预置筛选 (jobsPanel 监听 'gaj:jobs-filters' 合并)
     openJobsWithFilter(preset) {
-      this.view = 'jobs';
+      this._setView('jobs');
       window.dispatchEvent(new CustomEvent('gaj:jobs-filters', { detail: preset || {} }));
     },
 
@@ -104,12 +116,12 @@ document.addEventListener('alpine:init', () => {
 
     // 跨视图跳转: 观察台/图鉴抽屉 → 职位详情 (jobsPanel 监听加载)
     openJob(jobId) {
-      this.view = 'jobs';
+      this._setView('jobs');
       window.dispatchEvent(new CustomEvent('gaj:open-job', { detail: { jobId } }));
     },
     // 跨视图跳转: 观察台 → 公司图鉴视图并打开抽屉 (guidePanel 监听打开)
     openCompany(brandId) {
-      this.view = 'guide';
+      this._setView('guide');
       window.dispatchEvent(new CustomEvent('gaj:open-company', { detail: { brandId } }));
     },
     // 就地打开公司抽屉: 不切换视图 (职位详情等场景, 抽屉为全局浮动层)
@@ -118,7 +130,7 @@ document.addEventListener('alpine:init', () => {
     },
     // 跨视图跳转: 行业观察 (观察台联动入口; name 缺省进列表)
     openIndustry(name) {
-      this.view = 'industry';
+      this._setView('industry');
       window.dispatchEvent(new CustomEvent('gaj:open-industry', { detail: { name: name || null } }));
     },
 
@@ -234,6 +246,10 @@ document.addEventListener('alpine:init', () => {
       await this.loadProviders();
       this.connectSSE();
       this.startPolling(() => this.poll());
+      // hash 路由: 初始视图跟随 URL (如 #/industry 刷新直达), 并支持浏览器后退
+      const init = (location.hash || '').replace(/^#\/?/, '');
+      if (this._VIEW_HASH[init]) this.view = init;
+      window.addEventListener('hashchange', () => this._onHashChange());
     },
   });
 

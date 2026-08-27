@@ -52,7 +52,7 @@ ADR-001 落地了「Alpine 组件岛」路线，但当时的过渡策略是 §7.
 | `guide.js` | `<!-- VIEW: GUIDE -->` | 公司图鉴三榜/象限/对比 + **公司详情抽屉**（含内嵌岗位详情） |
 | `config.js` | `<!-- VIEW: CONFIG -->` | 规则概览 + 画像编辑（含隐藏的 AI 矫正） |
 | `resume.js` | `<!-- VIEW: RESUME -->` | 主简历编辑器 |
-| `observatory.js` | `<!-- VIEW: OBSERVATORY -->` | 市场观察台（v0.3 已是岛，本次接入 store） |
+| `observatory.js` | `<!-- VIEW: OBSERVATORY -->` | 市场观察（v0.3 已是岛，本次接入 store） |
 
 配套决策（落实 ADR-001 §5.1③ 的缓解项）：
 

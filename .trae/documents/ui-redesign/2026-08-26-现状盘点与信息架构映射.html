@@ -77,7 +77,7 @@
     <tr><td>应用外壳</td><td>14</td><td>顶栏 13 元素单行过载；6 统计胶囊仅展示不可点击；配置/简历为 toggle 语义</td></tr>
     <tr><td>职位列表+详情</td><td>17</td><td>筛选 6 下拉无标签、排序 13 项无分组；详情操作栏双份；公司名不可跳转；AI 区用 🤖 emoji</td></tr>
     <tr><td>公司图鉴</td><td>10</td><td>工具栏 8 控件单行过载；抽屉内容长但完整；四维雷达已有但无市场数据区块</td></tr>
-    <tr><td>市场观察台</td><td>9</td><td>4 Tab 结构清晰；行业无独立入口（TODO#3 前置缺口）；图表下钻链路完整</td></tr>
+    <tr><td>市场观察</td><td>9</td><td>4 Tab 结构清晰；行业无独立入口（TODO#3 前置缺口）；图表下钻链路完整</td></tr>
     <tr><td>规则配置</td><td>7</td><td>AI 规则矫正入口隐藏（showCalibration=false）；长页无目录</td></tr>
     <tr><td>主简历</td><td>4</td><td>功能简单，无大问题</td></tr>
   </table>
@@ -86,7 +86,7 @@
   <table>
     <tr><th>#</th><th>TODO</th><th>现状</th><th>新 IA 落位</th><th>标注</th></tr>
     <tr><td>1</td><td>岗位详情打开公司详情抽屉</td><td>公司名不可点击，无跳公司链路</td><td>详情「基础信息」公司项 + 「公司简介」卡头加「查看公司图鉴」按钮，复用 openCompany 链路</td><td><span class="tag t-missing">缺失</span></td></tr>
-    <tr><td>2</td><td>公司图表与市场观察台融合</td><td>抽屉只有四维雷达，观察台无公司级入口</td><td>公司抽屉新增「市场数据」区块；观察台表格行「查看公司」双向打通</td><td><span class="tag t-hard">难找</span></td></tr>
+    <tr><td>2</td><td>公司图表与市场观察融合</td><td>抽屉只有四维雷达，观察台无公司级入口</td><td>公司抽屉新增「市场数据」区块；观察台表格行「查看公司」双向打通</td><td><span class="tag t-hard">难找</span></td></tr>
     <tr><td>3</td><td>行业观察 + 下钻 + 政策分析</td><td>行业仅内嵌维度，无独立视图</td><td>侧边导航「行业观察」分组项（本期规划占位）→ 行业列表/详情；政策分析远期叠加</td><td><span class="tag t-missing">缺失</span></td></tr>
     <tr><td>4</td><td>岗位/公司详情展示市场关键指标</td><td>详情页无市场指标</td><td>职位详情「市场参考」区块 + 公司抽屉「市场对标」区块，复用 /api/observatory/salary，客户端缓存</td><td><span class="tag t-missing">缺失</span></td></tr>
     <tr><td>5</td><td>市场数据优化规则与画像预期</td><td>AI 规则矫正已实现但入口隐藏</td><td>规则配置恢复「AI 规则矫正」卡片（保持开关控制），注明数据来源</td><td><span class="tag t-hidden">隐藏</span></td></tr>
@@ -113,7 +113,7 @@
         <div class="ia-item on">📋 职位列表</div>
         <div class="ia-item">🏢 公司图鉴</div>
         <div class="ia-group">市场</div>
-        <div class="ia-item">📡 市场观察台</div>
+        <div class="ia-item">📡 市场观察</div>
         <div class="ia-item plan">🧭 行业观察 · 规划中</div>
         <div class="ia-item plan">📜 行业政策 · 远期</div>
         <div class="ia-group">配置</div>
@@ -130,7 +130,7 @@
   <div class="shots">
     <figure><img src="assets/baseline/01-jobs.png" alt="职位列表基线"><figcaption>职位列表（顶栏 13 元素、筛选单行 6 下拉）</figcaption></figure>
     <figure><img src="assets/baseline/02-guide.png" alt="公司图鉴基线"><figcaption>公司图鉴（工具栏 8 控件单行）</figcaption></figure>
-    <figure><img src="assets/baseline/03-observatory.png" alt="市场观察台基线"><figcaption>市场观察台（4 Tab）</figcaption></figure>
+    <figure><img src="assets/baseline/03-observatory.png" alt="市场观察基线"><figcaption>市场观察（4 Tab）</figcaption></figure>
     <figure><img src="assets/baseline/06-job-detail.png" alt="职位详情基线"><figcaption>职位详情（节导航 + 双份操作栏）</figcaption></figure>
   </div>
 

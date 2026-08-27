@@ -290,7 +290,7 @@
           </div>
         </div>
 
-        <!-- 市场参考 (TODO#4 落位: 展示市场观察台关键指标, 复用 /api/observatory/salary) -->
+        <!-- 市场参考 (TODO#4 落位: 展示市场观察关键指标, 复用 /api/observatory/salary) -->
         <template x-if="marketRef">
         <div class="detail-section" id="sec-market">
           <div class="card-header">
@@ -323,7 +323,7 @@
                 <i data-lucide="arrow-down-right" x-show="detail.job.salary.mid_10k < marketRef.market.median"></i>
                 <span x-text="(detail.job.salary.mid_10k >= marketRef.market.median ? '高于' : '低于') + '行业市场中位'"></span>
               </span>
-              <span class="ms-hint">数据来自市场观察台 · 全量可见岗位聚合</span>
+              <span class="ms-hint">数据来自市场观察 · 全量可见岗位聚合</span>
             </div>
           </div>
         </div>
