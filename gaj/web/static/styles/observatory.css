@@ -639,3 +639,26 @@
 }
 .obs-industry-link:hover { border-color: var(--gaj-primary-border); color: var(--gaj-primary); background: var(--gaj-primary-muted); }
 .obs-industry-link [data-lucide] { width: 12px; height: 12px; }
+
+/* === 行业观察下钻入口 === */
+.obs-tag-link { cursor: pointer; transition: all var(--gaj-transition-fast); }
+.obs-tag-link:hover { color: var(--gaj-primary); border-color: var(--gaj-primary-border); background: var(--gaj-primary-muted); }
+.obs-industry-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-sm);
+  background: var(--gaj-surface-2);
+  color: var(--gaj-foreground-3);
+  cursor: pointer;
+  vertical-align: middle;
+  transition: all var(--gaj-transition-fast);
+}
+.obs-industry-inline:hover { color: var(--gaj-primary); border-color: var(--gaj-primary-border); background: var(--gaj-primary-muted); }
+.obs-industry-inline [data-lucide] { width: 12px; height: 12px; }
+.obs-link { color: var(--gaj-primary); cursor: pointer; }
+.obs-link:hover { text-decoration: underline; }

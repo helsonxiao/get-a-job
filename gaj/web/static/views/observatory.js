@@ -93,6 +93,11 @@ document.addEventListener('alpine:init', () => {
           const label = (el.getAttribute('data-label') || value) + ' 岗位';
           // 薪资样本口径标记 (薪资定价 tab 的柱图)
           const hasSalary = el.getAttribute('data-has-salary') === '1';
+          // 行业维度: 直接进入行业观察详情 (岗位下钻在行业详情内提供)
+          if (type === 'industry') {
+            Alpine.store('core').openIndustry(value);
+            return;
+          }
           if (type && value) this.openDrill(type, value, label, hasSalary ? { hasSalary: true } : null);
           return;
         }
@@ -337,7 +342,7 @@ document.addEventListener('alpine:init', () => {
         const y = padT + i * (barH + gap);
         const bw = (d.median / maxV) * (w - padL - padR);
         return `<text x="${(padL - 6).toFixed(1)}" y="${(y + barH * 0.7).toFixed(1)}" class="obs-axis" text-anchor="end">${this._esc(d.name)}</text>` +
-          `<rect x="${padL}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${barH}" class="obs-bar-h obs-clickable" data-drill="industry:${this._esc(d.name)}" data-label="${this._esc(d.name)} 薪资" data-has-salary="1"><title>${d.name}: ${d.median}万 (${d.count}样本) · 点击查看</title></rect>` +
+          `<rect x="${padL}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${barH}" class="obs-bar-h obs-clickable" data-drill="industry:${this._esc(d.name)}" data-label="${this._esc(d.name)} 薪资" data-has-salary="1"><title>${d.name}: ${d.median}万 (${d.count}样本) · 点击进入行业观察</title></rect>` +
           `<text x="${(padL + bw + 6).toFixed(1)}" y="${(y + barH * 0.7).toFixed(1)}" class="obs-bar-label">${d.median}万</text>`;
       }).join('');
     },

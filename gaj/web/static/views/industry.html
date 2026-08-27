@@ -207,8 +207,8 @@
                   <div class="ind-company-name" x-text="c.name"></div>
                   <div class="ind-company-meta">
                     <span x-text="'在招 ' + (c.job_count || 0) + ' 岗'"></span>
-                    <span x-show="c.company_score != null" x-text="'公司分 ' + c.company_score.toFixed(1)"></span>
-                    <span x-show="c.salary_mid_avg != null" x-text="'均薪 ' + c.salary_mid_avg + ' 万'"></span>
+                    <span x-text="c.company_score != null ? '公司分 ' + c.company_score.toFixed(1) : ''"></span>
+                    <span x-text="c.salary_mid_avg != null ? '均薪 ' + c.salary_mid_avg + ' 万' : ''"></span>
                   </div>
                 </div>
               </template>

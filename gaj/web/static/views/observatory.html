@@ -148,7 +148,13 @@
                   <template x-for="d in (geo.top_districts || [])" :key="d.district">
                     <tr class="obs-clickable" @click="openDrill(geoMode==='companies' ? 'district_companies' : 'district', d.district, d.district + ' · ' + d.industry, {industry: d.industry})">
                       <td x-text="d.district"></td>
-                      <td x-text="d.industry"></td>
+                      <td>
+                        <span x-text="d.industry"></span>
+                        <button class="obs-industry-inline" x-show="d.industry && d.industry !== '未知'"
+                                @click.stop="$store.core.openIndustry(d.industry)" :title="'查看行业观察: ' + d.industry">
+                          <i data-lucide="telescope"></i>
+                        </button>
+                      </td>
                       <td x-text="d.count"></td>
                       <td x-text="d.company_count || 0"></td>
                       <td x-text="d.top_company || '—'"></td>
@@ -275,7 +281,7 @@
                       <td><span class="obs-premium" :class="skillPremiumClass(s.salary_premium)" x-text="skillPremiumText(s.salary_premium)"></span></td>
                       <td>
                         <template x-for="ind in s.top_industries" :key="ind.name">
-                          <span class="obs-tag" x-text="ind.name"></span>
+                          <span class="obs-tag obs-tag-link" @click.stop="$store.core.openIndustry(ind.name)" :title="'查看行业观察: ' + ind.name" x-text="ind.name"></span>
                         </template>
                       </td>
                     </tr>
@@ -444,7 +450,15 @@
                   </template>
                 </div>
                 <div class="obs-detail-grid">
-                  <div class="obs-detail-item"><span class="label">行业</span><span class="v" x-text="drillDetail.data.company?.industry || '-'"></span></div>
+                  <div class="obs-detail-item">
+                    <span class="label">行业</span>
+                    <span class="v">
+                      <span class="obs-link" x-show="drillDetail.data.company?.industry && drillDetail.data.company.industry !== '未知'"
+                            @click="$store.core.openIndustry(drillDetail.data.company.industry)"
+                            x-text="drillDetail.data.company?.industry || '-'"></span>
+                      <span x-show="!drillDetail.data.company?.industry || drillDetail.data.company.industry === '未知'" x-text="drillDetail.data.company?.industry || '-'"></span>
+                    </span>
+                  </div>
                   <div class="obs-detail-item"><span class="label">阶段</span><span class="v" x-text="drillDetail.data.company?.stage || '-'"></span></div>
                   <div class="obs-detail-item"><span class="label">规模</span><span class="v" x-text="drillDetail.data.company?.scale_raw || '-'"></span></div>
                   <div class="obs-detail-item" x-show="drillDetail.data.job?.welfare && drillDetail.data.job.welfare.length">
