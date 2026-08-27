@@ -13,9 +13,7 @@
 .quadrant-svg {
   width: 100%;
   height: auto;
-  background: var(--gaj-surface);
-  border: 1px solid var(--gaj-border);
-  border-radius: var(--gaj-radius-lg);
+  display: block;
 }
 .qgrid { stroke: var(--gaj-border); stroke-width: 1; }
 .qaxis { fill: var(--gaj-foreground-3); font-size: 11px; font-family: var(--gaj-font-mono); }
@@ -52,3 +50,16 @@
   transition: all var(--gaj-transition-fast);
 }
 .qu-chip:hover { border-color: var(--gaj-primary-border); color: var(--gaj-primary); }
+
+/* === 象限图例 (与区域热力图例同风格) === */
+.legend-dot.tier-dot { width: 12px; height: 12px; border-radius: 50%; opacity: 1; }
+.legend-dot.tier-dot.tier-s { background: #F0B429; }
+.legend-dot.tier-dot.tier-a { background: var(--gaj-primary); }
+.legend-dot.tier-dot.tier-b { background: var(--gaj-state-success); }
+.legend-dot.tier-dot.tier-c { background: var(--gaj-foreground-3); }
+
+/* === 公司象限榜 tier 徽标 (badge 变体) === */
+.badge.tier-s { background: rgba(240, 180, 41, 0.15); color: #F0B429; }
+.badge.tier-a { background: var(--gaj-primary-muted); color: var(--gaj-primary); }
+.badge.tier-b { background: var(--gaj-state-success-muted); color: var(--gaj-state-success); }
+.badge.tier-c { background: var(--gaj-surface-3); color: var(--gaj-foreground-2); }

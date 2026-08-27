@@ -117,6 +117,13 @@ document.addEventListener('alpine:init', () => {
       this.quadrantLoading = false;
     },
     quadrantGridSvg(qd) { return window.gajQuadrant.gridSvg(qd); },
+    // 公司象限榜 Top10: 有分按分降序, 无分按在招数 (与象限图同源)
+    quadrantTop() {
+      const list = this.quadrantCompanies || [];
+      const scored = list.filter(c => c.company_score != null).sort((a, b) => b.company_score - a.company_score);
+      const unscored = list.filter(c => c.company_score == null).sort((a, b) => (b.job_count || 0) - (a.job_count || 0));
+      return [...scored, ...unscored].slice(0, 10);
+    },
     quadrantBubblesSvg(qd) { return window.gajQuadrant.bubblesSvg(qd); },
     onQuadrantClick(e) {
       const brandId = window.gajQuadrant.hitBrand(e);

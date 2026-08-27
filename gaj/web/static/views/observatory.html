@@ -301,25 +301,52 @@
           <div class="obs-section-title">
             <i data-lucide="scatter-chart"></i> 公司象限
             <span class="obs-meta" x-text="'有效 ' + quadrantQd.pts.length + ' 家' + (quadrantQd.unknown.length ? ' · 薪资未知 ' + quadrantQd.unknown.length + ' 家' : '')"></span>
-            <span class="obs-meta">点击气泡查看公司详情</span>
+            <span class="obs-meta">x = 均薪(万/年) · y = 公司分</span>
           </div>
-          <div class="quadrant-wrap">
-            <div class="quadrant-hint">
-              <i data-lucide="info"></i>
-              <span>x = 公司均薪(万/年) · y = 公司分 · 气泡大小 = 在招岗位数 · 点击气泡打开公司抽屉</span>
-            </div>
+          <div class="obs-chart obs-heatmap">
             <svg viewBox="0 0 760 440" class="quadrant-svg" @click="onQuadrantClick($event)">
               <g x-html="quadrantGridSvg(quadrantQd)"></g>
               <text x="726" y="36" class="qsweet" text-anchor="end">高分 · 高薪甜蜜点 ↗</text>
               <g x-html="quadrantBubblesSvg(quadrantQd)"></g>
             </svg>
-            <div class="quadrant-unknown" x-show="quadrantQd.unknown.length > 0">
-              <span class="qu-title"><i data-lucide="help-circle"></i>薪资未知, 无法定位 x 轴 (<span x-text="quadrantQd.unknown.length"></span> 家)</span>
-              <template x-for="c in quadrantQd.unknown" :key="c.brand_id">
-                <span class="qu-chip" @click="openCompany(c.brand_id)" x-text="c.name"></span>
-              </template>
-            </div>
           </div>
+          <div class="obs-legend">
+            <span class="legend-label">等级</span>
+            <span class="legend-dot tier-dot tier-s"></span>
+            <span>S</span>
+            <span class="legend-dot tier-dot tier-a"></span>
+            <span>A</span>
+            <span class="legend-dot tier-dot tier-b"></span>
+            <span>B</span>
+            <span class="legend-dot tier-dot tier-c"></span>
+            <span>C</span>
+            <span class="legend-hint">气泡大小 ∝ 在招岗位数 · 点击气泡打开公司详情</span>
+          </div>
+          <div class="quadrant-unknown" x-show="quadrantQd.unknown.length > 0">
+            <span class="qu-title"><i data-lucide="help-circle"></i>薪资未知, 无法定位 x 轴 (<span x-text="quadrantQd.unknown.length"></span> 家)</span>
+            <template x-for="c in quadrantQd.unknown" :key="c.brand_id">
+              <span class="qu-chip" @click="openCompany(c.brand_id)" x-text="c.name"></span>
+            </template>
+          </div>
+        </div>
+        </template>
+        <template x-if="!quadrantLoading && quadrantQd && quadrantTop().length > 0">
+        <div class="obs-section">
+          <div class="obs-section-title"><i data-lucide="trophy"></i> 公司象限榜 Top 10 <span class="obs-meta">按公司分排序 · 点击查看公司详情</span></div>
+          <table class="obs-table">
+            <thead><tr><th>等级</th><th>公司</th><th>公司分</th><th>均薪(万)</th><th>在招</th></tr></thead>
+            <tbody>
+              <template x-for="c in quadrantTop()" :key="c.brand_id">
+                <tr class="obs-clickable" @click="openCompany(c.brand_id)">
+                  <td><span class="badge" :class="'tier-' + (c.rank_tier || '').toLowerCase()" x-text="c.rank_tier || '—'"></span></td>
+                  <td x-text="c.name"></td>
+                  <td x-text="c.company_score != null ? c.company_score.toFixed(1) : '—'"></td>
+                  <td x-text="c.salary_mid_avg != null ? c.salary_mid_avg : '—'"></td>
+                  <td x-text="c.job_count || 0"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
         </div>
         </template>
       </div>
