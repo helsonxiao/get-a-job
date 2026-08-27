@@ -132,18 +132,18 @@ a:hover { color: var(--gaj-primary-hover); }
    所有视图样式引用 var(--gaj-*), 无需逐视图适配。
    ============================================ */
 :root[data-theme="light"] {
-  /* --- Background layers --- */
-  --gaj-bg: #F6F7F9;
-  --gaj-surface: #FFFFFF;
-  --gaj-surface-2: #F0F2F6;
-  --gaj-surface-3: #E4E8EF;
-  --gaj-surface-hover: #E9EDF4;
+  /* --- Background layers (低饱和蓝灰, 避免大面积纯白晃眼) --- */
+  --gaj-bg: #F2F3F7;
+  --gaj-surface: #FAFBFD;
+  --gaj-surface-2: #EDEFF4;
+  --gaj-surface-3: #E2E5EC;
+  --gaj-surface-hover: #E7EAF1;
 
-  /* --- Foreground --- */
-  --gaj-foreground: #1B2230;
-  --gaj-foreground-2: #465166;
-  --gaj-foreground-3: #77829A;
-  --gaj-foreground-4: #A3ACBF;
+  /* --- Foreground (略柔和的深灰蓝) --- */
+  --gaj-foreground: #232A38;
+  --gaj-foreground-2: #4C576B;
+  --gaj-foreground-3: #7C8698;
+  --gaj-foreground-4: #A6AEBF;
 
   /* --- Brand primary --- */
   --gaj-primary: #3D6FE0;
@@ -167,17 +167,17 @@ a:hover { color: var(--gaj-primary-hover); }
   --gaj-state-orange: #D9651F;
   --gaj-state-orange-muted: rgba(217, 101, 31, 0.12);
 
-  /* --- Borders --- */
-  --gaj-border: #E2E6ED;
-  --gaj-border-hover: #C6CEDC;
-  --gaj-border-subtle: rgba(27, 34, 48, 0.05);
+  /* --- Borders (柔和但有层次) --- */
+  --gaj-border: #E0E4EC;
+  --gaj-border-hover: #C8CFDB;
+  --gaj-border-subtle: rgba(35, 42, 56, 0.05);
 
-  /* --- Shadows (浅色更淡) --- */
-  --gaj-shadow-1: 0 1px 2px rgba(20, 30, 50, 0.06), 0 1px 1px rgba(20, 30, 50, 0.04);
-  --gaj-shadow-2: 0 8px 24px -8px rgba(20, 30, 50, 0.12);
-  --gaj-shadow-3: 0 24px 60px -20px rgba(20, 30, 50, 0.18);
+  /* --- Shadows (更淡) --- */
+  --gaj-shadow-1: 0 1px 2px rgba(30, 40, 60, 0.05), 0 1px 1px rgba(30, 40, 60, 0.03);
+  --gaj-shadow-2: 0 8px 24px -8px rgba(30, 40, 60, 0.10);
+  --gaj-shadow-3: 0 24px 60px -20px rgba(30, 40, 60, 0.16);
 
-  /* --- Focus ring / glass --- */
-  --gaj-focus-ring: 0 0 0 2px rgba(61, 111, 224, 0.30);
-  --gaj-surface-glass: rgba(255, 255, 255, 0.92);
+  /* --- Focus ring / glass (跟随柔和表面) --- */
+  --gaj-focus-ring: 0 0 0 2px rgba(61, 111, 224, 0.28);
+  --gaj-surface-glass: rgba(250, 251, 253, 0.92);
 }
