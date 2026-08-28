@@ -92,6 +92,14 @@ def main(argv: list[str] | None = None) -> int:
     # ---- check ----
     sub.add_parser("check", help="检查环境")
 
+    # ---- report-bundle (报告数据包, 供不开源的报告生成器消费) ----
+    p = sub.add_parser(
+        "report-bundle",
+        help="输出报告数据包 (JSON): 口径元数据 + 质量基线 + 市场聚合, stdout 输出",
+    )
+    p.add_argument("--pretty", action="store_true", help="缩进美化输出")
+    p.add_argument("--top-industries", type=int, default=8, help="行业对比表取前 N 个 (默认 8)")
+
     # ---- agent (面向 AI 智能体的 JSON 接口, 详见 AGENT.md) ----
     p = sub.add_parser(
         "agent",
@@ -217,6 +225,18 @@ def main(argv: list[str] | None = None) -> int:
         print(report.render())
         if args.dry_run:
             print("  (dry-run, 未写入任何文件)\n")
+        return 0
+
+    if args.command == "report-bundle":
+        import json
+
+        from .store import index, reportbundle
+
+        with index.session() as conn:
+            bundle = reportbundle.build_report_bundle(
+                conn, top_industries=args.top_industries
+            )
+        print(json.dumps(bundle, ensure_ascii=False, indent=2 if args.pretty else None))
         return 0
 
     if args.command == "setup-chrome":

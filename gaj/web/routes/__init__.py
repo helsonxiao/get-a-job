@@ -10,13 +10,14 @@
   resume      主简历: 读取/保存
   system      系统: 统计/任务/Provider/索引重建/SSE 日志流
 """
-from . import companies, config, jobs, observatory, profile, resume, scoring, system
+from . import companies, config, jobs, observatory, profile, report, resume, scoring, system
 
 #: app.py 按此列表 include_router
 ALL_ROUTERS = [
     jobs.router,
     companies.router,
     observatory.router,
+    report.router,
     scoring.router,
     config.router,
     profile.router,
