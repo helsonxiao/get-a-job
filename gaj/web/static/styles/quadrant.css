@@ -29,7 +29,7 @@
 .qbubble.tier-s { stroke: #F0B429; fill: rgba(240, 180, 41, .14); }
 .qbubble.tier-a { stroke: var(--gaj-primary); }
 .qbubble.tier-b { stroke: var(--gaj-state-success); fill: var(--gaj-state-success-muted); }
-.qbubble.tier-c { stroke: var(--gaj-foreground-3); fill: rgba(255, 255, 255, .04); }
+.qbubble.tier-c { stroke: var(--gaj-foreground-3); fill: var(--gaj-surface-3); }
 .quadrant-unknown {
   display: flex;
   align-items: center;

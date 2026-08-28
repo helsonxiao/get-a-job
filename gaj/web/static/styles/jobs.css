@@ -749,7 +749,7 @@
   .section-nav { display: none; }
   .detail-content { padding: 16px 20px 24px; }
   .detail-layout { display: block; }
-  .sticky-job-summary { flex-wrap: wrap; }
+  .sticky-job-summary { flex-wrap: wrap; margin: -16px -20px 16px; }
   .sticky-job-summary .sjs-actions { flex-wrap: wrap; }
   .sticky-job-summary .sjs-actions button { padding: 3px 8px; }
   .sticky-job-summary .sjs-title { max-width: 180px; }

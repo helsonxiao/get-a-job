@@ -55,7 +55,6 @@ document.addEventListener('alpine:init', () => {
       }
       const params = new URLSearchParams({ limit: '100', sort: 'salary_mid', desc: '1' });
       if (type === 'district') params.set('district', value);
-      else if (type === 'industry') params.set('industry', value);
       else if (type === 'overtime') params.set('overtime', value);
       else if (type === 'skill') params.set('skill', value);
       else if (type === 'edu_level') params.set('edu_level', value);

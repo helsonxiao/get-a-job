@@ -46,7 +46,7 @@ async def api_obs_industry_list() -> dict:
         return observatory.observatory_industry_list(conn)
 
 
-@router.get("/industry/{name}")
+@router.get("/industry/{name:path}")
 async def api_obs_industry_detail(name: str) -> dict:
     """行业观察: 单行业详情 (薪资分位/经验/技能/信号/代表公司)。"""
     with index.session() as conn:

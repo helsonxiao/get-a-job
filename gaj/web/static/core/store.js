@@ -89,8 +89,6 @@ document.addEventListener('alpine:init', () => {
       if (location.hash !== h) location.hash = h;
     },
     switchView(v) { this._setView(v); },
-    // config/resume 类面板按钮语义: 再点一次回到 jobs 视图
-    toggleView(v) { this._setView((this.view === v) ? 'jobs' : v); },
     // hashchange: 浏览器前进/后退/手改 URL → 切视图 (不写回 hash 防循环)
     _onHashChange() {
       const v = (location.hash || '').replace(/^#\/?/, '');
@@ -117,25 +115,11 @@ document.addEventListener('alpine:init', () => {
       }
       return null;
     },
-    // 取某行业市场定价; 未命中 (样本不足/不在 Top10) 返回 null
-    async marketForIndustry(industry) {
-      if (!industry) return null;
-      const d = await this.ensureMarket();
-      if (!d) return null;
-      const hit = (d.by_industry || []).find(x => x.name === industry);
-      if (!hit) return null;
-      return { industry, market: hit, overall: d.overall };
-    },
 
     // 跨视图跳转: 观察台/图鉴抽屉 → 职位详情 (jobsPanel 监听加载)
     openJob(jobId) {
       this._setView('jobs');
       window.dispatchEvent(new CustomEvent('gaj:open-job', { detail: { jobId } }));
-    },
-    // 跨视图跳转: 观察台 → 公司图鉴视图并打开抽屉 (guidePanel 监听打开)
-    openCompany(brandId) {
-      this._setView('guide');
-      window.dispatchEvent(new CustomEvent('gaj:open-company', { detail: { brandId } }));
     },
     // 就地打开公司抽屉: 不切换视图 (职位详情等场景, 抽屉为全局浮动层)
     openCompanyDrawer(brandId) {
