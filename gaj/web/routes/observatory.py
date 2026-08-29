@@ -6,9 +6,16 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from ...store import index, observatory
+from ...store import index, observatory, reportbundle
 
 router = APIRouter(prefix="/api/observatory", tags=["observatory"])
+
+
+@router.get("/employer")
+async def api_obs_employer() -> dict:
+    """雇主画像 (schema 1.2+): 月薪构成/标注带宽/工时/规模/性质/福利/面议/活跃度。"""
+    with index.session() as conn:
+        return reportbundle._employer_block(conn)
 
 
 @router.get("/salary")

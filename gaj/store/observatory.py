@@ -607,9 +607,11 @@ def observatory_industry_detail(conn: sqlite3.Connection, industry: str) -> dict
     if len(salaries) >= _MIN_SALARY:
         srt = sorted(salaries)
         salary = {
+            "p10": _percentile(srt, 10),
             "p25": _percentile(srt, 25),
             "p50": _percentile(srt, 50),
             "p75": _percentile(srt, 75),
+            "p90": _percentile(srt, 90),
             "mean": round(sum(salaries) / len(salaries), 2),
             "count": len(salaries),
         }

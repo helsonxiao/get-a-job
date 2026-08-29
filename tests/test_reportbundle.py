@@ -77,7 +77,7 @@ def _walk_keys(obj):
 
 def test_bundle_top_level_contract(conn):
     bundle = reportbundle.build_report_bundle(conn)
-    assert bundle["schema_version"] == "1.2"
+    assert bundle["schema_version"] == "1.3"
     assert set(bundle) >= {
         "schema_version", "generated_at", "data_fingerprint",
         "meta", "quality", "market", "focus",
@@ -193,3 +193,24 @@ def test_real_db_smoke_if_present():
     raw = json.dumps(bundle, ensure_ascii=False)
     leaked = [s for s in secrets if len(s) >= 4 and s in raw]
     assert not leaked, f"真实公司名/brand_id 值级泄漏: {leaked[:5]}"
+
+
+def test_company_boards_deidentified(conn):
+    bundle = reportbundle.build_report_bundle(conn)
+    boards = bundle["market"]["company_boards"]
+    raw = json.dumps(boards, ensure_ascii=False)
+    for secret in ("甲公司一", "甲公司二", "红旗甲", "c1", "c5"):
+        assert secret not in raw
+    # 招聘力度榜按在招数降序; 薪资榜样本 >= 2
+    jobs = [c["job_count"] for c in boards["hiring"]]
+    assert jobs == sorted(jobs, reverse=True) and jobs[0] == 4
+    assert all(c["avg_salary"] is not None for c in boards["salary"])
+    assert all(set(c) == {"alias", "industry", "job_count", "avg_salary"} for c in boards["hiring"])
+    # 别名跨榜一致: 同一公司在两榜拿到同一别名; 每榜内部唯一
+    assert boards["hiring"][0]["alias"] == "公司A"
+    h_alias = {c["alias"]: c for c in boards["hiring"]}
+    s_alias = {c["alias"]: c for c in boards["salary"]}
+    assert len(h_alias) == len(boards["hiring"]) and len(s_alias) == len(boards["salary"])
+    for a, c in s_alias.items():
+        if a in h_alias:
+            assert h_alias[a]["job_count"] == c["job_count"], f"{a} 两榜在招数不一致"

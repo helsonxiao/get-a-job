@@ -22,7 +22,7 @@ from pathlib import Path
 from .. import config as cfg
 from . import observatory
 
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "1.3"
 
 #: 输出契约中禁止出现的字段名 (防止未来改动引入单条记录泄漏)
 FORBIDDEN_KEYS = frozenset({
@@ -169,23 +169,28 @@ def _quality(conn: sqlite3.Connection, market: dict, focus_detail: dict | None) 
 
 
 class _AliasRegistry:
-    """同一次打包内的公司脱敏别名表: 同一公司在不同区块拿到同一别名。"""
+    """同一次打包内的公司脱敏别名表: 同一公司在所有区块拿到同一别名。
+
+    用法: 先用 build() 收集所有公司出现点 (可多次调用, 重复 key 取最大 job_count),
+    再 finalize() 按全局 job_count 降序统一发号 (公司A/B/C..., 超出字母池用数字)。
+    """
 
     def __init__(self) -> None:
+        self._cand: dict[str, int] = {}
         self._map: dict[str, str] = {}
 
     def build(self, companies: list[dict]) -> None:
-        """按 job_count 降序确定性分配别名 (公司A/B/C..., 超出字母池用数字)。"""
-        ordered = sorted(
-            companies,
-            key=lambda c: (-(c.get("job_count") or 0), c.get("_key") or ""),
-        )
-        for i, c in enumerate(ordered):
-            if c["_key"] not in self._map:
-                if i < len(_ALIAS_POOL):
-                    self._map[c["_key"]] = f"公司{_ALIAS_POOL[i]}"
-                else:
-                    self._map[c["_key"]] = f"公司{i + 1}"
+        for c in companies:
+            k = c.get("_key")
+            if not k:
+                continue
+            if k not in self._cand or (c.get("job_count") or 0) > self._cand[k]:
+                self._cand[k] = c.get("job_count") or 0
+
+    def finalize(self) -> None:
+        ordered = sorted(self._cand, key=lambda k: (-self._cand[k], k))
+        for i, k in enumerate(ordered):
+            self._map[k] = f"公司{_ALIAS_POOL[i]}" if i < len(_ALIAS_POOL) else f"公司{i + 1}"
 
     def alias(self, key: str | None) -> str:
         if key is None:
@@ -500,6 +505,47 @@ def _quadrant_block(conn: sqlite3.Connection, market_median) -> dict:
 # ---------------------------------------------------------------- 组装
 
 
+def _company_board_rows(conn: sqlite3.Connection, top_n: int = 10):
+    """公司双榜原始行 (未脱敏, 仅供注册表与内部脱敏函数消费): 招聘力度榜 + 薪资榜。"""
+    rows = conn.execute(
+        f"SELECT j.company_id, j.salary_mid, c.industry"
+        f" FROM jobs j LEFT JOIN companies c ON c.brand_id = j.company_id"
+        f" WHERE {observatory._VISIBLE}"
+    ).fetchall()
+    comp: dict = defaultdict(lambda: {"jobs": 0, "salaries": [], "industry": ""})
+    for r in rows:
+        if not r["company_id"]:
+            continue
+        d = comp[r["company_id"]]
+        d["jobs"] += 1
+        d["industry"] = r["industry"] or d["industry"]
+        if r["salary_mid"]:
+            d["salaries"].append(r["salary_mid"])
+    out = [
+        {"_key": cid, "industry": d["industry"], "job_count": d["jobs"],
+         "salary_samples": len(d["salaries"]),
+         "avg_salary": observatory._median(d["salaries"]) if d["salaries"] else None}
+        for cid, d in comp.items()
+    ]
+    hiring = sorted(out, key=lambda c: (-c["job_count"], c["_key"]))[:top_n]
+    salary_board = sorted(
+        (c for c in out if c["avg_salary"] is not None and c["salary_samples"] >= 2),
+        key=lambda c: (-c["avg_salary"], c["_key"]),
+    )[:top_n]
+    return hiring, salary_board
+
+
+def _deidentify_board(entries, registry) -> list:
+    """双榜脱敏: 别名 + 行业 + 在招数 + 均薪, 不含 brand_id/明文名。"""
+    return [
+        {"alias": registry.alias(c["_key"]),
+         "industry": c.get("industry") or observatory._UNKNOWN,
+         "job_count": c["job_count"],
+         "avg_salary": c["avg_salary"]}
+        for c in entries
+    ]
+
+
 def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> dict:
     """打包报告数据契约。
 
@@ -527,6 +573,8 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> di
         "quadrant_dist": _quadrant_block(conn, industry_list.get("market_median")),
     }
 
+    hiring_rows, salary_rows = _company_board_rows(conn)
+
     focus_name = items[0]["name"] if items else None
     focus_detail = (
         observatory.observatory_industry_detail(conn, focus_name)
@@ -535,6 +583,8 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> di
 
     # 脱敏: 先汇总所有公司出现点建别名表, 同一公司全程同一别名
     registry = _AliasRegistry()
+    registry.build([dict(c) for c in hiring_rows])
+    registry.build([dict(c) for c in salary_rows])
     registry.build([
         {**c, "_key": _company_key(c)}
         for c in market["signal_radar"].get("red_flag_companies", [])
@@ -544,6 +594,7 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> di
             {**c, "_key": _company_key(c)}
             for c in focus_detail.get("top_companies", [])
         ])
+    registry.finalize()
     market["signal_radar"]["red_flag_companies"] = _deidentify_red_flag_companies(
         market["signal_radar"].get("red_flag_companies", []), registry
     )
@@ -551,6 +602,10 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> di
         focus_detail["top_companies"] = _deidentify_focus_companies(
             focus_detail.get("top_companies", []), registry
         )
+    market["company_boards"] = {
+        "hiring": _deidentify_board(hiring_rows, registry),
+        "salary": _deidentify_board(salary_rows, registry),
+    }
 
     meta = _crawl_meta(conn)
 
