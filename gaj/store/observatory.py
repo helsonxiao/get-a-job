@@ -17,8 +17,13 @@ _UNKNOWN = "未知"
 
 
 def _norm(value: str | None) -> str:
-    """NULL/空字段归一为展示值"未知", 与下钻筛选口径对齐。"""
-    return value if value else _UNKNOWN
+    """NULL/空字段归一为展示值"未知", 与下钻筛选口径对齐。
+
+    同时做 strip 规范化: 行业/城市名首尾空白会产生同名词重复条目 (回归 bug 修复)。
+    """
+    if not value:
+        return _UNKNOWN
+    return value.strip() or _UNKNOWN
 
 
 def _percentile(sorted_vals: list[float], p: float) -> float | None:

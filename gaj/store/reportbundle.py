@@ -515,22 +515,26 @@ def _company_board_rows(conn: sqlite3.Connection, top_n: int = 10):
         f" FROM jobs j LEFT JOIN companies c ON c.brand_id = j.company_id"
         f" WHERE {observatory._VISIBLE}"
     ).fetchall()
-    comp: dict = defaultdict(lambda: {"jobs": 0, "salaries": [], "industry": "", "name": ""})
+    comp: dict = defaultdict(lambda: {"jobs": 0, "salaries": [], "industries": [], "name": ""})
     for r in rows:
         if not r["company_id"]:
             continue
         d = comp[r["company_id"]]
         d["jobs"] += 1
-        d["industry"] = r["industry"] or d["industry"]
+        # 行业规范化去重: 收集非空行业, 后续取众数 (修复同公司多行业值被最后一条覆盖的问题)
+        if (r["industry"] or "").strip():
+            d["industries"].append(r["industry"].strip())
         d["name"] = r["company_name"] or d["name"]
         if r["salary_mid"]:
             d["salaries"].append(r["salary_mid"])
-    out = [
-        {"_key": cid, "company_name": d["name"], "industry": d["industry"],
-         "job_count": d["jobs"], "salary_samples": len(d["salaries"]),
-         "avg_salary": observatory._median(d["salaries"]) if d["salaries"] else None}
-        for cid, d in comp.items()
-    ]
+    out = []
+    for cid, d in comp.items():
+        ind_counter = Counter(d["industries"])
+        industry = ind_counter.most_common(1)[0][0] if ind_counter else observatory._UNKNOWN
+        out.append({"_key": cid, "company_name": d["name"], "industry": industry,
+                    "job_count": d["jobs"], "salary_samples": len(d["salaries"]),
+                    "avg_salary": observatory._median(d["salaries"]) if d["salaries"] else None})
+    
     hiring = sorted(out, key=lambda c: (-c["job_count"], c["_key"]))[:top_n]
     salary_board = sorted(
         (c for c in out if c["avg_salary"] is not None and c["salary_samples"] >= 2),
