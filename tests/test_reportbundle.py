@@ -137,7 +137,7 @@ def test_red_flag_companies_named(conn):
     flags = radar["red_flag_companies"]
     assert flags, "夹具应产出至少一家红旗公司"
     for c in flags:
-        assert set(c) == {"company", "job_count", "heavy_overtime",
+        assert set(c) == {"company", "job_count", "hours_per_day", "heavy_overtime",
                           "outsourcing", "travel", "flags", "avg_salary"}
 
 

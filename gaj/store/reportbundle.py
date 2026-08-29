@@ -33,6 +33,16 @@ FORBIDDEN_KEYS = frozenset({
 _ALIAS_POOL = "ABCDEFGH"
 
 
+#: 信号判定规则说明 (与 core/signals.py 的规则一一对应, 随报告输出保证可复现)
+SIGNAL_DEFINITIONS = {
+    "heavy_overtime": "规则判定：JD 明确提及 996/大小周/单休等作息 → 判为长工时；或公司公示工时 ≥10 小时/天；或供餐/宿舍/班车/房补等 3 项以上长工时伴随福利叠加",
+    "moderate_overtime": "规则判定：JD 有 1-2 项长工时伴随福利，或未证实双休",
+    "light_overtime": "规则判定：JD 明确双休/弹性作息，或公示工时 ≤8.5 小时/天",
+    "outsourcing": "规则判定：JD 含外包/驻场等表述，或公司名/所属行业含「外包、人力、劳务、派遣」字样",
+    "travel": "规则判定：JD 明确「长期出差/常驻项目地」计为频繁档，仅提及「出差」计为偶尔档，未提及计为无",
+    "tech_depth": "规则判定：统计 JD 命中技术深度关键词（架构设计、性能优化、技术选型、高并发、分布式、源码等 14 个）的个数，0 = JD 未体现",
+}
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
@@ -212,11 +222,12 @@ def _focus_company_entries(top_companies: list[dict]) -> list[dict]:
     ]
 
 
-def _red_flag_entries(red_flag_companies: list[dict]) -> list[dict]:
-    """红旗公司榜: 真实公司名 + 聚合信号计数与标签, 去除 brand_id。"""
+def _red_flag_entries(red_flag_companies: list[dict], hours_map: dict) -> list[dict]:
+    """信号公司榜: 真实公司名 + 公示工时(客观列) + 聚合信号计数, 去除 brand_id。"""
     return [
         {"company": c.get("name") or "未知公司",
          "job_count": c.get("job_count"),
+         "hours_per_day": hours_map.get(_company_key(c)),
          "heavy_overtime": c.get("heavy_overtime"),
          "outsourcing": c.get("outsourcing"),
          "travel": c.get("travel"),
@@ -565,11 +576,11 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> di
     market = {
         "salary_pricing": with_pricing,
         "industry_list": industry_list,
-        "signal_radar": observatory.observatory_signal_radar(conn),
+        "signal_radar": {**observatory.observatory_signal_radar(conn),
+                         "definitions": SIGNAL_DEFINITIONS},
         "skill_leaderboard": observatory.observatory_skill_leaderboard(conn, top_n=15),
         "employer_profile": _employer_block(conn),
         "geo": _geo_block(conn),
-        "quadrant_dist": _quadrant_block(conn, industry_list.get("market_median")),
     }
 
     hiring_rows, salary_rows = _company_board_rows(conn)
@@ -585,8 +596,12 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> di
     registry.build([dict(c) for c in hiring_rows])
     registry.build([dict(c) for c in salary_rows])
     registry.finalize()
+    hours_map = {
+        row[0]: row[1]
+        for row in conn.execute("SELECT brand_id, hours_per_day FROM companies")
+    }
     market["signal_radar"]["red_flag_companies"] = _red_flag_entries(
-        market["signal_radar"].get("red_flag_companies", [])
+        market["signal_radar"].get("red_flag_companies", []), hours_map
     )
     if focus_detail is not None:
         focus_detail["top_companies"] = _focus_company_entries(
