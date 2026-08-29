@@ -662,3 +662,14 @@
 .obs-industry-inline [data-lucide] { width: 12px; height: 12px; }
 .obs-link { color: var(--gaj-primary); cursor: pointer; }
 .obs-link:hover { text-decoration: underline; }
+
+/* 雇主画像 Tab: 迷你占比条 + 统计卡 */
+.obs-minibar { height: 6px; border-radius: 3px; background: var(--gaj-surface-3); overflow: hidden; min-width: 60px; }
+.obs-minibar i { display: block; height: 100%; background: var(--gaj-primary-border); border-radius: 3px; }
+.obs-stat-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px; }
+.obs-stat-card {
+  flex: 1 1 140px; padding: 12px 14px; border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-md); background: var(--gaj-bg);
+}
+.obs-stat-card b { display: block; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.obs-stat-card span { font-size: 11px; color: var(--gaj-foreground-3); }

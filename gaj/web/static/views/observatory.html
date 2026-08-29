@@ -19,6 +19,9 @@
       <button class="tab" :class="{active: tab === 'quadrant'}" @click="setTab('quadrant')">
         <i data-lucide="scatter-chart"></i> 公司象限
       </button>
+      <button class="tab" :class="{active: tab === 'employer'}" @click="setTab('employer')">
+        <i data-lucide="building-2"></i> 雇主画像
+      </button>
     </div>
 
     <!-- 薪资定价 (S2) -->
@@ -159,6 +162,93 @@
                       <td x-text="d.company_count || 0"></td>
                       <td x-text="d.top_company || '—'"></td>
                       <td x-text="d.avg_salary != null ? d.avg_salary : '—'"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+
+
+    <!-- 雇主画像 (schema 1.2+): 月薪构成/带宽/规模/工时/福利/面议/活跃度 -->
+    <template x-if="tab === 'employer'">
+      <div>
+        <template x-if="loading">
+          <div class="obs-loading">加载中...</div>
+        </template>
+        <template x-if="!loading && (!employer || !employer.sample_count)">
+          <div class="obs-empty">样本不足, 暂无雇主画像数据</div>
+        </template>
+        <template x-if="!loading && employer && employer.sample_count">
+          <div>
+            <div class="obs-section">
+              <div class="obs-section-title">
+                <i data-lucide="building-2"></i> 雇主画像总览
+                <span class="obs-meta" x-text="'样本 ' + employer.sample_count + ' 岗'"></span>
+              </div>
+              <div class="obs-stat-row">
+                <div class="obs-stat-card"><b x-text="fmtPct(employer.negotiable_ratio)"></b><span>面议岗位占比</span></div>
+                <div class="obs-stat-card"><b x-text="fmtPct(employer.online_ratio)"></b><span>在招活跃度</span></div>
+                <div class="obs-stat-card"><b x-text="employer.salary_spread.median_abs_wan != null ? employer.salary_spread.median_abs_wan + ' 万' : '—'"></b><span>JD标注带宽中位</span></div>
+                <div class="obs-stat-card"><b x-text="employer.salary_spread.median_ratio != null ? fmtPct(employer.salary_spread.median_ratio, 0) : '—'"></b><span>带宽 / 中值</span></div>
+              </div>
+            </div>
+            <div class="obs-section">
+              <div class="obs-section-title"><i data-lucide="calendar-days"></i> 薪资月数构成 <span class="obs-meta">未标注按 12 薪归档</span></div>
+              <table class="obs-table">
+                <thead><tr><th>月数</th><th>岗位数</th><th>占比</th></tr></thead>
+                <tbody>
+                  <template x-for="m in (employer.months_mix || [])" :key="m.months">
+                    <tr>
+                      <td x-text="m.months + '薪'"></td>
+                      <td x-text="m.count"></td>
+                      <td>
+                        <div class="obs-minibar"><i :style="'width:' + (m.ratio * 100) + '%'"></i></div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <div class="obs-section">
+              <div class="obs-section-title"><i data-lucide="building"></i> 公司规模段 × 薪资</div>
+              <table class="obs-table">
+                <thead><tr><th>规模段</th><th>在招岗位</th><th>公司数</th><th>薪资中位(万/年)</th></tr></thead>
+                <tbody>
+                  <template x-for="s in (employer.scale_dist || [])" :key="s.bucket">
+                    <tr><td x-text="s.bucket"></td><td x-text="s.job_count"></td><td x-text="s.company_count"></td><td x-text="s.salary_median != null ? s.salary_median : '—'"></td></tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <div class="obs-section">
+              <div class="obs-section-title"><i data-lucide="clock-3"></i> 公示工时分布 <span class="obs-meta">公司页公示口径, 非实际考勤</span></div>
+              <table class="obs-table">
+                <thead><tr><th>工时段</th><th>岗位数</th><th>占比</th></tr></thead>
+                <tbody>
+                  <template x-for="h in (employer.hours_dist || [])" :key="h.bucket">
+                    <tr>
+                      <td x-text="h.bucket"></td>
+                      <td x-text="h.count"></td>
+                      <td><div class="obs-minibar"><i :style="'width:' + (h.ratio * 100) + '%'"></i></div></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <div class="obs-section">
+              <div class="obs-section-title"><i data-lucide="heart-handshake"></i> 福利标签 Top 10</div>
+              <table class="obs-table">
+                <thead><tr><th>福利</th><th>岗位数</th><th>覆盖率</th></tr></thead>
+                <tbody>
+                  <template x-for="w in (employer.top_welfare || [])" :key="w.welfare">
+                    <tr>
+                      <td x-text="w.welfare"></td>
+                      <td x-text="w.count"></td>
+                      <td><div class="obs-minibar"><i :style="'width:' + (w.ratio * 100) + '%'"></i></div></td>
                     </tr>
                   </template>
                 </tbody>

@@ -150,6 +150,11 @@ document.addEventListener('alpine:init', () => {
       this.drillDetail = { type: 'job', loading: false, data: d };
     },
 
+    fmtPct(v, nd = 1) {
+      if (v == null) return '—';
+      return (v * 100).toFixed(nd) + '%';
+    },
+
     async load(tab) {
       if (tab === 'quadrant') {
         await this.loadQuadrant();
