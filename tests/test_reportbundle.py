@@ -77,7 +77,7 @@ def _walk_keys(obj):
 
 def test_bundle_top_level_contract(conn):
     bundle = reportbundle.build_report_bundle(conn)
-    assert bundle["schema_version"] == "1.3"
+    assert bundle["schema_version"] == "2.0"
     assert set(bundle) >= {
         "schema_version", "generated_at", "data_fingerprint",
         "meta", "quality", "market", "focus",
@@ -111,32 +111,34 @@ def test_fingerprint_stable_but_generated_at_changes(conn):
     assert b1["generated_at"] <= b2["generated_at"]
 
 
-def test_focus_companies_deidentified(conn):
+def test_focus_companies_named(conn):
+    """完整版: 焦点行业代表公司暴露真实名, 但无 brand_id/个人打分。"""
     bundle = reportbundle.build_report_bundle(conn)
     focus = bundle["focus"]
     assert focus["industry"] == "计算机软件"
     detail = focus["detail"]
     raw = json.dumps(detail, ensure_ascii=False)
-    # 明文公司名 / brand_id / 个人打分 不得出现
-    for secret in ("甲公司一", "甲公司二", "甲公司三", "c1", "c2", "c3"):
+    assert "甲公司一" in raw and "甲公司二" in raw
+    for secret in ("c1", "c2", "c3", "best_score"):
         assert secret not in raw
-    aliases = [c["alias"] for c in detail["top_companies"]]
-    assert aliases[0] == "公司A"
-    for c in detail["top_companies"]:
-        assert set(c) == {"alias", "job_count", "avg_salary"}
+    comps = detail["top_companies"]
+    assert comps[0]["company"].startswith("甲")
+    for c in comps:
+        assert set(c) == {"company", "job_count", "avg_salary"}
 
 
-def test_red_flag_companies_deidentified(conn):
+def test_red_flag_companies_named(conn):
     bundle = reportbundle.build_report_bundle(conn)
     radar = bundle["market"]["signal_radar"]
     raw = json.dumps(radar, ensure_ascii=False)
-    for secret in ("红旗甲", "红旗乙", "c5", "c6"):
+    assert "红旗甲" in raw and "红旗乙" in raw
+    for secret in ("c5", "c6", "brand_id", "alias"):
         assert secret not in raw
     flags = radar["red_flag_companies"]
     assert flags, "夹具应产出至少一家红旗公司"
     for c in flags:
-        assert "brand_id" not in c and "name" not in c
-        assert c["alias"].startswith("公司")
+        assert set(c) == {"company", "job_count", "heavy_overtime",
+                          "outsourcing", "travel", "flags", "avg_salary"}
 
 
 def test_no_single_record_leakage(conn):
@@ -176,41 +178,48 @@ def test_real_db_smoke_if_present():
     if not cfg.INDEX_DB.exists():
         pytest.skip("真实 index.db 不存在, 跳过")
     with index.session() as real_conn:
-        secrets = {
+        company_names = {
             row[0] for row in real_conn.execute(
                 "SELECT DISTINCT name FROM companies WHERE name IS NOT NULL AND name != ''"
             )
         }
-        secrets |= {
-            row[0] for row in real_conn.execute(
-                "SELECT DISTINCT brand_id FROM companies"
-            )
+        brand_ids = {
+            row[0] for row in real_conn.execute("SELECT DISTINCT brand_id FROM companies")
         }
         bundle = reportbundle.build_report_bundle(real_conn)
     assert bundle["meta"]["job_count"] > 0
     keys = set(_walk_keys(bundle))
     assert not (keys & reportbundle.FORBIDDEN_KEYS)
     raw = json.dumps(bundle, ensure_ascii=False)
-    leaked = [s for s in secrets if len(s) >= 4 and s in raw]
-    assert not leaked, f"真实公司名/brand_id 值级泄漏: {leaked[:5]}"
+    # 完整版: 真实公司名必须出现在双榜; brand_id 值仍不得出现
+    boards_raw = json.dumps(bundle["market"]["company_boards"]["hiring"], ensure_ascii=False)
+    hit = [n for n in company_names if len(n) >= 4 and n in boards_raw]
+    assert hit, "双榜未包含任何真实公司名 (完整版应暴露公司名)"
+    leaked = [b for b in brand_ids if len(b) >= 4 and b in raw]
+    assert not leaked, f"brand_id 值级泄漏: {leaked[:5]}"
 
 
-def test_company_boards_deidentified(conn):
+def test_company_boards_named_and_lite(conn):
+    """2.0: 完整版双榜真实名; lite 版双榜别名, 两版数据同源。"""
     bundle = reportbundle.build_report_bundle(conn)
     boards = bundle["market"]["company_boards"]
     raw = json.dumps(boards, ensure_ascii=False)
-    for secret in ("甲公司一", "甲公司二", "红旗甲", "c1", "c5"):
+    assert "甲公司一" in raw
+    for secret in ("c1", "brand_id", "company_name"):
         assert secret not in raw
-    # 招聘力度榜按在招数降序; 薪资榜样本 >= 2
     jobs = [c["job_count"] for c in boards["hiring"]]
     assert jobs == sorted(jobs, reverse=True) and jobs[0] == 4
-    assert all(c["avg_salary"] is not None for c in boards["salary"])
-    assert all(set(c) == {"alias", "industry", "job_count", "avg_salary"} for c in boards["hiring"])
-    # 别名跨榜一致: 同一公司在两榜拿到同一别名; 每榜内部唯一
-    assert boards["hiring"][0]["alias"] == "公司A"
-    h_alias = {c["alias"]: c for c in boards["hiring"]}
-    s_alias = {c["alias"]: c for c in boards["salary"]}
-    assert len(h_alias) == len(boards["hiring"]) and len(s_alias) == len(boards["salary"])
-    for a, c in s_alias.items():
-        if a in h_alias:
-            assert h_alias[a]["job_count"] == c["job_count"], f"{a} 两榜在招数不一致"
+    for c in boards["hiring"]:
+        assert set(c) == {"company", "industry", "job_count", "avg_salary"}
+    # lite 版: 别名且唯一
+    lite_h = boards["hiring_lite"]
+    lite_s = boards["salary_lite"]
+    assert all(set(c) == {"alias", "industry", "job_count", "avg_salary"} for c in lite_h)
+    assert len({c["alias"] for c in lite_h}) == len(lite_h), "招聘榜别名不唯一"
+    assert len({c["alias"] for c in lite_s}) == len(lite_s), "薪资榜别名不唯一"
+    h_map = {c["alias"]: c for c in lite_h}
+    for c in lite_s:
+        if c["alias"] in h_map:
+            assert h_map[c["alias"]]["job_count"] == c["job_count"], "跨榜同别名但数据不一致"
+    # 同源: 真名版与别名版在招数一致 (同名公司)
+    assert [c["job_count"] for c in boards["hiring"]] == [c["job_count"] for c in lite_h]

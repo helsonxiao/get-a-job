@@ -22,12 +22,12 @@ from pathlib import Path
 from .. import config as cfg
 from . import observatory
 
-SCHEMA_VERSION = "1.3"
+SCHEMA_VERSION = "2.0"
 
 #: 输出契约中禁止出现的字段名 (防止未来改动引入单条记录泄漏)
 FORBIDDEN_KEYS = frozenset({
     "job_id", "url", "address", "gps", "lat", "lng", "brand_id",
-    "boss", "company_name", "first_seen", "last_seen", "indexed_at",
+    "boss", "first_seen", "last_seen", "indexed_at",
 })
 
 _ALIAS_POOL = "ABCDEFGH"
@@ -202,36 +202,28 @@ def _company_key(item: dict) -> str | None:
     return item.get("brand_id") or item.get("name") or None
 
 
-def _deidentify_focus_companies(
-    top_companies: list[dict], registry: _AliasRegistry
-) -> list[dict]:
-    """代表公司脱敏: 明文公司名 → 别名, 去除 brand_id 与个人打分字段。"""
-    result = []
-    for c in top_companies:
-        result.append({
-            "alias": registry.alias(_company_key(c)),
-            "job_count": c.get("job_count"),
-            "avg_salary": c.get("avg_salary"),
-        })
-    return result
+def _focus_company_entries(top_companies: list[dict]) -> list[dict]:
+    """焦点行业代表公司: 真实公司名 + 在招数 + 均薪, 去除 brand_id/个人打分。"""
+    return [
+        {"company": c.get("name") or "未知公司",
+         "job_count": c.get("job_count"),
+         "avg_salary": c.get("avg_salary")}
+        for c in top_companies
+    ]
 
 
-def _deidentify_red_flag_companies(
-    red_flag_companies: list[dict], registry: _AliasRegistry
-) -> list[dict]:
-    """红旗公司榜脱敏: 保留聚合信号计数与标签, 去除 brand_id/明文名。"""
-    result = []
-    for c in red_flag_companies:
-        result.append({
-            "alias": registry.alias(_company_key(c)),
-            "job_count": c.get("job_count"),
-            "heavy_overtime": c.get("heavy_overtime"),
-            "outsourcing": c.get("outsourcing"),
-            "travel": c.get("travel"),
-            "flags": c.get("flags", []),
-            "avg_salary": c.get("avg_salary"),
-        })
-    return result
+def _red_flag_entries(red_flag_companies: list[dict]) -> list[dict]:
+    """红旗公司榜: 真实公司名 + 聚合信号计数与标签, 去除 brand_id。"""
+    return [
+        {"company": c.get("name") or "未知公司",
+         "job_count": c.get("job_count"),
+         "heavy_overtime": c.get("heavy_overtime"),
+         "outsourcing": c.get("outsourcing"),
+         "travel": c.get("travel"),
+         "flags": c.get("flags", []),
+         "avg_salary": c.get("avg_salary")}
+        for c in red_flag_companies
+    ]
 
 
 # ---------------------------------------------------------------- 雇主画像
@@ -508,22 +500,23 @@ def _quadrant_block(conn: sqlite3.Connection, market_median) -> dict:
 def _company_board_rows(conn: sqlite3.Connection, top_n: int = 10):
     """公司双榜原始行 (未脱敏, 仅供注册表与内部脱敏函数消费): 招聘力度榜 + 薪资榜。"""
     rows = conn.execute(
-        f"SELECT j.company_id, j.salary_mid, c.industry"
+        f"SELECT j.company_id, j.company_name, j.salary_mid, c.industry"
         f" FROM jobs j LEFT JOIN companies c ON c.brand_id = j.company_id"
         f" WHERE {observatory._VISIBLE}"
     ).fetchall()
-    comp: dict = defaultdict(lambda: {"jobs": 0, "salaries": [], "industry": ""})
+    comp: dict = defaultdict(lambda: {"jobs": 0, "salaries": [], "industry": "", "name": ""})
     for r in rows:
         if not r["company_id"]:
             continue
         d = comp[r["company_id"]]
         d["jobs"] += 1
         d["industry"] = r["industry"] or d["industry"]
+        d["name"] = r["company_name"] or d["name"]
         if r["salary_mid"]:
             d["salaries"].append(r["salary_mid"])
     out = [
-        {"_key": cid, "industry": d["industry"], "job_count": d["jobs"],
-         "salary_samples": len(d["salaries"]),
+        {"_key": cid, "company_name": d["name"], "industry": d["industry"],
+         "job_count": d["jobs"], "salary_samples": len(d["salaries"]),
          "avg_salary": observatory._median(d["salaries"]) if d["salaries"] else None}
         for cid, d in comp.items()
     ]
@@ -535,15 +528,21 @@ def _company_board_rows(conn: sqlite3.Connection, top_n: int = 10):
     return hiring, salary_board
 
 
-def _deidentify_board(entries, registry) -> list:
-    """双榜脱敏: 别名 + 行业 + 在招数 + 均薪, 不含 brand_id/明文名。"""
-    return [
-        {"alias": registry.alias(c["_key"]),
-         "industry": c.get("industry") or observatory._UNKNOWN,
-         "job_count": c["job_count"],
-         "avg_salary": c["avg_salary"]}
-        for c in entries
-    ]
+def _board_entries(entries, registry, *, anonymize: bool) -> list:
+    """双榜条目: 完整版用真实公司名 (company), lite 版用脱敏别名 (alias)。
+
+    两者均不含 brand_id / 岗位链接 / 联系方式等单条记录字段。
+    """
+    out = []
+    for c in entries:
+        row = {"industry": c.get("industry") or observatory._UNKNOWN,
+               "job_count": c["job_count"], "avg_salary": c["avg_salary"]}
+        if anonymize:
+            row["alias"] = registry.alias(c["_key"])
+        else:
+            row["company"] = c.get("company_name") or "未知公司"
+        out.append(row)
+    return out
 
 
 def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> dict:
@@ -585,26 +584,19 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> di
     registry = _AliasRegistry()
     registry.build([dict(c) for c in hiring_rows])
     registry.build([dict(c) for c in salary_rows])
-    registry.build([
-        {**c, "_key": _company_key(c)}
-        for c in market["signal_radar"].get("red_flag_companies", [])
-    ])
-    if focus_detail is not None:
-        registry.build([
-            {**c, "_key": _company_key(c)}
-            for c in focus_detail.get("top_companies", [])
-        ])
     registry.finalize()
-    market["signal_radar"]["red_flag_companies"] = _deidentify_red_flag_companies(
-        market["signal_radar"].get("red_flag_companies", []), registry
+    market["signal_radar"]["red_flag_companies"] = _red_flag_entries(
+        market["signal_radar"].get("red_flag_companies", [])
     )
     if focus_detail is not None:
-        focus_detail["top_companies"] = _deidentify_focus_companies(
-            focus_detail.get("top_companies", []), registry
+        focus_detail["top_companies"] = _focus_company_entries(
+            focus_detail.get("top_companies", [])
         )
     market["company_boards"] = {
-        "hiring": _deidentify_board(hiring_rows, registry),
-        "salary": _deidentify_board(salary_rows, registry),
+        "hiring": _board_entries(hiring_rows, registry, anonymize=False),
+        "salary": _board_entries(salary_rows, registry, anonymize=False),
+        "hiring_lite": _board_entries(hiring_rows, registry, anonymize=True),
+        "salary_lite": _board_entries(salary_rows, registry, anonymize=True),
     }
 
     meta = _crawl_meta(conn)
