@@ -85,6 +85,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="只看报告, 不落盘")
     p.add_argument("--no-index", action="store_true", help="跳过索引重建")
 
+    # ---- strategy (个性化求职策略, 基于付费报告 bundle + 画像, 纯规则无 AI) ----
+    p = sub.add_parser("strategy", help="基于报告 bundle 与个人预期生成个性化求职策略")
+    p.add_argument("--bundle", required=True, help="报告 bundle JSON 路径")
+    p.add_argument("--profile", default="data/profile.md", help="个人画像 Markdown")
+    p.add_argument("--out", default=None, help="输出路径 (默认 stdout)")
+
     # ---- setup-chrome ----
     p = sub.add_parser("setup-chrome", help="启动 Chrome CDP 调试模式")
     p.add_argument("--port", type=int, default=9222)
@@ -238,6 +244,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         print(json.dumps(bundle, ensure_ascii=False, indent=2 if args.pretty else None))
         return 0
+
+    if args.command == "strategy":
+        from . import strategy
+
+        out_args = ["--out", args.out] if args.out else []
+        return strategy.main(["--bundle", args.bundle, "--profile", args.profile] + out_args)
 
     if args.command == "setup-chrome":
         from boss_scraper.chrome_manager import run_setup_chrome
