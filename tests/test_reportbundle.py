@@ -77,7 +77,7 @@ def _walk_keys(obj):
 
 def test_bundle_top_level_contract(conn):
     bundle = reportbundle.build_report_bundle(conn)
-    assert bundle["schema_version"] == "1.0"
+    assert bundle["schema_version"] == "1.1"
     assert set(bundle) >= {
         "schema_version", "generated_at", "data_fingerprint",
         "meta", "quality", "market", "focus",
@@ -88,6 +88,20 @@ def test_bundle_top_level_contract(conn):
     assert bundle["meta"]["window"]["last_seen_max"] == "2026-08-20T10:00:00"
     cities = {c["city"]: c["job_count"] for c in bundle["meta"]["cities"]}
     assert cities["无锡"] == 11 and cities["苏州"] == 5
+
+
+def test_employer_profile_block(conn):
+    emp = reportbundle.build_report_bundle(conn)["market"]["employer_profile"]
+    assert emp["sample_count"] == 16
+    # 月薪构成: 未标 months 的按 12 薪归档
+    assert any(m["months"] == 12 for m in emp["months_mix"])
+    # 工时分布桶齐全且计数守恒
+    assert sum(b["count"] for b in emp["hours_dist"]) == 16
+    # 规模段聚合含未知归档
+    assert sum(b["job_count"] for b in emp["scale_dist"]) == 16
+    # 福利词频来自夹具 skills 无 welfare 列 → 允许为空列表
+    assert isinstance(emp["top_welfare"], list)
+    assert emp["salary_spread"]["count"] >= 0
 
 
 def test_fingerprint_stable_but_generated_at_changes(conn):

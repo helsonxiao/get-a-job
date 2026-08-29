@@ -15,14 +15,14 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import config as cfg
 from . import observatory
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 #: 输出契约中禁止出现的字段名 (防止未来改动引入单条记录泄漏)
 FORBIDDEN_KEYS = frozenset({
@@ -229,6 +229,135 @@ def _deidentify_red_flag_companies(
     return result
 
 
+# ---------------------------------------------------------------- 雇主画像
+
+
+def _employer_block(conn: sqlite3.Connection) -> dict:
+    """雇主侧聚合 (schema 1.1 新增): 月薪构成/谈薪带宽/工时/规模/性质/福利。
+
+    全部为聚合统计, 不含单条记录; 数据来自 jobs × companies 左连接。
+    """
+    rows = conn.execute(
+        f"SELECT j.company_id, j.salary_mid, j.salary_min, j.salary_max, j.salary_months,"
+        f" j.welfare, c.scale_min, c.scale_max, c.nature, c.hours_per_day"
+        f" FROM jobs j LEFT JOIN companies c ON c.brand_id = j.company_id"
+        f" WHERE {observatory._VISIBLE}"
+    ).fetchall()
+    total = len(rows)
+
+    # 薪资月数构成 (12/13/14/15 薪…): 影响真实年包, 谈薪必看
+    months_counter: Counter = Counter(
+        r["salary_months"] or 12 for r in rows if r["salary_mid"]
+    )
+    salaried = sum(months_counter.values()) or 1
+    months_mix = [
+        {"months": m, "count": c, "ratio": round(c / salaried, 4)}
+        for m, c in sorted(months_counter.items())
+    ]
+
+    # JD 标注带宽: (max-min) 的中位绝对值与相对中值的比率, 反映标注口径下的可谈空间
+    spreads_abs, spreads_ratio = [], []
+    for r in rows:
+        if r["salary_min"] and r["salary_max"] and r["salary_mid"]:
+            spreads_abs.append(r["salary_max"] - r["salary_min"])
+            spreads_ratio.append((r["salary_max"] - r["salary_min"]) / r["salary_mid"])
+    salary_spread = {
+        "median_abs_wan": observatory._median(spreads_abs),
+        "median_ratio": observatory._median(spreads_ratio),
+        "count": len(spreads_abs),
+    }
+
+    # 公示工时分布 (公司页公示的每日工时)
+    def _hours_bucket(h):
+        if h is None:
+            return "未知"
+        if h <= 8:
+            return "≤8h"
+        if h <= 9:
+            return "8-9h"
+        if h <= 10:
+            return "9-10h"
+        return "10h+"
+
+    hours_counter: Counter = Counter(
+        _hours_bucket(r["hours_per_day"]) for r in rows
+    )
+    order = ["≤8h", "8-9h", "9-10h", "10h+", "未知"]
+    hours_dist = [
+        {"bucket": b, "count": hours_counter.get(b, 0),
+         "ratio": round(hours_counter.get(b, 0) / total, 4) if total else None}
+        for b in order
+    ]
+
+    # 公司规模段 × 岗位数/公司数/薪资中位
+    def _scale_bucket(r):
+        s = r["scale_max"] or r["scale_min"]
+        if s is None:
+            return "未知规模"
+        if s < 50:
+            return "50人以下"
+        if s < 150:
+            return "50-150人"
+        if s < 500:
+            return "150-500人"
+        if s < 1000:
+            return "500-1000人"
+        return "1000人以上"
+
+    scale_map: dict = defaultdict(lambda: {"jobs": 0, "companies": set(), "salaries": []})
+    for r in rows:
+        b = _scale_bucket(r)
+        scale_map[b]["jobs"] += 1
+        if r["company_id"]:
+            scale_map[b]["companies"].add(r["company_id"])
+        if r["salary_mid"]:
+            scale_map[b]["salaries"].append(r["salary_mid"])
+    scale_order = ["50人以下", "50-150人", "150-500人", "500-1000人", "1000人以上", "未知规模"]
+    scale_dist = [
+        {"bucket": b,
+         "job_count": scale_map[b]["jobs"],
+         "company_count": len(scale_map[b]["companies"]),
+         "salary_median": (
+             observatory._median(scale_map[b]["salaries"])
+             if len(scale_map[b]["salaries"]) >= observatory._MIN_SALARY else None
+         )}
+        for b in scale_order if b in scale_map
+    ]
+
+    # 公司性质分布
+    nature_counter: Counter = Counter(
+        observatory._norm(r["nature"]) for r in rows
+    )
+    nature_dist = [
+        {"nature": n, "count": c, "ratio": round(c / total, 4) if total else None}
+        for n, c in nature_counter.most_common(6)
+    ]
+
+    # 福利 Top10 (JD 福利标签词频)
+    welfare_counter: Counter = Counter()
+    for r in rows:
+        try:
+            for w in json.loads(r["welfare"] or "[]"):
+                if w:
+                    welfare_counter[str(w)] += 1
+        except Exception:
+            pass
+    top_welfare = [
+        {"welfare": w, "count": c, "ratio": round(c / total, 4) if total else None}
+        for w, c in welfare_counter.most_common(10)
+    ]
+
+    return {
+        "sample_count": total,
+        "months_mix": months_mix,
+        "salary_spread": salary_spread,
+        "hours_dist": hours_dist,
+        "scale_dist": scale_dist,
+        "nature_dist": nature_dist,
+        "top_welfare": top_welfare,
+    }
+
+
 # ---------------------------------------------------------------- 组装
 
 
@@ -254,6 +383,7 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> di
         "industry_list": industry_list,
         "signal_radar": observatory.observatory_signal_radar(conn),
         "skill_leaderboard": observatory.observatory_skill_leaderboard(conn, top_n=15),
+        "employer_profile": _employer_block(conn),
     }
 
     focus_name = items[0]["name"] if items else None
