@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     salary_max      REAL,
     salary_mid      REAL,
     salary_months   INTEGER,
+    salary_negotiable INTEGER,
     exp_min         REAL,
     exp_max         REAL,
     edu_level       INTEGER,
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     outsourcing     INTEGER,
     travel          TEXT,
     team_size       INTEGER,
+    tech_depth      INTEGER,
     online          INTEGER,
     first_seen      TEXT,
     last_seen       TEXT,
@@ -189,6 +191,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN ai_stale_reason TEXT")
     if "business_district" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN business_district TEXT")
+    if "salary_negotiable" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN salary_negotiable INTEGER")
+    if "tech_depth" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN tech_depth INTEGER")
     if "lat" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN lat REAL")
     if "lng" not in cols:
@@ -270,6 +276,7 @@ def _job_row(
         "salary_max": job.salary.get("max_10k"),
         "salary_mid": job.salary.get("mid_10k"),
         "salary_months": job.salary.get("months"),
+        "salary_negotiable": 1 if job.salary.get("negotiable") else 0,
         "exp_min": job.experience.get("min_years"),
         "exp_max": job.experience.get("max_years"),
         "edu_level": job.education.get("level"),
@@ -282,6 +289,7 @@ def _job_row(
         "outsourcing": 1 if (sig.get("outsourcing") or {}).get("value") else 0,
         "travel": (sig.get("travel") or {}).get("value"),
         "team_size": (sig.get("team_size") or {}).get("value"),
+        "tech_depth": (sig.get("tech_depth") or {}).get("value"),
         "online": 1 if job.online else 0,
         "first_seen": job.first_seen,
         "last_seen": job.last_seen,
