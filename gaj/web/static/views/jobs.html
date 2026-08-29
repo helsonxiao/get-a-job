@@ -333,9 +333,9 @@
               <div class="pct-zone p50" :style="'left:' + (marketRef.market.p25 / marketRef.market.p75 * 100) + '%;width:' + ((marketRef.market.p50 - marketRef.market.p25) / marketRef.market.p75 * 100) + '%'"></div>
               <div class="pct-zone p75" :style="'left:' + (marketRef.market.p50 / marketRef.market.p75 * 100) + '%;width:' + ((marketRef.market.p75 - marketRef.market.p50) / marketRef.market.p75 * 100) + '%'"></div>
             </div>
-            <span class="pct-tick p25" :style="'left:' + (marketRef.market.p25 / marketRef.market.p75 * 100) + '%'" x-text="'P25 ' + marketRef.market.p25"></span>
-            <span class="pct-tick p50" :style="'left:' + (marketRef.market.p50 / marketRef.market.p75 * 100) + '%'" x-text="'P50 ' + marketRef.market.p50"></span>
-            <span class="pct-tick p75" :style="'left:' + (marketRef.market.p75 / marketRef.market.p75 * 100) + '%'" x-text="'P75 ' + marketRef.market.p75"></span>
+            <span class="pct-tick p25 up" :style="'left:' + (marketRef.market.p25 / marketRef.market.p75 * 100) + '%'"><b>P25</b><i x-text="marketRef.market.p25"></i></span>
+            <span class="pct-tick p50 down" :style="'left:' + (marketRef.market.p50 / marketRef.market.p75 * 100) + '%'"><b>P50</b><i x-text="marketRef.market.p50"></i></span>
+            <span class="pct-tick p75 up" :style="'left:' + (marketRef.market.p75 / marketRef.market.p75 * 100) + '%'"><b>P75</b><i x-text="marketRef.market.p75"></i></span>
             <span class="pct-marker" :class="{over: jobAnnualWan() > marketRef.market.p75, under: jobAnnualWan() < marketRef.market.p25}"
                   :style="'left:' + Math.min(98, jobAnnualWan() / marketRef.market.p75 * 100) + '%'" :title="'本岗 ' + jobAnnualWan() + ' 万/年'"></span>
             <div class="pct-legend">

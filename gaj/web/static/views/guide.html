@@ -263,9 +263,9 @@
                 <div class="pct-zone p50" :style="'left:' + (companyMarket.p25 / companyMarket.p75 * 100) + '%;width:' + ((companyMarket.p50 - companyMarket.p25) / companyMarket.p75 * 100) + '%'"></div>
                 <div class="pct-zone p75" :style="'left:' + (companyMarket.p50 / companyMarket.p75 * 100) + '%;width:' + ((companyMarket.p75 - companyMarket.p50) / companyMarket.p75 * 100) + '%'"></div>
               </div>
-              <span class="pct-tick p25" :style="'left:' + (companyMarket.p25 / companyMarket.p75 * 100) + '%'" x-text="'P25 ' + companyMarket.p25"></span>
-              <span class="pct-tick p50" :style="'left:' + (companyMarket.p50 / companyMarket.p75 * 100) + '%'" x-text="'P50 ' + companyMarket.p50"></span>
-              <span class="pct-tick p75" :style="'left:' + (companyMarket.p75 / companyMarket.p75 * 100) + '%'" x-text="'P75 ' + companyMarket.p75"></span>
+              <span class="pct-tick p25 up" :style="'left:' + (companyMarket.p25 / companyMarket.p75 * 100) + '%'"><b>P25</b><i x-text="companyMarket.p25"></i></span>
+              <span class="pct-tick p50 down" :style="'left:' + (companyMarket.p50 / companyMarket.p75 * 100) + '%'"><b>P50</b><i x-text="companyMarket.p50"></i></span>
+              <span class="pct-tick p75 up" :style="'left:' + (companyMarket.p75 / companyMarket.p75 * 100) + '%'"><b>P75</b><i x-text="companyMarket.p75"></i></span>
               <span class="pct-marker" :class="{over: companyMarket.midAvg > companyMarket.p75, under: companyMarket.midAvg < companyMarket.p25}"
                     :style="'left:' + Math.min(98, companyMarket.midAvg / companyMarket.p75 * 100) + '%'" :title="'公司均薪 ' + companyMarket.midAvg + ' 万/年'"></span>
               <div class="pct-legend">
