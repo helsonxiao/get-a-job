@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/report", tags=["report"])
 
 @router.get("/bundle")
 async def api_report_bundle(
-    top_industries: int = Query(8, ge=1, le=20),
+    top_industries: int = Query(12, ge=1, le=40),
 ) -> dict:
     """报告数据包: 单次调用返回生成报告所需的全部聚合数据。"""
     with index.session() as conn:

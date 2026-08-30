@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
         help="输出报告数据包 (JSON): 口径元数据 + 质量基线 + 市场聚合, stdout 输出",
     )
     p.add_argument("--pretty", action="store_true", help="缩进美化输出")
-    p.add_argument("--top-industries", type=int, default=8, help="行业对比表取前 N 个 (默认 8)")
+    p.add_argument("--top-industries", type=int, default=12, help="行业对比候选池容量 (schema 2.2 默认 12, 生成器按样本量自适应切片)")
 
     # ---- agent (面向 AI 智能体的 JSON 接口, 详见 AGENT.md) ----
     p = sub.add_parser(
