@@ -77,7 +77,7 @@ def _walk_keys(obj):
 
 def test_bundle_top_level_contract(conn):
     bundle = reportbundle.build_report_bundle(conn)
-    assert bundle["schema_version"] == "2.0"
+    assert bundle["schema_version"] == "2.1"
     assert set(bundle) >= {
         "schema_version", "generated_at", "data_fingerprint",
         "meta", "quality", "market", "focus",
@@ -200,7 +200,7 @@ def test_real_db_smoke_if_present():
 
 
 def test_company_boards_named_and_lite(conn):
-    """2.0: 完整版双榜真实名; lite 版双榜别名, 两版数据同源。"""
+    """2.1: 完整版双榜真实名+城市标注; lite 版双榜别名 (不带 city 防反推)。"""
     bundle = reportbundle.build_report_bundle(conn)
     boards = bundle["market"]["company_boards"]
     raw = json.dumps(boards, ensure_ascii=False)
@@ -210,8 +210,9 @@ def test_company_boards_named_and_lite(conn):
     jobs = [c["job_count"] for c in boards["hiring"]]
     assert jobs == sorted(jobs, reverse=True) and jobs[0] == 4
     for c in boards["hiring"]:
-        assert set(c) == {"company", "industry", "job_count", "avg_salary"}
-    # lite 版: 别名且唯一
+        assert set(c) == {"company", "industry", "city", "job_count", "avg_salary"}
+        assert c["city"] in ("无锡", "苏州")
+    # lite 版: 别名且唯一, 不携带 city
     lite_h = boards["hiring_lite"]
     lite_s = boards["salary_lite"]
     assert all(set(c) == {"alias", "industry", "job_count", "avg_salary"} for c in lite_h)
@@ -223,3 +224,76 @@ def test_company_boards_named_and_lite(conn):
             assert h_map[c["alias"]]["job_count"] == c["job_count"], "跨榜同别名但数据不一致"
     # 同源: 真名版与别名版在招数一致 (同名公司)
     assert [c["job_count"] for c in boards["hiring"]] == [c["job_count"] for c in lite_h]
+
+
+# ------------------------------------------------------- v2.1 新增块契约测试
+
+
+def test_functions_block_contract(conn):
+    """职能分桶: 桶计数守恒, 字段齐全, 规则说明随包输出。"""
+    fn = reportbundle.build_report_bundle(conn)["market"]["functions"]
+    assert fn["method"]
+    items = fn["items"]
+    assert sum(i["job_count"] for i in items) == 16, "职能桶岗位数应守恒"
+    for it in items:
+        assert {"name", "job_count", "company_count", "salary_p25", "salary_p50",
+                "salary_p75", "salary_count", "exp_unlabeled_ratio", "top_skills"} <= set(it)
+    # 事后按名称可检索到具体桶 (标题无关键词时落入其他/未分类)
+    assert any(i["name"] == "其他/未分类" for i in items)
+
+
+def test_functions_title_keyword_routing(conn):
+    """标题关键词分桶: 嵌入式/算法/前端各自归桶 (先专后泛顺序)。"""
+    assert reportbundle._classify_function("嵌入式软件工程师") == "嵌入式/硬件/机械"
+    assert reportbundle._classify_function("图像算法工程师") == "算法/AI"
+    assert reportbundle._classify_function("前端开发工程师") == "前端/客户端"
+    assert reportbundle._classify_function("后端开发工程师") == "后端/软件开发"
+    assert reportbundle._classify_function("机械工程师") == "嵌入式/硬件/机械"
+    assert reportbundle._classify_function("神秘岗位") == "其他/未分类"
+
+
+def test_career_entry_block_honest(conn):
+    """应届生口径: 计数与 exp_min=0 岗位一致, 口径说明必须出现「未标注」语义。"""
+    conn.execute(
+        "UPDATE jobs SET exp_min = 0 WHERE job_id IN ('j10','j11','j50')"
+    )
+    conn.commit()
+    ce = reportbundle.build_report_bundle(conn)["market"]["career_entry"]
+    assert ce["unlabeled_exp_count"] == 3
+    assert ce["salary"]["count"] == 3
+    assert "未标注" in ce["method"] and "剔除" in ce["method"], "口径说明必须写明未标注语义与剔除规则"
+    assert ce["non_senior"]["count"] <= ce["unlabeled_exp_count"]
+    assert isinstance(ce["by_edu"], list) and isinstance(ce["by_city"], list)
+    assert isinstance(ce["top_companies"], list)
+    for c in ce["top_companies"]:
+        assert set(c) == {"company", "job_count", "salary_median"}
+
+
+def test_local_pricing_block(conn):
+    """本地口径: 主导城市为无锡, 全样本对照存在, 未标注城市数如实输出。"""
+    lp = reportbundle.build_report_bundle(conn)["market"]["local_pricing"]
+    assert lp is not None
+    assert lp["city"] == "无锡"
+    assert lp["salary"]["count"] == 11
+    assert lp["all_sample"]["job_count"] == 16
+    assert lp["unlabeled_city_jobs"] == 0
+    assert 0 <= (lp["unlabeled_city_ratio"] or 0) <= 1
+
+
+def test_skill_leaderboard_normalized_and_median(conn):
+    """报告口径技能榜: 别名合并 (C#开发经验→c#)、停用词滤除、水印清洗、中位数。"""
+    conn.execute("UPDATE jobs SET skills = ? WHERE job_id = 'j10'",
+                 ('["C#", "C#开发经验", "可适应出差", "AI大kanzhun模型", "机器boss视觉"]',))
+    conn.commit()
+    board = reportbundle.build_report_bundle(conn)["market"]["skill_leaderboard"]
+    assert board["premium_base"] == "market_median"
+    names = {s["skill"] for s in board["items"]}
+    assert "c#" in names
+    assert "c#开发经验" not in names, "别名未合并"
+    assert "可适应出差" not in names, "停用词未滤除"
+    for s in board["items"]:
+        assert "kanzhun" not in s["skill"] and "boss" not in s["skill"], "水印未清洗"
+    assert "ai大模型" in names and "机器视觉" in names
+    # avg_salary 键语义 = 中位数: 单样本中位等于该样本值
+    c_sharp = next(s for s in board["items"] if s["skill"] == "c#")
+    assert c_sharp["avg_salary"] == 20.0  # j10 salary_mid=20

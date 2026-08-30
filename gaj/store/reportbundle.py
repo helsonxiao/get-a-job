@@ -1,13 +1,24 @@
-"""报告数据打包层 —— 面向报告生成器的单一数据契约 (schema v1.0)。
+"""报告数据打包层 —— 面向报告生成器的单一数据契约 (schema v2.1)。
 
 设计要点:
 - 一次调用返回报告所需的全部聚合数据, 生成器无需自行拼装多个观察台接口。
 - 输出只含聚合统计与口径元数据, 不含任何可还原单条岗位记录的字段
-  (job_id / url / address / gps / 明文公司名 / brand_id), 由单元测试强制约束。
+  (job_id / url / address / gps / brand_id), 由单元测试强制约束。
 - 聚合逻辑复用 store.observatory, 本模块只负责: 口径元数据 + 质量基线 +
-  代表公司脱敏 + 组装。
+  代表公司脱敏 + 组装; 报告专有口径 (中位数统一) 在本层重算。
 - schema 版本规则: 删除字段或变更语义 → 升 major; 只增字段 → 升 minor。
   生成器按 schema_version 决定能否消费。
+
+v2.1 (2026-08-30, 读者价值审计):
+- market.functions: 岗位职能分桶聚合 (标题关键词规则, 规则随包公示)。
+- market.career_entry: 应届生入门口径 (JD 未标注经验门槛的岗位聚合)。
+- market.local_pricing: 主导城市本地口径 vs 全样本对照。
+- company_boards.hiring/salary 条目新增 city (公司已标注城市众数, 可为 null);
+  lite 版不带 city (防反推)。
+- skill_leaderboard 改为报告口径: 技能标签归一化 + 薪资中位数,
+  溢价基准 = 全市场中位 (与行业溢价口径一致)。
+- red_flag_companies / focus.top_companies / focus.top_districts 的 avg_salary
+  键名不变, 语义统一为中位数 (报告全文「薪资中位」标签对应同一口径)。
 """
 
 from __future__ import annotations
@@ -22,7 +33,7 @@ from pathlib import Path
 from .. import config as cfg
 from . import observatory
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "2.1"
 
 #: 输出契约中禁止出现的字段名 (防止未来改动引入单条记录泄漏)
 FORBIDDEN_KEYS = frozenset({
@@ -212,28 +223,59 @@ def _company_key(item: dict) -> str | None:
     return item.get("brand_id") or item.get("name") or None
 
 
-def _focus_company_entries(top_companies: list[dict]) -> list[dict]:
-    """焦点行业代表公司: 真实公司名 + 在招数 + 均薪, 去除 brand_id/个人打分。"""
+def _red_flag_entries(red_flag_companies: list[dict], hours_map: dict,
+                      company_median_map: dict | None = None) -> list[dict]:
+    """信号公司榜: 真实公司名 + 公示工时(客观列) + 聚合信号计数, 去除 brand_id。
+
+    avg_salary 语义为报告口径中位数: 传入 company_median_map 时按公司覆写。
+    """
+    out = []
+    for c in red_flag_companies:
+        med = None
+        if company_median_map is not None:
+            key = c.get("brand_id")
+            med = company_median_map.get(key) if key else None
+        elif c.get("avg_salary") is not None:
+            med = c.get("avg_salary")
+        out.append({"company": c.get("name") or "未知公司",
+                    "job_count": c.get("job_count"),
+                    "hours_per_day": hours_map.get(_company_key(c)),
+                    "heavy_overtime": c.get("heavy_overtime"),
+                    "outsourcing": c.get("outsourcing"),
+                    "travel": c.get("travel"),
+                    "flags": c.get("flags", []),
+                    "avg_salary": med})
+    return out
+
+
+def _focus_company_entries(top_companies: list[dict], comp_ind_median: dict,
+                           industry: str) -> list[dict]:
+    """焦点行业代表公司: 真实公司名 + 在招数 + 行业内薪资中位。
+
+    avg_salary 键名沿用契约, 语义 = 该公司在本行业内的薪资中位数
+    (comp_ind_median 查不到时保留观察台原值, 保证旧行为可用)。
+    """
     return [
         {"company": c.get("name") or "未知公司",
          "job_count": c.get("job_count"),
-         "avg_salary": c.get("avg_salary")}
+         "avg_salary": comp_ind_median.get(
+             (industry, c.get("brand_id")), c.get("avg_salary")
+         ) if c.get("brand_id") else c.get("avg_salary")}
         for c in top_companies
     ]
 
 
-def _red_flag_entries(red_flag_companies: list[dict], hours_map: dict) -> list[dict]:
-    """信号公司榜: 真实公司名 + 公示工时(客观列) + 聚合信号计数, 去除 brand_id。"""
+def _focus_district_entries(top_districts: list[dict], dist_ind_median: dict,
+                            industry: str) -> list[dict]:
+    """焦点行业区域分布: 区县岗位/公司数 + 行业×区县薪资中位。"""
     return [
-        {"company": c.get("name") or "未知公司",
-         "job_count": c.get("job_count"),
-         "hours_per_day": hours_map.get(_company_key(c)),
-         "heavy_overtime": c.get("heavy_overtime"),
-         "outsourcing": c.get("outsourcing"),
-         "travel": c.get("travel"),
-         "flags": c.get("flags", []),
-         "avg_salary": c.get("avg_salary")}
-        for c in red_flag_companies
+        {"district": d.get("district"),
+         "job_count": d.get("job_count"),
+         "company_count": d.get("company_count"),
+         "avg_salary": dist_ind_median.get(
+             (industry, d.get("district")), d.get("avg_salary")
+         )}
+        for d in top_districts
     ]
 
 
@@ -505,17 +547,340 @@ def _quadrant_block(conn: sqlite3.Connection, market_median) -> dict:
     }
 
 
+# ---------------------------------------------------------------- 报告口径重算 (v2.1)
+
+
+def _salary_median_maps(conn: sqlite3.Connection):
+    """报告口径统一: 公司/区县级薪资一律取中位数。
+
+    观察台聚合的 avg_salary 为均值 (供 gaj web UI 使用, 语义不变);
+    报告以中位数为统一口径, 此处按下列三种口径重算:
+    - by_company: brand_id -> 公司全部在招岗位薪资中位 (信号公司榜口径);
+    - by_comp_ind: (industry, brand_id) -> 行业内公司薪资中位 (焦点代表公司口径);
+    - by_dist_ind: (industry, district) -> 行业×区县薪资中位 (焦点区域分布口径)。
+    """
+    comp: dict = defaultdict(list)
+    comp_ind: dict = defaultdict(list)
+    dist_ind: dict = defaultdict(list)
+    for r in conn.execute(
+        f"SELECT company_id, industry, district, salary_mid FROM jobs WHERE {observatory._VISIBLE}"
+    ).fetchall():
+        if not r["salary_mid"]:
+            continue
+        if r["company_id"]:
+            comp[r["company_id"]].append(r["salary_mid"])
+            if (r["industry"] or "").strip():
+                comp_ind[(r["industry"].strip(), r["company_id"])].append(r["salary_mid"])
+        dist = (r["district"] or "").strip()
+        ind = (r["industry"] or "").strip()
+        if dist and ind:
+            dist_ind[(ind, dist)].append(r["salary_mid"])
+    return (
+        {k: observatory._median(v) for k, v in comp.items()},
+        {k: observatory._median(v) for k, v in comp_ind.items()},
+        {k: observatory._median(v) for k, v in dist_ind.items()},
+    )
+
+
+def _skill_board_median(conn: sqlite3.Connection, top_n: int = 15) -> dict:
+    """报告口径技能榜: 归一化 + 中位数 + 溢价 (基准 = 全市场中位)。
+
+    与观察台 observatory_skill_leaderboard 的差异:
+    - 技能标签归一化 (同一技能多写法合并, 非技能词滤除, 岗位内去重);
+    - avg_salary 键存中位数 (报告全文「薪资中位」口径);
+    - 溢价基准 = 全市场中位, 与行业溢价口径一致。
+    """
+    rows = conn.execute(
+        f"SELECT skills, company_id, salary_mid, industry FROM jobs"
+        f" WHERE skills IS NOT NULL AND skills != '[]' AND {observatory._VISIBLE}"
+    ).fetchall()
+    all_sal = [r["salary_mid"] for r in conn.execute(
+        f"SELECT salary_mid FROM jobs WHERE salary_mid IS NOT NULL AND salary_mid > 0"
+        f" AND {observatory._VISIBLE}")]
+    market_median = observatory._median(all_sal) if all_sal else None
+    if not rows:
+        return {"market_median_salary": market_median, "premium_base": "market_median", "items": []}
+
+    skill_data: dict = defaultdict(
+        lambda: {"demand": 0, "companies": set(), "salaries": [], "industries": Counter()}
+    )
+    for r in rows:
+        ind = observatory._norm(r["industry"])
+        for key in observatory.iter_normalized_skills(r["skills"]):
+            d = skill_data[key]
+            d["demand"] += 1
+            if r["company_id"]:
+                d["companies"].add(r["company_id"])
+            if r["salary_mid"] and r["salary_mid"] > 0:
+                d["salaries"].append(r["salary_mid"])
+            d["industries"][ind] += 1
+
+    items = []
+    for key, d in skill_data.items():
+        med = observatory._median(d["salaries"]) if d["salaries"] else None
+        premium = None
+        if med is not None and market_median:
+            premium = round((med - market_median) / market_median, 4)
+        items.append({
+            "skill": key,
+            "demand_count": d["demand"],
+            "company_count": len(d["companies"]),
+            "avg_salary": med,
+            "salary_premium": premium,
+            "top_industries": [
+                {"name": n, "count": c} for n, c in d["industries"].most_common(3)
+            ],
+        })
+    items.sort(key=lambda x: x["demand_count"], reverse=True)
+    return {
+        "market_median_salary": market_median,
+        "premium_base": "market_median",
+        "items": items[:top_n],
+    }
+
+
+# ---------------------------------------------------------------- 职能分桶 (v2.1)
+
+#: 岗位职能分桶规则 (按序匹配, 先专后泛; 命中即归桶, 不再下探)。
+#: 规则随包输出 (FUNCTION_RULES 供报告直接引用), 保证可复现。
+FUNCTION_RULES = [
+    ("算法/AI", ["算法", "ai", "机器学习", "深度学习", "pytorch", "机器人", "视觉", "nlp",
+                "大模型", "图像", "多模态", "agi", "llm"]),
+    ("前端/客户端", ["前端", "javascript", "vue", "react", "小程序", "h5", "android", "ios",
+                   "客户端", "flutter", "wpf"]),
+    ("测试", ["测试", "qa", "ate "]),
+    ("数据", ["数据分析", "数据开发", "大数据", "etl", "数据仓库", "数据库", "数据平台",
+              "数据治理", "bi "]),
+    ("运维/IT 支持", ["运维", "网络工程师", "技术支持", "桌面运维", "虚拟化", "系统管理", "it ",
+                    "it支持", "信息系统"]),
+    ("产品/项目/实施", ["产品经理", "项目经理", "方案", "实施", "交付", "售前", "需求分析",
+                      "项目工程师", "fae", "现场应用"]),
+    ("嵌入式/硬件/机械", ["嵌入式", "单片机", "mcu", "硬件", "fpga", "电路", "上位机", "电气",
+                        "固件", "bms", "机械", "结构", "暖通", "变频器", "硬件驱动", "液压",
+                        "仿真", "cae", "cad", "流体", "电机", "电池", "储能系统", "自动化设备"]),
+    ("后端/软件开发", ["后端", "服务端", "java", "golang", "php", ".net", "c#", "软件开发",
+                      "软件工程师", "开发工程师", "程序", "全栈", "python", "c++", "c/c++",
+                      "软件", "开发", "工程师"]),
+]
+
+
+def _classify_function(title: str | None) -> str:
+    t = (title or "").lower()
+    for name, kws in FUNCTION_RULES:
+        for kw in kws:
+            if kw in t:
+                return name
+    return "其他/未分类"
+
+
+def _functions_block(conn: sqlite3.Connection) -> dict:
+    """职能分桶聚合 (v2.1): 读者心智单位是职能而非行业。
+
+    每桶: 岗位数 / 薪资 P25/P50/P75 (样本 ≥2) / 薪资样本数 /
+    未标注经验门槛占比 / 技能 Top3 (归一化)。
+    """
+    rows = conn.execute(
+        f"SELECT title, salary_mid, exp_min, company_id, skills FROM jobs WHERE {observatory._VISIBLE}"
+    ).fetchall()
+    buckets: dict = defaultdict(
+        lambda: {"jobs": 0, "salaries": [], "exp_known": 0, "exp_zero": 0,
+                 "companies": set(), "skill_counter": Counter()}
+    )
+    for r in rows:
+        f = _classify_function(r["title"])
+        d = buckets[f]
+        d["jobs"] += 1
+        if r["company_id"]:
+            d["companies"].add(r["company_id"])
+        if r["salary_mid"]:
+            d["salaries"].append(r["salary_mid"])
+        if r["exp_min"] is not None:
+            d["exp_known"] += 1
+            if r["exp_min"] == 0:
+                d["exp_zero"] += 1
+        for s in observatory.iter_normalized_skills(r["skills"]):
+            d["skill_counter"][s] += 1
+
+    items = []
+    for name, d in buckets.items():
+        sal = sorted(d["salaries"])
+        items.append({
+            "name": name,
+            "job_count": d["jobs"],
+            "company_count": len(d["companies"]),
+            "salary_p25": observatory._percentile(sal, 25) if len(sal) >= observatory._MIN_SALARY else None,
+            "salary_p50": observatory._median(sal) if len(sal) >= observatory._MIN_SALARY else None,
+            "salary_p75": observatory._percentile(sal, 75) if len(sal) >= observatory._MIN_SALARY else None,
+            "salary_count": len(sal),
+            "exp_unlabeled_ratio": (
+                round(d["exp_zero"] / d["exp_known"], 4) if d["exp_known"] else None
+            ),
+            "top_skills": [
+                {"name": k, "count": v} for k, v in d["skill_counter"].most_common(3)
+            ],
+        })
+    items.sort(key=lambda x: x["job_count"], reverse=True)
+    return {
+        "method": "按岗位标题关键词规则分桶, 规则按序匹配 (先专后泛), 命中即归桶; 规则清单见 bundle FUNCTION_RULES",
+        "items": items,
+    }
+
+
+# ---------------------------------------------------------------- 应届生入门口径 (v2.1)
+
+#: 标题高级/管理岗标记: 用于从「未标注经验门槛」中剔除可投性低的高级岗
+_SENIOR_MARKERS = ("高级", "资深", "专家", "主管", "经理", "总监", "负责人", "架构师", "主任")
+
+
+def _career_entry_block(conn: sqlite3.Connection) -> dict:
+    """应届生入门口径 (v2.1): JD 未标注最低经验要求 (exp_min=0) 的岗位聚合。
+
+    诚实口径: 「未标注经验门槛」≠「应届生岗位」——含真正无经验要求的岗位,
+    也含仅未写明的高级岗; 另给出剔除标题含高级/管理标记后的可投子集。
+    """
+    rows = conn.execute(
+        f"SELECT title, company_id, company_name, city, district, industry, salary_mid,"
+        f" edu_level, exp_min FROM jobs WHERE exp_min = 0 AND {observatory._VISIBLE}"
+    ).fetchall()
+    total = len(rows)
+    sal = sorted(r["salary_mid"] for r in rows if r["salary_mid"])
+    non_senior = [r for r in rows
+                  if not any(m in (r["title"] or "") for m in _SENIOR_MARKERS)]
+    sal_ns = sorted(r["salary_mid"] for r in non_senior if r["salary_mid"])
+
+    def _strip(stats):
+        if not stats:
+            return None
+        return {
+            "p25": observatory._percentile(stats, 25),
+            "p50": observatory._median(stats),
+            "p75": observatory._percentile(stats, 75),
+            "count": len(stats),
+        }
+
+    edu_labels = {0: "不限", 1: "高中及以下", 2: "大专", 3: "本科", 4: "硕士", 5: "博士"}
+    edu_counter: Counter = Counter(edu_labels.get(r["edu_level"], "未知") for r in rows)
+    city_counter: Counter = Counter(observatory._norm(r["city"]) for r in rows)
+    ind_counter: Counter = Counter(observatory._norm(r["industry"]) for r in rows)
+    comp: dict = defaultdict(lambda: {"name": "", "jobs": 0, "salaries": []})
+    for r in rows:
+        if not r["company_id"]:
+            continue
+        d = comp[r["company_id"]]
+        d["name"] = r["company_name"] or d["name"]
+        d["jobs"] += 1
+        if r["salary_mid"]:
+            d["salaries"].append(r["salary_mid"])
+    top_companies = [
+        {"company": d["name"] or "未知公司", "job_count": d["jobs"],
+         "salary_median": observatory._median(d["salaries"]) if d["salaries"] else None}
+        for d in comp.values()
+    ]
+    top_companies.sort(key=lambda x: x["job_count"], reverse=True)
+    return {
+        "method": (
+            "口径: JD 未标注最低经验要求的在招岗位, 含真正无经验要求的岗位与仅未写明的岗位;"
+            "已按标题剔除高级/管理岗作为可投子集。未标注门槛 ≠ 应届生岗位, 请结合职能与职级词判断。"
+        ),
+        "unlabeled_exp_count": total,
+        "salary": _strip(sal),
+        "non_senior": {
+            "count": len(non_senior),
+            "salary": _strip(sal_ns),
+        },
+        "by_edu": [
+            {"label": k, "count": v} for k, v in edu_counter.most_common()
+        ],
+        "by_city": [
+            {"city": k, "count": v} for k, v in city_counter.most_common()
+        ],
+        "by_industry": [
+            {"name": k, "count": v} for k, v in ind_counter.most_common(5)
+        ],
+        "top_companies": top_companies[:8],
+    }
+
+
+# ---------------------------------------------------------------- 本地口径对照 (v2.1)
+
+
+def _local_pricing_block(conn: sqlite3.Connection, all_median) -> dict:
+    """主导城市本地口径 vs 全样本 (v2.1): 标题承诺城市时读者最关心的口径。
+
+    主导城市 = 已标注城市中岗位数最多者; 城市未标注岗位无法从现有字段
+    (无 GPS/区县) 回填, 如实计入全样本并单独报数。
+    """
+    rows = conn.execute(
+        f"SELECT city, industry, salary_mid FROM jobs WHERE {observatory._VISIBLE}"
+    ).fetchall()
+    city_counter: Counter = Counter(
+        observatory._norm(r["city"]) for r in rows
+        if observatory._norm(r["city"]) != observatory._UNKNOWN
+    )
+    if not city_counter:
+        return None
+    focus_city, _n = city_counter.most_common(1)[0]
+    local_sal = sorted(
+        r["salary_mid"] for r in rows
+        if observatory._norm(r["city"]) == focus_city and r["salary_mid"]
+    )
+    ind_counter: dict = defaultdict(lambda: {"jobs": 0, "salaries": []})
+    for r in rows:
+        if observatory._norm(r["city"]) != focus_city:
+            continue
+        ind = observatory._norm(r["industry"])
+        if ind == observatory._UNKNOWN:
+            continue
+        d = ind_counter[ind]
+        d["jobs"] += 1
+        if r["salary_mid"]:
+            d["salaries"].append(r["salary_mid"])
+    top_industries = [
+        {"name": k, "job_count": v["jobs"],
+         "salary_median": (
+             observatory._median(v["salaries"])
+             if len(v["salaries"]) >= observatory._MIN_SALARY else None)}
+        for k, v in ind_counter.items()
+    ]
+    top_industries.sort(key=lambda x: x["job_count"], reverse=True)
+    unlabeled = sum(
+        1 for r in rows if observatory._norm(r["city"]) == observatory._UNKNOWN
+    )
+    return {
+        "city": focus_city,
+        "city_job_count": city_counter[focus_city],
+        "salary": {
+            "p25": observatory._percentile(local_sal, 25),
+            "p50": observatory._median(local_sal),
+            "p75": observatory._percentile(local_sal, 75),
+            "count": len(local_sal),
+        },
+        "all_sample": {
+            "job_count": len(rows),
+            "salary_median": all_median,
+        },
+        "top_industries": top_industries[:3],
+        "unlabeled_city_jobs": unlabeled,
+        "unlabeled_city_ratio": round(unlabeled / len(rows), 4) if rows else None,
+    }
+
+
 # ---------------------------------------------------------------- 组装
 
 
 def _company_board_rows(conn: sqlite3.Connection, top_n: int = 10):
-    """公司双榜原始行 (未脱敏, 仅供注册表与内部脱敏函数消费): 招聘力度榜 + 薪资榜。"""
+    """公司双榜原始行 (未脱敏, 仅供注册表与内部脱敏函数消费): 招聘力度榜 + 薪资榜。
+
+    city = 公司已标注城市众数 (全部岗位城市未标注时为 None, 报告端如实留空)。
+    """
     rows = conn.execute(
-        f"SELECT j.company_id, j.company_name, j.salary_mid, c.industry"
+        f"SELECT j.company_id, j.company_name, j.city, j.salary_mid, c.industry"
         f" FROM jobs j LEFT JOIN companies c ON c.brand_id = j.company_id"
         f" WHERE {observatory._VISIBLE}"
     ).fetchall()
-    comp: dict = defaultdict(lambda: {"jobs": 0, "salaries": [], "industries": [], "name": ""})
+    comp: dict = defaultdict(
+        lambda: {"jobs": 0, "salaries": [], "industries": [], "name": "", "cities": Counter()}
+    )
     for r in rows:
         if not r["company_id"]:
             continue
@@ -524,6 +889,9 @@ def _company_board_rows(conn: sqlite3.Connection, top_n: int = 10):
         # 行业规范化去重: 收集非空行业, 后续取众数 (修复同公司多行业值被最后一条覆盖的问题)
         if (r["industry"] or "").strip():
             d["industries"].append(r["industry"].strip())
+        city = (r["city"] or "").strip()
+        if city:
+            d["cities"][city] += 1
         d["name"] = r["company_name"] or d["name"]
         if r["salary_mid"]:
             d["salaries"].append(r["salary_mid"])
@@ -531,7 +899,8 @@ def _company_board_rows(conn: sqlite3.Connection, top_n: int = 10):
     for cid, d in comp.items():
         ind_counter = Counter(d["industries"])
         industry = ind_counter.most_common(1)[0][0] if ind_counter else observatory._UNKNOWN
-        out.append({"_key": cid, "company_name": d["name"], "industry": industry,
+        city = d["cities"].most_common(1)[0][0] if d["cities"] else None
+        out.append({"_key": cid, "company_name": d["name"], "industry": industry, "city": city,
                     "job_count": d["jobs"], "salary_samples": len(d["salaries"]),
                     "avg_salary": observatory._median(d["salaries"]) if d["salaries"] else None})
     
@@ -544,9 +913,10 @@ def _company_board_rows(conn: sqlite3.Connection, top_n: int = 10):
 
 
 def _board_entries(entries, registry, *, anonymize: bool) -> list:
-    """双榜条目: 完整版用真实公司名 (company), lite 版用脱敏别名 (alias)。
+    """双榜条目: 完整版用真实公司名 (company) + 主要城市 (city), lite 版仅别名。
 
-    两者均不含 brand_id / 岗位链接 / 联系方式等单条记录字段。
+    两者均不含 brand_id / 岗位链接 / 联系方式等单条记录字段;
+    city 仅完整版携带 (lite 防反推不加)。
     """
     out = []
     for c in entries:
@@ -556,6 +926,7 @@ def _board_entries(entries, registry, *, anonymize: bool) -> list:
             row["alias"] = registry.alias(c["_key"])
         else:
             row["company"] = c.get("company_name") or "未知公司"
+            row["city"] = c.get("city")
         out.append(row)
     return out
 
@@ -582,10 +953,14 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> di
         "industry_list": industry_list,
         "signal_radar": {**observatory.observatory_signal_radar(conn),
                          "definitions": SIGNAL_DEFINITIONS},
-        "skill_leaderboard": observatory.observatory_skill_leaderboard(conn, top_n=15),
+        "skill_leaderboard": _skill_board_median(conn, top_n=15),
         "employer_profile": _employer_block(conn),
         "geo": _geo_block(conn),
+        "functions": _functions_block(conn),
+        "career_entry": _career_entry_block(conn),
     }
+
+    company_median_map, comp_ind_median, dist_ind_median = _salary_median_maps(conn)
 
     hiring_rows, salary_rows = _company_board_rows(conn)
 
@@ -604,13 +979,22 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> di
         row[0]: row[1]
         for row in conn.execute("SELECT brand_id, hours_per_day FROM companies")
     }
+    # 报告口径统一: 信号公司/焦点代表公司/区域分布 avg_salary 覆写为中位数
     market["signal_radar"]["red_flag_companies"] = _red_flag_entries(
-        market["signal_radar"].get("red_flag_companies", []), hours_map
+        market["signal_radar"].get("red_flag_companies", []),
+        hours_map,
+        company_median_map,
     )
     if focus_detail is not None:
         focus_detail["top_companies"] = _focus_company_entries(
-            focus_detail.get("top_companies", [])
+            focus_detail.get("top_companies", []), comp_ind_median, focus_name
         )
+        focus_detail["top_districts"] = _focus_district_entries(
+            focus_detail.get("top_districts", []), dist_ind_median, focus_name
+        )
+    market["local_pricing"] = _local_pricing_block(
+        conn, industry_list_full.get("market_median")
+    )
     market["company_boards"] = {
         "hiring": _board_entries(hiring_rows, registry, anonymize=False),
         "salary": _board_entries(salary_rows, registry, anonymize=False),

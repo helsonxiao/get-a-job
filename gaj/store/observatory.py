@@ -16,6 +16,90 @@ _VISIBLE = "(ignored = 0 OR ignored IS NULL)"
 _UNKNOWN = "未知"
 
 
+# ------------------------------------------------------------ 技能标签归一化
+#
+# JD 技能标签来自平台抓取, 同一技能存在多种写法 (C# / C#开发经验 / C/C++),
+# 且混有非技能要求 (可适应出差 / 英语可沟通 / 计算机相关专业)。
+# 不归一会稀释需求信号: 同一技能被拆成两行、技能榜混入非技能词。
+#
+# 归一规则 (按序):
+#   1. 小写 + strip
+#   2. 剔除平台反爬水印注入 (kanzhun / boss 子串, 如「AI大kanzhun模型」→「ai大模型」)
+#   3. 命中停用词表 (非技能要求) → 丢弃
+#   4. 命中别名表 → 映射到规范键 (合并重复写法)
+#   5. 以「经验/开发经验/相关经验」结尾且剥后长度 ≥2 → 剥后缀再走 4
+#   6. 其余保留原 (小写) 键
+# 同一岗位内先去重再计数, 避免一条 JD 内同技能多写法重复计需求。
+
+#: 非技能要求停用词 (技能榜不收录; 命中即丢弃)
+SKILL_STOP = frozenset({
+    "可适应出差", "适应出差", "出差", "英语可沟通", "英语流利", "英语良好", "英语熟练",
+    "计算机相关专业", "能源/电力相关专业", "非外包类", "吃苦耐劳", "抗压能力强",
+    "沟通能力", "学习能力", "团队合作", "驾照", "项目管理", "团队管理经验",
+    "售前技术支持经验", "系统集成",
+})
+
+#: 别名表: 变体 → 规范键 (均为小写)
+SKILL_ALIAS = {
+    "c#开发经验": "c#", ".net开发经验": ".net", "c/c++": "c++", "python/shell": "python",
+    "前端开发经验": "前端", "微服务经验": "微服务", "分布式经验": "分布式",
+    "嵌入式软件经验": "嵌入式", "要求数据开发经验": "数据开发", "数据平台开发经验": "数据平台",
+    "运维开发经验": "运维", "运维经验": "运维", "全栈项目经验": "全栈", "全栈无侧重": "全栈",
+    "架构设计经验": "架构设计", "系统架构设计经验": "架构设计", "上位机开发经验": "上位机",
+    "中大型项目开发经验": "中大型项目",
+    "springboot": "spring boot", "springcloud": "spring cloud",
+    "vue.js": "vue", "vue3": "vue", "vue2": "vue",
+    "javascript/js": "javascript", "js": "javascript", "nodejs": "node.js",
+    "k8s": "kubernetes",
+}
+
+_SKILL_SUFFIXES = ("开发经验", "相关经验", "经验")
+
+#: 平台反爬水印: 抓取源在技能串内随机注入的水标记号 (实测仅污染 skills 字段)
+_SKILL_WATERMARKS = ("kanzhun", "boss")
+
+
+def normalize_skill(raw: str) -> str | None:
+    """单条技能标签 → 规范键; 非技能要求返回 None (调用方丢弃)。"""
+    s = (raw or "").strip().lower()
+    if not s:
+        return None
+    for wm in _SKILL_WATERMARKS:
+        s = s.replace(wm, "")
+    s = s.strip()
+    if not s or s in SKILL_STOP:
+        return None
+    if s in SKILL_ALIAS:
+        return SKILL_ALIAS[s]
+    for suf in _SKILL_SUFFIXES:
+        if s.endswith(suf) and len(s) - len(suf) >= 2:
+            stem = s[: -len(suf)].strip()
+            if stem and stem not in SKILL_STOP:
+                return SKILL_ALIAS.get(stem, stem)
+            break
+    return s
+
+
+def iter_normalized_skills(skills_json: str | None) -> list[str]:
+    """解析一条岗位的 skills JSON, 归一化并岗位内去重; 解析失败返回空表。"""
+    try:
+        raw = json.loads(skills_json or "[]")
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for s in raw:
+        if not isinstance(s, str):
+            continue
+        key = normalize_skill(s)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(key)
+    return out
+
+
 def _norm(value: str | None) -> str:
     """NULL/空字段归一为展示值"未知", 与下钻筛选口径对齐。
 
@@ -413,11 +497,12 @@ def observatory_signal_radar(conn: sqlite3.Connection) -> dict:
 
 
 def observatory_skill_leaderboard(conn: sqlite3.Connection, top_n: int = 40) -> dict:
-    """技能热度榜。
+    """技能热度榜 (观察台口径, 供 gaj web UI)。
 
     展开 jobs.skills JSON → 每技能: demand_count、company_count、avg_salary、
     salary_premium%(相对市场均价)、top_industries。
-    skills 用 Python 侧展开, 小写归一聚合, 显示取最高频原形。
+    技能标签经 normalize_skill 归一化 (重复写法合并/非技能词滤除/岗位内去重);
+    avg_salary 语义为均值 —— 报告口径 (中位数) 见 reportbundle._skill_board_median。
     空样本时 items=[]。
     """
     rows = conn.execute(
@@ -433,29 +518,17 @@ def observatory_skill_leaderboard(conn: sqlite3.Connection, top_n: int = 40) -> 
     ).fetchall()
     market_avg = round(sum(r["salary_mid"] for r in sal_rows) / len(sal_rows), 2) if sal_rows else None
 
-    # skill_lower -> 累计数据; 原形 Counter 取最高频显示
+    # skill_lower -> 累计数据; 归一化后聚合 (重复写法合并, 非技能词滤除, 岗位内去重)
     skill_data: dict[str, dict] = defaultdict(
         lambda: {
             "demand": 0, "companies": set(), "salaries": [],
-            "industries": Counter(), "originals": Counter(),
+            "industries": Counter(),
         }
     )
     for r in rows:
-        try:
-            skills = json.loads(r["skills"]) or []
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if not isinstance(skills, list):
-            continue
         cid = r["company_id"] or ""
         ind = _norm(r["industry"])
-        for s in skills:
-            if not isinstance(s, str):
-                continue
-            s = s.strip()
-            if not s:
-                continue
-            key = s.lower()
+        for key in iter_normalized_skills(r["skills"]):
             d = skill_data[key]
             d["demand"] += 1
             if cid:
@@ -463,7 +536,6 @@ def observatory_skill_leaderboard(conn: sqlite3.Connection, top_n: int = 40) -> 
             if r["salary_mid"] and r["salary_mid"] > 0:
                 d["salaries"].append(r["salary_mid"])
             d["industries"][ind] += 1
-            d["originals"][s] += 1
 
     items = []
     for key, d in skill_data.items():
@@ -472,7 +544,7 @@ def observatory_skill_leaderboard(conn: sqlite3.Connection, top_n: int = 40) -> 
         if avg_sal is not None and market_avg:
             premium = round((avg_sal - market_avg) / market_avg, 4)
         items.append({
-            "skill": d["originals"].most_common(1)[0][0] if d["originals"] else key,
+            "skill": key,
             "demand_count": d["demand"],
             "company_count": len(d["companies"]),
             "avg_salary": avg_sal,
@@ -540,13 +612,8 @@ def observatory_industry_list(conn: sqlite3.Connection) -> dict:
             d["outsourcing"] += 1
         if r["travel"] and r["travel"] != "none":
             d["travel"] += 1
-        try:
-            sk = json.loads(r["skills"] or "[]")
-        except Exception:
-            sk = []
-        for s in sk:
-            if s:
-                d["skill_counter"][str(s).lower()] += 1
+        for s in iter_normalized_skills(r["skills"]):
+            d["skill_counter"][s] += 1
 
     unknown_job_count = ind_map.get(_UNKNOWN, {}).get("job_count", 0)
     items = []
@@ -643,26 +710,23 @@ def observatory_industry_detail(conn: sqlite3.Connection, industry: str) -> dict
         if len(vals) >= _MIN_SALARY:
             by_edu.append({"level": lvl, "label": edu_labels[lvl], "median": _median(vals), "count": len(vals)})
 
-    # 技能 Top10 (行业口径, 小写归一聚合)
+    # 技能 Top10 (行业口径, 归一化聚合: 重复写法合并, 非技能词滤除, 岗位内去重)
     skill_counter: Counter = Counter()
     for r in ind_rows:
-        try:
-            sk = json.loads(r["skills"] or "[]")
-        except Exception:
-            sk = []
-        for s in sk:
-            if s:
-                skill_counter[str(s).lower()] += 1
+        for s in iter_normalized_skills(r["skills"]):
+            skill_counter[s] += 1
     top_skills = []
     for name, cnt in skill_counter.most_common(10):
         if cnt < _MIN_SALARY:
             continue
         vals = [r["salary_mid"] for r in ind_rows
-                if r["salary_mid"] and name in [str(s).lower() for s in json.loads(r["skills"] or "[]")]]
+                if r["salary_mid"] and name in iter_normalized_skills(r["skills"])]
+        holder_rows = [r for r in ind_rows
+                       if r["company_id"] and name in iter_normalized_skills(r["skills"])]
         top_skills.append({
             "name": name,
             "demand_count": cnt,
-            "company_count": len({r["company_id"] for r in ind_rows if r["company_id"] and name in [str(s).lower() for s in json.loads(r["skills"] or "[]")]}),
+            "company_count": len({r["company_id"] for r in holder_rows}),
             "avg_salary": round(sum(vals) / len(vals), 2) if vals else None,
         })
 
