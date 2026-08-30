@@ -223,7 +223,9 @@ def crawl(
             from ..store.migrate import migrate as do_migrate
 
             src_path = Path(result.get("crawl_dir") or "jobs")
-            report = do_migrate(src=src_path, rebuild_index=auto_reindex)
+            report = do_migrate(
+                src=src_path, rebuild_index=auto_reindex, source_link=list_url
+            )
             result["migrated"] = asdict(report) if hasattr(report, "__dataclass_fields__") else str(report)
             migrated_reindexed = auto_reindex
             log.info(f"迁移完成: {report}")

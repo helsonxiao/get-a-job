@@ -104,7 +104,21 @@ def main(argv: list[str] | None = None) -> int:
         help="输出报告数据包 (JSON): 口径元数据 + 质量基线 + 市场聚合, stdout 输出",
     )
     p.add_argument("--pretty", action="store_true", help="缩进美化输出")
-    p.add_argument("--top-industries", type=int, default=12, help="行业对比候选池容量 (schema 2.2 默认 12, 生成器按样本量自适应切片)")
+    p.add_argument("--top-industries", type=int, default=12,
+                   help="行业对比候选池容量 (schema 2.2 默认 12, 生成器按样本量自适应切片)")
+    p.add_argument("--scope-link", default=None,
+                   help="来源筛选链接 (口径隔离): 指定后全部聚合只统计该链接采集的岗位")
+
+    # ---- scope-link (来源口径管理: 列表/重命名/手工归属) ----
+    p_scope = sub.add_parser("scope-link", help="来源筛选链接口径管理: list / rename / assign")
+    sp_scope = p_scope.add_subparsers(dest="scope_action", required=True)
+    sp_scope.add_parser("list", help="列出全部口径链接与岗位数 (含未分口径)")
+    r_scope = sp_scope.add_parser("rename", help="给口径链接设置自定义命名 (用于报告标题)")
+    r_scope.add_argument("--link", required=True, help="来源筛选链接")
+    r_scope.add_argument("--label", required=True, help="自定义命名, 如: 无锡-后端-双休")
+    a_scope = sp_scope.add_parser("assign", help="把指定岗位归属到某口径链接 (写回 job.json 并重建索引)")
+    a_scope.add_argument("--link", required=True, help="来源筛选链接")
+    a_scope.add_argument("--job-ids", required=True, help="逗号分隔的 job_id 列表")
 
     # ---- agent (面向 AI 智能体的 JSON 接口, 详见 AGENT.md) ----
     p = sub.add_parser(
@@ -240,10 +254,67 @@ def main(argv: list[str] | None = None) -> int:
 
         with index.session() as conn:
             bundle = reportbundle.build_report_bundle(
-                conn, top_industries=args.top_industries
+                conn, top_industries=args.top_industries, scope_link=args.scope_link
             )
         print(json.dumps(bundle, ensure_ascii=False, indent=2 if args.pretty else None))
         return 0
+
+    if args.command == "scope-link":
+        import json as _json
+        from datetime import datetime as _dt
+
+        from .store import index, repo
+
+        with index.session() as conn:
+            if args.scope_action == "list":
+                rows = conn.execute(
+                    "SELECT link, label, COUNT(j.job_id) AS jobs"
+                    " FROM source_links s LEFT JOIN jobs j"
+                    " ON j.source_link = s.link GROUP BY s.link ORDER BY jobs DESC"
+                ).fetchall()
+                unscoped = conn.execute(
+                    "SELECT COUNT(*) FROM jobs WHERE " + "(ignored = 0 OR ignored IS NULL)"
+                    " AND (source_link IS NULL OR source_link = '')"
+                ).fetchone()[0]
+                print(_json.dumps({
+                    "links": [
+                        {"link": r["link"], "label": r["label"], "job_count": r["jobs"]}
+                        for r in rows
+                    ],
+                    "unscoped_job_count": unscoped,
+                    "unscoped_note": "未分口径 = 历史数据无 source_link, 不参与任何单口径报告",
+                }, ensure_ascii=False, indent=2 if getattr(args, "pretty", False) else None))
+                return 0
+            if args.scope_action == "rename":
+                conn.execute("UPDATE source_links SET label = ? WHERE link = ?",
+                             (args.label, args.link))
+                conn.commit()
+                print(f"✓ 口径已命名: {args.label} ← {args.link}")
+                return 0
+            if args.scope_action == "assign":
+                ids = [x.strip() for x in args.job_ids.split(",") if x.strip()]
+                changed = 0
+                conn.execute(
+                    "INSERT OR IGNORE INTO source_links (link, label, created_at) VALUES (?,?,?)",
+                    (args.link, "", _dt.now().astimezone().isoformat(timespec="seconds")),
+                )
+                for jid in ids:
+                    job = repo.load_job(jid)
+                    if not job:
+                        print(f"  跳过 (找不到 job.json): {jid}")
+                        continue
+                    job.source_link = args.link
+                    job.provenance["source_link"] = args.link
+                    repo.save_job(job)
+                    changed += 1
+                conn.executemany(
+                    "UPDATE jobs SET source_link = ? WHERE job_id = ?",
+                    [(args.link, jid) for jid in ids],
+                )
+                conn.commit()
+                index.reindex()
+                print(f"✓ 已归属 {changed}/{len(ids)} 个岗位到口径: {args.link} (索引已重建)")
+                return 0
 
     if args.command == "strategy":
         from . import strategy

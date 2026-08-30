@@ -199,8 +199,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN lat REAL")
     if "lng" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN lng REAL")
+    if "source_link" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN source_link TEXT DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_favorite ON jobs(favorite)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_geo ON jobs(lat)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_source_link ON jobs(source_link)")
+
+    # 来源口径注册表: link 主键 + 自定义命名 (用于报告标题) + 首次登记时间
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS source_links (
+               link       TEXT PRIMARY KEY,
+               label      TEXT NOT NULL DEFAULT '',
+               created_at TEXT NOT NULL DEFAULT ''
+           )"""
+    )
 
     score_cols = {r[1] for r in conn.execute("PRAGMA table_info(scores)").fetchall()}
     if "context_fp" not in score_cols:
@@ -263,6 +275,7 @@ def _job_row(
         "job_id": job.job_id,
         "title": job.title,
         "url": job.url,
+        "source_link": getattr(job, "source_link", "") or "",
         "company_id": job.company_id,
         "company_name": job.company_name or (company.name if company else ""),
         "city": job.city,

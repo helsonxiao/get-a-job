@@ -1,0 +1,71 @@
+<!-- ============================================
+     VIEW: SCOPE — 来源口径管理 (逻辑 views/scope.js)
+     功能: 口径链接列表 (岗位数/命名) + 重命名 + 未分口径历史数据报数。
+     报告标题优先使用这里的自定义命名 (gaj report-bundle --scope-link)。
+     ============================================ -->
+<div class="panel-head">
+  <div>
+    <h2 style="margin:0">来源口径管理</h2>
+    <p class="muted" style="margin:6px 0 0">
+      一个 BOSS 筛选链接 = 一个数据口径。采集入库时每条岗位携带来源链接;
+      生成报告时指定链接即可隔离统计。历史数据无链接, 标记为「未分口径」。
+    </p>
+  </div>
+  <button class="btn" @click="reload()" :disabled="loading">
+    <i data-lucide="refresh-cw"></i> 刷新
+  </button>
+</div>
+
+<div class="stat-row" style="display:flex;gap:18px;margin:14px 0">
+  <div class="chip">总岗位 <b x-text="data.total_job_count ?? '—'"></b></div>
+  <div class="chip">未分口径(历史) <b x-text="data.unscoped_job_count ?? '—'"></b></div>
+  <div class="chip">已登记口径 <b x-text="(data.links || []).length"></b></div>
+</div>
+
+<template x-if="data.links && data.links.length === 0">
+  <div class="empty-tip">
+    还没有已登记的口径。生成一次 <code>gaj report-bundle --scope-link &lt;链接&gt;</code>
+    或在 Web 端触发一次带链接的采集后, 链接会自动登记到这里。
+  </div>
+</template>
+
+<table class="tbl" style="width:100%;margin-top:10px" x-show="data.links && data.links.length > 0">
+  <thead>
+    <tr>
+      <th style="width:34%">来源链接</th>
+      <th style="width:22%">自定义命名 (用于报告标题)</th>
+      <th style="width:10%">岗位数</th>
+      <th style="width:18%">登记时间</th>
+      <th>操作</th>
+    </tr>
+  </thead>
+  <tbody>
+    <template x-for="item in (data.links || [])" :key="item.link">
+      <tr>
+        <td>
+          <div style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+               :title="item.link" x-text="item.link"></div>
+        </td>
+        <td>
+          <input class="input" type="text" maxlength="40" placeholder="如: 无锡-后端-双休"
+                 x-model="item._draft" @keyup.enter="save(item)" style="width:100%">
+        </td>
+        <td x-text="item.job_count"></td>
+        <td class="muted" x-text="(item.created_at || '').slice(0, 16).replace('T',' ')"></td>
+        <td>
+          <button class="btn btn-sm" @click="save(item)" :disabled="item.saving">
+            <i data-lucide="check"></i> 保存
+          </button>
+        </td>
+      </tr>
+    </template>
+  </tbody>
+</table>
+
+<div class="tip" style="margin-top:16px">
+  <b>怎么用:</b>
+  ① 采集时带链接: <code>python3 -m gaj crawl "&lt;你的筛选链接&gt;"</code> —— 入库岗位自动携带该链接;
+  ② 按口径出报告: <code>python3 -m gaj report-bundle --scope-link "&lt;链接&gt;"</code>,
+  或在报告生成器加 <code>--scope-link</code>;
+  ③ 命名会进入报告标题, 如「无锡-后端-双休」→ 标题「无锡-后端-双休 · 在招岗位口径快照」。
+</div>

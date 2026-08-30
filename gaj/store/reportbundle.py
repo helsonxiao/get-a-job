@@ -23,6 +23,13 @@ v2.1 (2026-08-30, 读者价值审计):
 v2.2 (2026-08-30, 问题导向重构):
 - 榜单候选池扩容: 行业 12 / 公司双榜 30 / 技能榜 30 (build_report_bundle 可传参);
   生成器按样本量自适应取 Top N, 契约本身只承诺「足够大的候选池」。
+
+v2.3 (2026-08-30, 来源口径隔离):
+- build_report_bundle 新增 scope_link 参数: 指定后全部聚合只统计
+  jobs.source_link = scope_link 的岗位 (temp 表影子实现, 聚合代码零改动)。
+- meta 新增 scope 块: {scope_link, scope_label, job_count, total_job_count,
+  unscoped_job_count} —— 未分口径 (无 source_link) 的历史数据在此显式报数,
+  指定口径后绝不混入其它口径。
 """
 
 from __future__ import annotations
@@ -37,7 +44,7 @@ from pathlib import Path
 from .. import config as cfg
 from . import observatory
 
-SCHEMA_VERSION = "2.2"
+SCHEMA_VERSION = "2.3"
 
 #: 榜单池默认容量 (v2.2): bundle 输出足够大的候选池, 由生成器按样本量自适应切片。
 #: 只增不改, 旧生成器兼容 (多出来的行会被旧生成器全量渲染或自行截断)。
@@ -140,7 +147,10 @@ def _crawl_meta(conn: sqlite3.Connection) -> dict:
 
 
 def _fingerprint(meta: dict) -> str:
-    """数据版本指纹: 同一批数据两次打包指纹一致 (不含生成时间)。"""
+    """数据版本指纹: 同一批数据两次打包指纹一致 (不含生成时间)。
+
+    指定口径时掺入口径链接哈希 —— 不同口径的指纹必然不同。
+    """
     w = meta["window"]
     raw = "|".join([
         str(meta["job_count"]),
@@ -148,6 +158,9 @@ def _fingerprint(meta: dict) -> str:
         str(w["first_seen_min"]),
         str(w["last_seen_max"]),
     ])
+    scope = (meta.get("scope") or {}).get("scope_link") or ""
+    if scope:
+        raw += "|scope:" + scope
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -941,15 +954,70 @@ def _board_entries(entries, registry, *, anonymize: bool) -> list:
     return out
 
 
+def _scope_meta(conn: sqlite3.Connection, scope_link: str) -> dict:
+    """口径元数据: 链接/自定义命名/各口径岗位数 (含未分口径历史数据显式报数)。
+
+    注意: 指定口径期间 temp.jobs 影子了 jobs 表, 统计全库必须用 main.jobs 全限定名。
+    """
+    scoped_count = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE " + observatory._VISIBLE
+    ).fetchone()[0]
+    total = conn.execute(
+        f"SELECT COUNT(*) FROM main.jobs WHERE {observatory._VISIBLE}"
+    ).fetchone()[0]
+    unscoped = conn.execute(
+        f"SELECT COUNT(*) FROM main.jobs WHERE {observatory._VISIBLE}"
+        " AND (source_link IS NULL OR source_link = '')"
+    ).fetchone()[0]
+    label_row = conn.execute(
+        "SELECT label FROM main.source_links WHERE link = ?", (scope_link,)
+    ).fetchone()
+    label = (label_row[0] if label_row else "") or ""
+    return {
+        "scope_link": scope_link,
+        "scope_label": label,
+        "job_count": scoped_count,
+        "total_job_count": total,
+        "unscoped_job_count": unscoped,
+    }
+
+
 def build_report_bundle(conn: sqlite3.Connection, top_industries: int = DEFAULT_INDUSTRY_SIZE,
                         board_size: int = DEFAULT_BOARD_SIZE,
-                        skill_size: int = DEFAULT_SKILL_SIZE) -> dict:
+                        skill_size: int = DEFAULT_SKILL_SIZE,
+                        scope_link: str | None = None) -> dict:
     """打包报告数据契约。
 
     top_industries: 行业对比表候选池容量 (按岗位数降序, 与观察台口径一致)。
     board_size: 公司双榜候选池容量; skill_size: 技能榜候选池容量。
     v2.2 起三者仅是「候选池」, 生成器按样本量自适应取 Top N 渲染。
+    scope_link: 来源筛选链接 (口径隔离)。指定后全部聚合只统计该链接的岗位:
+      实现 = temp 表影子 (temp.jobs 覆盖同名表, 聚合代码零改动),
+      finally 中拆除影子; 口径注册进 source_links 表并写入 meta.scope。
     """
+    scoped = bool(scope_link)
+    if scoped:
+        conn.execute("DROP TABLE IF EXISTS temp.jobs")
+        conn.execute(
+            "CREATE TEMP TABLE jobs AS SELECT * FROM main.jobs WHERE source_link = ?",
+            (scope_link,),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO main.source_links (link, label, created_at)"
+            " VALUES (?, '', ?)",
+            (scope_link, datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")),
+        )
+    try:
+        return _build_scoped(conn, top_industries, board_size, skill_size,
+                             scope_link if scoped else None)
+    finally:
+        if scoped:
+            conn.execute("DROP TABLE IF EXISTS temp.jobs")
+
+
+def _build_scoped(conn: sqlite3.Connection, top_industries: int,
+                  board_size: int, skill_size: int,
+                  scope_link: str | None) -> dict:
     with_pricing = observatory.observatory_salary_pricing(conn)
     industry_list_full = observatory.observatory_industry_list(conn)
 
@@ -1017,6 +1085,8 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = DEFAULT_
     }
 
     meta = _crawl_meta(conn)
+    if scope_link:
+        meta["scope"] = _scope_meta(conn, scope_link)
 
     return {
         "schema_version": SCHEMA_VERSION,

@@ -223,6 +223,7 @@ def _migrate_record(
     assume_city: str = "",
     dry_run: bool = False,
     report: MigrationReport | None = None,
+    source_link: str = "",
 ) -> bool:
     """迁移单条老格式记录到 data/。
 
@@ -343,6 +344,9 @@ def _migrate_record(
     job.provenance["migrated_from"] = f"{src.name}/{rec.dirname}"
     job.provenance["company_page"] = bool(company_dom)
     job.provenance["city_source"] = city_source
+    if source_link:
+        job.source_link = source_link
+        job.provenance["source_link"] = source_link
     if anonymous:
         job.provenance["employer_anonymous"] = True
 
@@ -370,6 +374,7 @@ def migrate_one(
     *,
     dry_run: bool = False,
     assume_city: str = "",
+    source_link: str = "",
 ) -> MigrationReport:
     """迁移单个老格式职位目录到 data/。
 
@@ -426,6 +431,7 @@ def migrate(
     dry_run: bool = False,
     rebuild_index: bool = True,
     assume_city: str = "",
+    source_link: str = "",
 ) -> MigrationReport:
     src = src or (cfg.PROJECT_ROOT / "jobs")
     report = MigrationReport()
@@ -458,6 +464,7 @@ def migrate(
             assume_city=assume_city,
             dry_run=dry_run,
             report=report,
+            source_link=source_link,
         )
 
     if not dry_run and rebuild_index:

@@ -165,6 +165,9 @@ class Job:
     job_id: str = ""  # encryptJobId, 天然主键
     source: str = "boss"
     url: str = ""
+    #: 来源筛选链接 (BOSS 列表页 URL, 含筛选器参数) —— 口径隔离的唯一标识。
+    #: 一个链接对应一批同口径数据; 历史数据无此字段即为「未分口径」。
+    source_link: str = ""
     title: str = ""
 
     salary: dict = field(default_factory=dict)

@@ -23,6 +23,7 @@
 <script src="/static/views/jobs.js?v=29"></script>
 <script src="/static/views/guide.js?v=29"></script>
 <script src="/static/views/config.js?v=29"></script>
+<script src="/static/views/scope.js?v=1"></script>
 <script src="/static/views/resume.js?v=29"></script>
 <script src="/static/views/observatory.js?v=29"></script>
 <script src="/static/views/industry.js?v=29"></script>
@@ -135,12 +136,24 @@
       <button class="sidebar-item" :class="{active: $store.core.view === 'config'}" @click="$store.core.switchView('config')">
         <i data-lucide="settings"></i><span class="nav-label">规则配置</span>
       </button>
+      <button class="sidebar-item" :class="{active: $store.core.view === 'scope'}" @click="$store.core.switchView('scope')">
+        <i data-lucide="link-2"></i>
+        <div>
+          <div class="item-title">口径管理</div>
+          <div class="item-sub">来源链接 · 命名 · 岗位数</div>
+        </div>
+      </button>
       <button class="sidebar-item" :class="{active: $store.core.view === 'resume'}" @click="$store.core.switchView('resume')">
         <i data-lucide="file-text"></i><span class="nav-label" x-text="$store.core.resumeExists ? '主简历' : '上传简历'"></span>
       </button>
     </nav>
 
     <div class="view-host">
+      <!-- VIEW: SCOPE (岛: views/scope.js + 模板: views/scope.html) -->
+      <div class="config-panel" x-data="scopePanel()" x-show="$store.core.view === 'scope'" x-cloak
+           x-effect="$nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())"
+           data-tpl="scope"></div>
+
       <!-- VIEW: CONFIG (岛: views/config.js + 模板: views/config.html) -->
       <div class="config-panel" x-data="configPanel()" x-show="$store.core.view === 'config'" x-cloak
            @gaj:refresh.window="onRefresh()"

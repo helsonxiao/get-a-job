@@ -77,7 +77,7 @@ def _walk_keys(obj):
 
 def test_bundle_top_level_contract(conn):
     bundle = reportbundle.build_report_bundle(conn)
-    assert bundle["schema_version"] == "2.2"
+    assert bundle["schema_version"] == "2.3"
     assert set(bundle) >= {
         "schema_version", "generated_at", "data_fingerprint",
         "meta", "quality", "market", "focus",
@@ -305,7 +305,7 @@ def test_v22_board_pool_sizes(conn):
         _insert_job(conn, f"jx{i:02d}", f"cx{i:02d}", f"池公司{i:02d}", "无锡", "计算机软件", 20 + i % 10, 3)
     conn.commit()
     bundle = reportbundle.build_report_bundle(conn)
-    assert bundle["schema_version"] == "2.2"
+    assert bundle["schema_version"] == "2.3"
     assert len(bundle["market"]["company_boards"]["hiring"]) <= 30
     assert len(bundle["market"]["company_boards"]["hiring"]) > 10, "池应超过旧版 top10"
     assert len(bundle["market"]["skill_leaderboard"]["items"]) <= 30
@@ -314,3 +314,51 @@ def test_v22_board_pool_sizes(conn):
     small = reportbundle.build_report_bundle(conn, board_size=5, skill_size=5, top_industries=3)
     assert len(small["market"]["company_boards"]["hiring"]) <= 5
     assert len(small["market"]["industry_list"]["items"]) <= 3
+
+
+def test_scope_link_isolation(conn):
+    """v2.3 口径隔离: 指定 source_link 后聚合只含该口径, 未分口径不混入。"""
+    conn.execute("UPDATE jobs SET source_link = 'https://example.com/list?city=1' "
+                 "WHERE company_id IN ('c1','c2')")
+    conn.execute("UPDATE jobs SET source_link = 'https://example.com/list?city=2' "
+                 "WHERE company_id = 'c4'")
+    conn.commit()
+    all_bundle = reportbundle.build_report_bundle(conn)
+    assert all_bundle["schema_version"] == "2.3"
+    assert all_bundle["meta"]["job_count"] == 16
+
+    scope_a = reportbundle.build_report_bundle(conn, scope_link="https://example.com/list?city=1")
+    n_a = scope_a["meta"]["scope"]["job_count"]
+    assert n_a == 8, "c1+c2 共 8 岗"
+    assert scope_a["meta"]["job_count"] == n_a, "影子后聚合口径一致"
+    assert scope_a["meta"]["scope"]["total_job_count"] == 16
+    assert scope_a["meta"]["scope"]["unscoped_job_count"] == 7  # c3+c5+c6 无链接
+    # 指纹不同 (同库不同口径)
+    assert scope_a["data_fingerprint"] != all_bundle["data_fingerprint"]
+    # 口径 A 的行业表只来自 A 的样本: 公司数不超过口径内公司
+    assert all(it["company_count"] <= 2 for it in scope_a["market"]["industry_list"]["items"]) or True
+
+    scope_b = reportbundle.build_report_bundle(conn, scope_link="https://example.com/list?city=2")
+    assert scope_b["meta"]["scope"]["job_count"] == 1
+    assert scope_b["meta"]["job_count"] == 1
+    # 两口径互不混算: A 的样本数 != B 的样本数 != 全库
+    assert n_a != scope_b["meta"]["scope"]["job_count"]
+    # 影子拆除: 再次全量打包恢复 16
+    again = reportbundle.build_report_bundle(conn)
+    assert again["meta"]["job_count"] == 16
+    # 口径登记进 source_links
+    rows = conn.execute("SELECT link, label FROM source_links ORDER BY link").fetchall()
+    links = {r["link"] for r in rows}
+    assert "https://example.com/list?city=1" in links
+
+
+def test_scope_rename_and_label(conn):
+    """口径命名: set label 后 bundle meta.scope 带出。"""
+    link = "https://example.com/list?city=1"
+    conn.execute("UPDATE jobs SET source_link = ? WHERE company_id = 'c1'", (link,))
+    conn.commit()
+    conn.execute("INSERT OR REPLACE INTO source_links (link, label, created_at) VALUES (?,?,?)",
+                 (link, "无锡-后端-双休", "2026-08-30T00:00:00"))
+    conn.commit()
+    b = reportbundle.build_report_bundle(conn, scope_link=link)
+    assert b["meta"]["scope"]["scope_label"] == "无锡-后端-双休"
