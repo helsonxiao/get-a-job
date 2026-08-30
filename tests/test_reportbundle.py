@@ -77,7 +77,7 @@ def _walk_keys(obj):
 
 def test_bundle_top_level_contract(conn):
     bundle = reportbundle.build_report_bundle(conn)
-    assert bundle["schema_version"] == "2.1"
+    assert bundle["schema_version"] == "2.2"
     assert set(bundle) >= {
         "schema_version", "generated_at", "data_fingerprint",
         "meta", "quality", "market", "focus",
@@ -297,3 +297,20 @@ def test_skill_leaderboard_normalized_and_median(conn):
     # avg_salary 键语义 = 中位数: 单样本中位等于该样本值
     c_sharp = next(s for s in board["items"] if s["skill"] == "c#")
     assert c_sharp["avg_salary"] == 20.0  # j10 salary_mid=20
+
+
+def test_v22_board_pool_sizes(conn):
+    """2.2: 榜单候选池扩容到 30/30/12; 容量不足时返回实际条数。"""
+    for i in range(40):
+        _insert_job(conn, f"jx{i:02d}", f"cx{i:02d}", f"池公司{i:02d}", "无锡", "计算机软件", 20 + i % 10, 3)
+    conn.commit()
+    bundle = reportbundle.build_report_bundle(conn)
+    assert bundle["schema_version"] == "2.2"
+    assert len(bundle["market"]["company_boards"]["hiring"]) <= 30
+    assert len(bundle["market"]["company_boards"]["hiring"]) > 10, "池应超过旧版 top10"
+    assert len(bundle["market"]["skill_leaderboard"]["items"]) <= 30
+    assert len(bundle["market"]["industry_list"]["items"]) <= 12
+    # 自定义容量
+    small = reportbundle.build_report_bundle(conn, board_size=5, skill_size=5, top_industries=3)
+    assert len(small["market"]["company_boards"]["hiring"]) <= 5
+    assert len(small["market"]["industry_list"]["items"]) <= 3

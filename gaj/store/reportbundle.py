@@ -1,4 +1,4 @@
-"""报告数据打包层 —— 面向报告生成器的单一数据契约 (schema v2.1)。
+"""报告数据打包层 —— 面向报告生成器的单一数据契约 (schema v2.2)。
 
 设计要点:
 - 一次调用返回报告所需的全部聚合数据, 生成器无需自行拼装多个观察台接口。
@@ -19,6 +19,10 @@ v2.1 (2026-08-30, 读者价值审计):
   溢价基准 = 全市场中位 (与行业溢价口径一致)。
 - red_flag_companies / focus.top_companies / focus.top_districts 的 avg_salary
   键名不变, 语义统一为中位数 (报告全文「薪资中位」标签对应同一口径)。
+
+v2.2 (2026-08-30, 问题导向重构):
+- 榜单候选池扩容: 行业 12 / 公司双榜 30 / 技能榜 30 (build_report_bundle 可传参);
+  生成器按样本量自适应取 Top N, 契约本身只承诺「足够大的候选池」。
 """
 
 from __future__ import annotations
@@ -33,7 +37,13 @@ from pathlib import Path
 from .. import config as cfg
 from . import observatory
 
-SCHEMA_VERSION = "2.1"
+SCHEMA_VERSION = "2.2"
+
+#: 榜单池默认容量 (v2.2): bundle 输出足够大的候选池, 由生成器按样本量自适应切片。
+#: 只增不改, 旧生成器兼容 (多出来的行会被旧生成器全量渲染或自行截断)。
+DEFAULT_BOARD_SIZE = 30
+DEFAULT_SKILL_SIZE = 30
+DEFAULT_INDUSTRY_SIZE = 12
 
 #: 输出契约中禁止出现的字段名 (防止未来改动引入单条记录泄漏)
 FORBIDDEN_KEYS = frozenset({
@@ -931,10 +941,14 @@ def _board_entries(entries, registry, *, anonymize: bool) -> list:
     return out
 
 
-def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> dict:
+def build_report_bundle(conn: sqlite3.Connection, top_industries: int = DEFAULT_INDUSTRY_SIZE,
+                        board_size: int = DEFAULT_BOARD_SIZE,
+                        skill_size: int = DEFAULT_SKILL_SIZE) -> dict:
     """打包报告数据契约。
 
-    top_industries: 行业对比表取前 N 个 (按岗位数降序, 与观察台口径一致)。
+    top_industries: 行业对比表候选池容量 (按岗位数降序, 与观察台口径一致)。
+    board_size: 公司双榜候选池容量; skill_size: 技能榜候选池容量。
+    v2.2 起三者仅是「候选池」, 生成器按样本量自适应取 Top N 渲染。
     """
     with_pricing = observatory.observatory_salary_pricing(conn)
     industry_list_full = observatory.observatory_industry_list(conn)
@@ -953,7 +967,7 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> di
         "industry_list": industry_list,
         "signal_radar": {**observatory.observatory_signal_radar(conn),
                          "definitions": SIGNAL_DEFINITIONS},
-        "skill_leaderboard": _skill_board_median(conn, top_n=15),
+        "skill_leaderboard": _skill_board_median(conn, top_n=skill_size),
         "employer_profile": _employer_block(conn),
         "geo": _geo_block(conn),
         "functions": _functions_block(conn),
@@ -962,7 +976,7 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = 8) -> di
 
     company_median_map, comp_ind_median, dist_ind_median = _salary_median_maps(conn)
 
-    hiring_rows, salary_rows = _company_board_rows(conn)
+    hiring_rows, salary_rows = _company_board_rows(conn, top_n=board_size)
 
     focus_name = items[0]["name"] if items else None
     focus_detail = (
