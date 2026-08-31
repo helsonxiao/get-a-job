@@ -384,3 +384,21 @@ def test_skill_board_same_as_observatory(conn):
     assert b["market"]["skill_leaderboard"]["premium_base"] == "market_median"
     assert b["market"]["company_boards"] == \
         observatory.observatory_company_boards(conn, top_n=30)
+
+
+def test_reassign_source_links(tmp_path):
+    """列表级口径重归属: 列表出现的历史岗位挪入新口径; 库外岗位跳过。"""
+    from gaj.store import repo
+    from gaj.store.migrate import reassign_source_links
+
+    # j10 在库 (fixture); zzz-not-in-db 仅出现在列表文件中, 库内无对应岗位
+    debug = tmp_path / "_debug"
+    debug.mkdir()
+    (debug / "joblist_page_01.json").write_text(json.dumps({
+        "zpData": {"jobList": [{"encryptJobId": "j10"}, {"encryptJobId": "zzz-not-in-db"}]}
+    }), encoding="utf-8")
+    out = reassign_source_links(tmp_path, "https://new")
+    assert out == {"seen": 2, "reassigned": 1}, "库外岗位跳过"
+    j = repo.load_job("j10")
+    assert j.source_link == "https://new", "历史岗位挪入新口径"
+    assert repo.load_job("zzz-not-in-db") is None

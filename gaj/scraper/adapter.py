@@ -233,6 +233,21 @@ def crawl(
             log.error(f"迁移失败: {exc}")
             result["migrate_error"] = str(exc)
 
+    # ---- 2.5 列表级口径重归属: 本次筛选列表出现过的历史岗位统一挪到当前口径 ----
+    if auto_migrate:
+        try:
+            from ..store.migrate import reassign_source_links
+
+            src_path = Path(result.get("crawl_dir") or "jobs")
+            reassigned = reassign_source_links(src_path, list_url)
+            result["reassigned"] = reassigned
+            if reassigned.get("reassigned"):
+                # 重归属改了 job.json, 强制重建索引让 source_link 进库
+                migrated_reindexed = False
+        except Exception as exc:
+            log.error(f"口径重归属失败: {exc}")
+            result["reassign_error"] = str(exc)
+
     # ---- 3. 规则打分 ----
     if auto_score:
         try:

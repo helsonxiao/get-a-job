@@ -369,6 +369,46 @@ def _migrate_record(
     return True
 
 
+def reassign_source_links(src: Path, source_link: str) -> dict:
+    """列表级口径重归属: 把「本次筛选列表出现过的岗位」统一归入本次口径。
+
+    背景: 同岗位被多个筛选链接命中时, 爬虫按 job_id 跳过重复详情抓取,
+    migrate 看不到这些岗位 —— 新口径采集后历史岗位不会自动挪过来。
+    本函数从本次采集的列表页原始响应 (_debug/joblist_page_*.json) 收集
+    全部 encryptJobId, 对库中已存在的岗位仅更新 source_link (不重抓详情)。
+
+    返回: {"seen": 列表去重岗位数, "reassigned": 库中存在且归属变化的岗位数}
+    """
+    import json as _json
+
+    debug_dir = src / "_debug"
+    if not debug_dir.is_dir():
+        return {"seen": 0, "reassigned": 0}
+    seen: set[str] = set()
+    for f in sorted(debug_dir.glob("joblist_page_*.json")):
+        try:
+            data = _json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        z = data.get("zpData", data)
+        for item in z.get("jobList") or z.get("jobs") or []:
+            jid = (item or {}).get("encryptJobId")
+            if jid:
+                seen.add(jid)
+    reassigned = 0
+    for jid in seen:
+        job = repo.load_job(jid)
+        if not job:
+            continue
+        if job.source_link != source_link:
+            job.source_link = source_link
+            job.provenance["source_link"] = source_link
+            repo.save_job(job)
+            reassigned += 1
+    log.info(f"列表级口径重归属: 列表出现 {len(seen)} 岗, 重归属 {reassigned} 岗 → {source_link[:60]}...")
+    return {"seen": len(seen), "reassigned": reassigned}
+
+
 def migrate_one(
     src_dir: Path,
     *,
