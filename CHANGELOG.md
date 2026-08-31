@@ -7,6 +7,59 @@
 
 ---
 
+## [v0.6.0] — 来源口径体系（source_link 全链路）
+
+> 2026-08-31。新增顶层能力: 一个 BOSS 筛选链接 = 一个数据口径。
+> 入库带链接 → 按口径隔离出报告 → Web 全局口径切换 → 报告标题用口径命名。
+> 数据契约升级 **bundle schema 2.2 → 3.0**（消费方 gaj-reporter 已同步）。
+
+### 新增
+
+- `jobs.source_link` 字段 + `source_links` 口径注册表（link/label/created_at）:
+  采集迁移链路（adapter → migrate → job.json → 索引）全链路透传来源链接。
+- `build_report_bundle(scope_link=, include_ignored=)`: 口径隔离出报告
+  （temp 表影子实现, 聚合代码零改动）; **默认包含已忽略岗位**（个人忽略不影响
+  市场统计, `meta.scope.ignored_included` 显式报数）。
+- Web「口径管理」页（侧边栏「口径管理」）: 口径列表/岗位数/重命名
+  （命名用于报告标题）/设为当前口径; 长链接完整多行显示。
+- **全局口径筛选**: 侧边栏顶部「数据口径」下拉, 职位/市场观察/公司图鉴/统计
+  等全部只读视图按当前口径过滤（contextvar 请求级隔离; 写路径永不套用）。
+- CLI: `report-bundle --scope-link --exclude-ignored`;
+  `scope-link list / rename / assign`（历史数据手工补归属）。
+
+### 变更
+
+- **schema 3.0（破坏性）**: 技能榜与公司双榜唯一实现下沉 observatory
+  （归一化 + 中位数 + 市场中位溢价, 与行业溢价同口径）;
+  `company_boards` 删除 `hiring_lite/salary_lite` —— 脱敏代号化移交
+  gaj-reporter 渲染层独立完成（lite 真名零泄漏实测）。
+- 观察台技能榜列「均薪」→「薪资中位」。
+- 历史数据归集: 全部 364 条（可见 269）归入「无锡-全栈工程师-主口径」,
+  未分口径归零; 口径指纹掺入链接哈希（不同口径指纹必然不同）。
+- 去重保证: `job_id` 主键 + `source_link` 单值 —— 同岗位被多链接重采
+  只保留一行并归最新口径, 合并展示不重复（测试锁定）。
+
+### 测试
+
+- 24 passed, 新增: 口径隔离/命名/影子拆除恢复/重采去重/
+  技能榜与双榜同源断言（bundle == observatory 完全相等）。
+- 手册: `docs/scope-link-guide.md`。
+
+---
+
+## [v0.5.2] — 报告契约 schema 2.2（榜单候选池扩容）
+
+> 2026-08-30。
+
+### 变更
+
+- 榜单候选池扩容: 行业 8→12 / 公司双榜 10→30 / 技能榜 15→30
+  （`build_report_bundle` 可传参; 入口默认同步）。
+- 报告生成器按样本量自适应取 Top N（TOPN_LADDER 阶梯, 见 gaj-reporter）,
+  契约本身只承诺「足够大的候选池」。
+
+---
+
 ## [v0.5.1] — 报告契约 schema 2.1（读者价值审计）
 
 > 2026-08-30。审计结论驱动：报告的两类付费读者（应届生/跳槽者）逐维度审计后，
