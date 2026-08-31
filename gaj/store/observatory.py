@@ -497,12 +497,14 @@ def observatory_signal_radar(conn: sqlite3.Connection) -> dict:
 
 
 def observatory_skill_leaderboard(conn: sqlite3.Connection, top_n: int = 40) -> dict:
-    """技能热度榜 (观察台口径, 供 gaj web UI)。
+    """技能热度榜 (唯一实现, web 观察台与报告共用)。
 
     展开 jobs.skills JSON → 每技能: demand_count、company_count、avg_salary、
-    salary_premium%(相对市场均价)、top_industries。
-    技能标签经 normalize_skill 归一化 (重复写法合并/非技能词滤除/岗位内去重);
-    avg_salary 语义为均值 —— 报告口径 (中位数) 见 reportbundle._skill_board_median。
+    salary_premium%、top_industries。
+    - 技能标签经 normalize_skill 归一化 (重复写法合并/非技能词滤除/岗位内去重);
+    - avg_salary 键语义 = **薪资中位数** (报告与页面统一中位口径);
+    - salary_premium 基准 = 全市场薪资中位 (与行业溢价口径一致);
+    - premium_base 字段显式声明基准, 供消费方校验。
     空样本时 items=[]。
     """
     rows = conn.execute(
@@ -512,11 +514,11 @@ def observatory_skill_leaderboard(conn: sqlite3.Connection, top_n: int = 40) -> 
     if not rows:
         return {"market_avg_salary": None, "items": []}
 
-    # 市场均价(有薪资岗位)
+    # 市场基准: 薪资中位 (与行业溢价/报告口径一致)
     sal_rows = conn.execute(
         f"SELECT salary_mid FROM jobs WHERE salary_mid IS NOT NULL AND salary_mid > 0 AND {_VISIBLE}"
     ).fetchall()
-    market_avg = round(sum(r["salary_mid"] for r in sal_rows) / len(sal_rows), 2) if sal_rows else None
+    market_median = _median([r["salary_mid"] for r in sal_rows]) if sal_rows else None
 
     # skill_lower -> 累计数据; 归一化后聚合 (重复写法合并, 非技能词滤除, 岗位内去重)
     skill_data: dict[str, dict] = defaultdict(
@@ -539,10 +541,10 @@ def observatory_skill_leaderboard(conn: sqlite3.Connection, top_n: int = 40) -> 
 
     items = []
     for key, d in skill_data.items():
-        avg_sal = round(sum(d["salaries"]) / len(d["salaries"]), 2) if d["salaries"] else None
+        avg_sal = _median(d["salaries"]) if d["salaries"] else None
         premium = None
-        if avg_sal is not None and market_avg:
-            premium = round((avg_sal - market_avg) / market_avg, 4)
+        if avg_sal is not None and market_median:
+            premium = round((avg_sal - market_median) / market_median, 4)
         items.append({
             "skill": key,
             "demand_count": d["demand"],
@@ -555,7 +557,61 @@ def observatory_skill_leaderboard(conn: sqlite3.Connection, top_n: int = 40) -> 
         })
     items.sort(key=lambda x: x["demand_count"], reverse=True)
     items = items[:top_n]
-    return {"market_avg_salary": market_avg, "items": items}
+    return {
+        "market_avg_salary": market_median,  # 键名沿用; 语义 = 全市场中位 (v3.0 统一中位口径)
+        "premium_base": "market_median",
+        "items": items,
+    }
+
+
+def observatory_company_boards(conn: sqlite3.Connection, top_n: int = 30) -> dict:
+    """公司双榜 (唯一实现, 报告与 web 共用): 招聘力度榜 + 薪资榜。
+
+    每条: company(公示名) / industry(众数) / city(岗位标注城市众数, 可空) /
+    job_count / salary_samples / avg_salary(键名沿用, 语义 = **薪资中位数**)。
+    脱敏代号化由消费端 (reporter lite) 自行完成 —— gaj 只出真名聚合。
+    """
+    rows = conn.execute(
+        f"SELECT j.company_id, j.company_name, j.city, j.salary_mid, c.industry"
+        f" FROM jobs j LEFT JOIN companies c ON c.brand_id = j.company_id"
+        f" WHERE {_VISIBLE}"
+    ).fetchall()
+    comp: dict = defaultdict(
+        lambda: {"jobs": 0, "salaries": [], "industries": Counter(), "name": "", "cities": Counter()}
+    )
+    for r in rows:
+        if not r["company_id"]:
+            continue
+        d = comp[r["company_id"]]
+        d["jobs"] += 1
+        if (r["industry"] or "").strip():
+            d["industries"][r["industry"].strip()] += 1
+        city = (r["city"] or "").strip()
+        if city:
+            d["cities"][city] += 1
+        d["name"] = r["company_name"] or d["name"]
+        if r["salary_mid"]:
+            d["salaries"].append(r["salary_mid"])
+    out = []
+    for cid, d in comp.items():
+        industry = d["industries"].most_common(1)[0][0] if d["industries"] else _UNKNOWN
+        city = d["cities"].most_common(1)[0][0] if d["cities"] else None
+        out.append({"_key": cid, "company_name": d["name"], "industry": industry,
+                    "city": city, "job_count": d["jobs"],
+                    "salary_samples": len(d["salaries"]),
+                    "avg_salary": _median(d["salaries"]) if d["salaries"] else None})
+    hiring = sorted(out, key=lambda c: (-c["job_count"], c["_key"]))[:top_n]
+    salary_board = sorted(
+        (c for c in out if c["avg_salary"] is not None and c["salary_samples"] >= 2),
+        key=lambda c: (-c["avg_salary"], c["_key"]),
+    )[:top_n]
+    public = lambda c: {"company": c["company_name"], "industry": c["industry"],
+                        "city": c["city"], "job_count": c["job_count"],
+                        "avg_salary": c["avg_salary"]}
+    return {
+        "hiring": [public(c) for c in hiring],
+        "salary": [public(c) for c in salary_board],
+    }
 
 
 # ============================================================

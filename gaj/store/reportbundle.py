@@ -29,6 +29,14 @@ v2.3a (2026-08-31, 报告默认含已忽略岗位):
   市场报告体现全市场, 个人「忽略」只影响个人工作台不影响统计;
   关闭时与旧口径一致 (仅可见岗位)。meta.scope.ignored_included 显式报数。
 
+v3.0 (2026-08-31, 报告↔页面同源重构):
+- 技能榜唯一实现移至 observatory.observatory_skill_leaderboard (归一化 +
+  中位数 + 市场中位溢价); 公司双榜唯一实现移至
+  observatory.observatory_company_boards (中位数 + 岗位标注城市)。
+- **company_boards 删除 hiring_lite/salary_lite 字段** —— 脱敏代号化移交
+  reporter 渲染层独立完成, gaj 只出真名聚合。破坏性变更, 升 major。
+- web 观察台技能榜「均薪」列同步改「薪资中位」。
+
 v2.3 (2026-08-30, 来源口径隔离):
 - build_report_bundle 新增 scope_link 参数: 指定后全部聚合只统计
   jobs.source_link = scope_link 的岗位 (temp 表影子实现, 聚合代码零改动)。
@@ -49,7 +57,7 @@ from pathlib import Path
 from .. import config as cfg
 from . import observatory
 
-SCHEMA_VERSION = "2.3"
+SCHEMA_VERSION = "3.0"
 
 #: 榜单池默认容量 (v2.2): bundle 输出足够大的候选池, 由生成器按样本量自适应切片。
 #: 只增不改, 旧生成器兼容 (多出来的行会被旧生成器全量渲染或自行截断)。
@@ -215,36 +223,6 @@ def _quality(conn: sqlite3.Connection, market: dict, focus_detail: dict | None) 
 
 
 # ---------------------------------------------------------------- 脱敏
-
-
-class _AliasRegistry:
-    """同一次打包内的公司脱敏别名表: 同一公司在所有区块拿到同一别名。
-
-    用法: 先用 build() 收集所有公司出现点 (可多次调用, 重复 key 取最大 job_count),
-    再 finalize() 按全局 job_count 降序统一发号 (公司A/B/C..., 超出字母池用数字)。
-    """
-
-    def __init__(self) -> None:
-        self._cand: dict[str, int] = {}
-        self._map: dict[str, str] = {}
-
-    def build(self, companies: list[dict]) -> None:
-        for c in companies:
-            k = c.get("_key")
-            if not k:
-                continue
-            if k not in self._cand or (c.get("job_count") or 0) > self._cand[k]:
-                self._cand[k] = c.get("job_count") or 0
-
-    def finalize(self) -> None:
-        ordered = sorted(self._cand, key=lambda k: (-self._cand[k], k))
-        for i, k in enumerate(ordered):
-            self._map[k] = f"公司{_ALIAS_POOL[i]}" if i < len(_ALIAS_POOL) else f"公司{i + 1}"
-
-    def alias(self, key: str | None) -> str:
-        if key is None:
-            return "公司—"
-        return self._map.get(key, "公司—")
 
 
 def _company_key(item: dict) -> str | None:
@@ -610,63 +588,6 @@ def _salary_median_maps(conn: sqlite3.Connection):
     )
 
 
-def _skill_board_median(conn: sqlite3.Connection, top_n: int = 15) -> dict:
-    """报告口径技能榜: 归一化 + 中位数 + 溢价 (基准 = 全市场中位)。
-
-    与观察台 observatory_skill_leaderboard 的差异:
-    - 技能标签归一化 (同一技能多写法合并, 非技能词滤除, 岗位内去重);
-    - avg_salary 键存中位数 (报告全文「薪资中位」口径);
-    - 溢价基准 = 全市场中位, 与行业溢价口径一致。
-    """
-    rows = conn.execute(
-        f"SELECT skills, company_id, salary_mid, industry FROM jobs"
-        f" WHERE skills IS NOT NULL AND skills != '[]' AND {observatory._VISIBLE}"
-    ).fetchall()
-    all_sal = [r["salary_mid"] for r in conn.execute(
-        f"SELECT salary_mid FROM jobs WHERE salary_mid IS NOT NULL AND salary_mid > 0"
-        f" AND {observatory._VISIBLE}")]
-    market_median = observatory._median(all_sal) if all_sal else None
-    if not rows:
-        return {"market_median_salary": market_median, "premium_base": "market_median", "items": []}
-
-    skill_data: dict = defaultdict(
-        lambda: {"demand": 0, "companies": set(), "salaries": [], "industries": Counter()}
-    )
-    for r in rows:
-        ind = observatory._norm(r["industry"])
-        for key in observatory.iter_normalized_skills(r["skills"]):
-            d = skill_data[key]
-            d["demand"] += 1
-            if r["company_id"]:
-                d["companies"].add(r["company_id"])
-            if r["salary_mid"] and r["salary_mid"] > 0:
-                d["salaries"].append(r["salary_mid"])
-            d["industries"][ind] += 1
-
-    items = []
-    for key, d in skill_data.items():
-        med = observatory._median(d["salaries"]) if d["salaries"] else None
-        premium = None
-        if med is not None and market_median:
-            premium = round((med - market_median) / market_median, 4)
-        items.append({
-            "skill": key,
-            "demand_count": d["demand"],
-            "company_count": len(d["companies"]),
-            "avg_salary": med,
-            "salary_premium": premium,
-            "top_industries": [
-                {"name": n, "count": c} for n, c in d["industries"].most_common(3)
-            ],
-        })
-    items.sort(key=lambda x: x["demand_count"], reverse=True)
-    return {
-        "market_median_salary": market_median,
-        "premium_base": "market_median",
-        "items": items[:top_n],
-    }
-
-
 # ---------------------------------------------------------------- 职能分桶 (v2.1)
 
 #: 岗位职能分桶规则 (按序匹配, 先专后泛; 命中即归桶, 不再下探)。
@@ -896,69 +817,6 @@ def _local_pricing_block(conn: sqlite3.Connection, all_median) -> dict:
 # ---------------------------------------------------------------- 组装
 
 
-def _company_board_rows(conn: sqlite3.Connection, top_n: int = 10):
-    """公司双榜原始行 (未脱敏, 仅供注册表与内部脱敏函数消费): 招聘力度榜 + 薪资榜。
-
-    city = 公司已标注城市众数 (全部岗位城市未标注时为 None, 报告端如实留空)。
-    """
-    rows = conn.execute(
-        f"SELECT j.company_id, j.company_name, j.city, j.salary_mid, c.industry"
-        f" FROM jobs j LEFT JOIN companies c ON c.brand_id = j.company_id"
-        f" WHERE {observatory._VISIBLE}"
-    ).fetchall()
-    comp: dict = defaultdict(
-        lambda: {"jobs": 0, "salaries": [], "industries": [], "name": "", "cities": Counter()}
-    )
-    for r in rows:
-        if not r["company_id"]:
-            continue
-        d = comp[r["company_id"]]
-        d["jobs"] += 1
-        # 行业规范化去重: 收集非空行业, 后续取众数 (修复同公司多行业值被最后一条覆盖的问题)
-        if (r["industry"] or "").strip():
-            d["industries"].append(r["industry"].strip())
-        city = (r["city"] or "").strip()
-        if city:
-            d["cities"][city] += 1
-        d["name"] = r["company_name"] or d["name"]
-        if r["salary_mid"]:
-            d["salaries"].append(r["salary_mid"])
-    out = []
-    for cid, d in comp.items():
-        ind_counter = Counter(d["industries"])
-        industry = ind_counter.most_common(1)[0][0] if ind_counter else observatory._UNKNOWN
-        city = d["cities"].most_common(1)[0][0] if d["cities"] else None
-        out.append({"_key": cid, "company_name": d["name"], "industry": industry, "city": city,
-                    "job_count": d["jobs"], "salary_samples": len(d["salaries"]),
-                    "avg_salary": observatory._median(d["salaries"]) if d["salaries"] else None})
-    
-    hiring = sorted(out, key=lambda c: (-c["job_count"], c["_key"]))[:top_n]
-    salary_board = sorted(
-        (c for c in out if c["avg_salary"] is not None and c["salary_samples"] >= 2),
-        key=lambda c: (-c["avg_salary"], c["_key"]),
-    )[:top_n]
-    return hiring, salary_board
-
-
-def _board_entries(entries, registry, *, anonymize: bool) -> list:
-    """双榜条目: 完整版用真实公司名 (company) + 主要城市 (city), lite 版仅别名。
-
-    两者均不含 brand_id / 岗位链接 / 联系方式等单条记录字段;
-    city 仅完整版携带 (lite 防反推不加)。
-    """
-    out = []
-    for c in entries:
-        row = {"industry": c.get("industry") or observatory._UNKNOWN,
-               "job_count": c["job_count"], "avg_salary": c["avg_salary"]}
-        if anonymize:
-            row["alias"] = registry.alias(c["_key"])
-        else:
-            row["company"] = c.get("company_name") or "未知公司"
-            row["city"] = c.get("city")
-        out.append(row)
-    return out
-
-
 def _scope_meta(conn: sqlite3.Connection, scope_link: str) -> dict:
     """口径元数据: 链接/自定义命名/各口径岗位数 (含未分口径历史数据显式报数)。
 
@@ -1066,7 +924,7 @@ def _build_scoped(conn: sqlite3.Connection, top_industries: int,
         "industry_list": industry_list,
         "signal_radar": {**observatory.observatory_signal_radar(conn),
                          "definitions": SIGNAL_DEFINITIONS},
-        "skill_leaderboard": _skill_board_median(conn, top_n=skill_size),
+        "skill_leaderboard": observatory.observatory_skill_leaderboard(conn, top_n=skill_size),
         "employer_profile": _employer_block(conn),
         "geo": _geo_block(conn),
         "functions": _functions_block(conn),
@@ -1075,7 +933,7 @@ def _build_scoped(conn: sqlite3.Connection, top_industries: int,
 
     company_median_map, comp_ind_median, dist_ind_median = _salary_median_maps(conn)
 
-    hiring_rows, salary_rows = _company_board_rows(conn, top_n=board_size)
+    boards_full = observatory.observatory_company_boards(conn, top_n=board_size)
 
     focus_name = items[0]["name"] if items else None
     focus_detail = (
@@ -1083,11 +941,6 @@ def _build_scoped(conn: sqlite3.Connection, top_industries: int,
         if focus_name else None
     )
 
-    # 脱敏: 先汇总所有公司出现点建别名表, 同一公司全程同一别名
-    registry = _AliasRegistry()
-    registry.build([dict(c) for c in hiring_rows])
-    registry.build([dict(c) for c in salary_rows])
-    registry.finalize()
     hours_map = {
         row[0]: row[1]
         for row in conn.execute("SELECT brand_id, hours_per_day FROM companies")
@@ -1109,10 +962,8 @@ def _build_scoped(conn: sqlite3.Connection, top_industries: int,
         conn, industry_list_full.get("market_median")
     )
     market["company_boards"] = {
-        "hiring": _board_entries(hiring_rows, registry, anonymize=False),
-        "salary": _board_entries(salary_rows, registry, anonymize=False),
-        "hiring_lite": _board_entries(hiring_rows, registry, anonymize=True),
-        "salary_lite": _board_entries(salary_rows, registry, anonymize=True),
+        "hiring": boards_full["hiring"],
+        "salary": boards_full["salary"],
     }
 
     meta = _crawl_meta(conn)

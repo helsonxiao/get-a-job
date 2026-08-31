@@ -360,7 +360,7 @@
                 <span class="obs-meta">市场均价 <span x-text="skills.market_avg_salary"></span> 万/年 · 点击行下钻岗位</span>
               </div>
               <table class="obs-table obs-skill-table">
-                <thead><tr><th>技能</th><th>需求岗</th><th>招聘公司</th><th>均薪(万)</th><th>溢价</th><th>Top 行业</th></tr></thead>
+                <thead><tr><th>技能</th><th>需求岗</th><th>招聘公司</th><th>薪资中位(万)</th><th>溢价</th><th>Top 行业</th></tr></thead>
                 <tbody>
                   <template x-for="(s, i) in skills.items" :key="s.skill">
                     <tr class="obs-clickable" @click="openDrill('skill', s.skill, s.skill + ' 技能')">

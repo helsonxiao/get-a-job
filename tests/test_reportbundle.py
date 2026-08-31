@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from gaj.store import index, reportbundle
+from gaj.store import index, observatory, reportbundle
 
 
 def _make_db():
@@ -77,7 +77,7 @@ def _walk_keys(obj):
 
 def test_bundle_top_level_contract(conn):
     bundle = reportbundle.build_report_bundle(conn)
-    assert bundle["schema_version"] == "2.3"
+    assert bundle["schema_version"] == "3.0"
     assert set(bundle) >= {
         "schema_version", "generated_at", "data_fingerprint",
         "meta", "quality", "market", "focus",
@@ -199,8 +199,8 @@ def test_real_db_smoke_if_present():
     assert not leaked, f"brand_id 值级泄漏: {leaked[:5]}"
 
 
-def test_company_boards_named_and_lite(conn):
-    """2.1: 完整版双榜真实名+城市标注; lite 版双榜别名 (不带 city 防反推)。"""
+def test_company_boards_named(conn):
+    """3.0: 双榜真名+城市; 脱敏代号化移交 reporter (无 *_lite 字段)。"""
     bundle = reportbundle.build_report_bundle(conn)
     boards = bundle["market"]["company_boards"]
     raw = json.dumps(boards, ensure_ascii=False)
@@ -212,18 +212,7 @@ def test_company_boards_named_and_lite(conn):
     for c in boards["hiring"]:
         assert set(c) == {"company", "industry", "city", "job_count", "avg_salary"}
         assert c["city"] in ("无锡", "苏州")
-    # lite 版: 别名且唯一, 不携带 city
-    lite_h = boards["hiring_lite"]
-    lite_s = boards["salary_lite"]
-    assert all(set(c) == {"alias", "industry", "job_count", "avg_salary"} for c in lite_h)
-    assert len({c["alias"] for c in lite_h}) == len(lite_h), "招聘榜别名不唯一"
-    assert len({c["alias"] for c in lite_s}) == len(lite_s), "薪资榜别名不唯一"
-    h_map = {c["alias"]: c for c in lite_h}
-    for c in lite_s:
-        if c["alias"] in h_map:
-            assert h_map[c["alias"]]["job_count"] == c["job_count"], "跨榜同别名但数据不一致"
-    # 同源: 真名版与别名版在招数一致 (同名公司)
-    assert [c["job_count"] for c in boards["hiring"]] == [c["job_count"] for c in lite_h]
+    assert "hiring_lite" not in boards and "salary_lite" not in boards
 
 
 # ------------------------------------------------------- v2.1 新增块契约测试
@@ -305,11 +294,13 @@ def test_v22_board_pool_sizes(conn):
         _insert_job(conn, f"jx{i:02d}", f"cx{i:02d}", f"池公司{i:02d}", "无锡", "计算机软件", 20 + i % 10, 3)
     conn.commit()
     bundle = reportbundle.build_report_bundle(conn)
-    assert bundle["schema_version"] == "2.3"
+    assert bundle["schema_version"] == "3.0"
     assert len(bundle["market"]["company_boards"]["hiring"]) <= 30
     assert len(bundle["market"]["company_boards"]["hiring"]) > 10, "池应超过旧版 top10"
     assert len(bundle["market"]["skill_leaderboard"]["items"]) <= 30
     assert len(bundle["market"]["industry_list"]["items"]) <= 12
+    # 3.0: 无 *_lite 字段
+    assert "hiring_lite" not in bundle["market"]["company_boards"]
     # 自定义容量
     small = reportbundle.build_report_bundle(conn, board_size=5, skill_size=5, top_industries=3)
     assert len(small["market"]["company_boards"]["hiring"]) <= 5
@@ -324,7 +315,7 @@ def test_scope_link_isolation(conn):
                  "WHERE company_id = 'c4'")
     conn.commit()
     all_bundle = reportbundle.build_report_bundle(conn)
-    assert all_bundle["schema_version"] == "2.3"
+    assert all_bundle["schema_version"] == "3.0"
     assert all_bundle["meta"]["job_count"] == 16
 
     scope_a = reportbundle.build_report_bundle(conn, scope_link="https://example.com/list?city=1")
@@ -362,3 +353,34 @@ def test_scope_rename_and_label(conn):
     conn.commit()
     b = reportbundle.build_report_bundle(conn, scope_link=link)
     assert b["meta"]["scope"]["scope_label"] == "无锡-后端-双休"
+
+
+def test_rescrape_same_job_no_duplicate(conn):
+    """口径去重锁定: 同一岗位被第二个来源链接重采 (upsert) 后,
+    库内仍只有一行且归属最新口径 —— 合并展示永不产生重复岗位。"""
+    from gaj.store import repo
+    from gaj.core.models import Job
+    assert conn.execute("SELECT COUNT(*) FROM jobs WHERE job_id='j10'").fetchone()[0] == 1
+    # 模拟重采: 同 job_id, 新 source_link
+    job = Job.build(job_id="j10", list_item={"job_name": "岗位j10", "salary_raw": "20k"},
+                    jd_dom={"jd_full": "x"}, company=None, blacklist=set())
+    job.source_link = "https://x/list-b"
+    repo.save_job(job)
+    index.upsert_job(conn, job, refresh_company=False)  # 单岗刷新路径 (真实入库同款)
+    conn.commit()
+    assert conn.execute("SELECT COUNT(*) FROM jobs WHERE job_id='j10'").fetchone()[0] == 1
+    assert conn.execute("SELECT source_link FROM jobs WHERE job_id='j10'").fetchone()[0] == "https://x/list-b"
+    # bundle 合并展示: 该岗位只计一次
+    b = reportbundle.build_report_bundle(conn, include_ignored=False)
+    assert b["meta"]["job_count"] == conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE ignored=0").fetchone()[0]
+
+
+def test_skill_board_same_as_observatory(conn):
+    """技能榜同源: bundle 与 observatory 唯一实现输出完全一致 (含基准声明)。"""
+    b = reportbundle.build_report_bundle(conn, include_ignored=False)
+    assert b["market"]["skill_leaderboard"] == \
+        observatory.observatory_skill_leaderboard(conn, top_n=30)
+    assert b["market"]["skill_leaderboard"]["premium_base"] == "market_median"
+    assert b["market"]["company_boards"] == \
+        observatory.observatory_company_boards(conn, top_n=30)
