@@ -371,51 +371,24 @@ def _employer_block(conn: sqlite3.Connection) -> dict:
     }
 
     # 公示工时分布 (公司页公示的每日工时)
-    def _hours_bucket(h):
-        if h is None:
-            return "未知"
-        if h <= 8:
-            return "≤8h"
-        if h <= 9:
-            return "8-9h"
-        if h <= 10:
-            return "9-10h"
-        return "10h+"
-
     hours_counter: Counter = Counter(
-        _hours_bucket(r["hours_per_day"]) for r in rows
+        observatory.hours_bucket(r["hours_per_day"]) for r in rows
     )
-    order = ["≤8h", "8-9h", "9-10h", "10h+", "未知"]
     hours_dist = [
         {"bucket": b, "count": hours_counter.get(b, 0),
          "ratio": round(hours_counter.get(b, 0) / total, 4) if total else None}
-        for b in order
+        for b in observatory.HOURS_ORDER
     ]
 
     # 公司规模段 × 岗位数/公司数/薪资中位
-    def _scale_bucket(r):
-        s = r["scale_max"] or r["scale_min"]
-        if s is None:
-            return "未知规模"
-        if s < 50:
-            return "50人以下"
-        if s < 150:
-            return "50-150人"
-        if s < 500:
-            return "150-500人"
-        if s < 1000:
-            return "500-1000人"
-        return "1000人以上"
-
     scale_map: dict = defaultdict(lambda: {"jobs": 0, "companies": set(), "salaries": []})
     for r in rows:
-        b = _scale_bucket(r)
+        b = observatory.scale_bucket(r["scale_max"], r["scale_min"])
         scale_map[b]["jobs"] += 1
         if r["company_id"]:
             scale_map[b]["companies"].add(r["company_id"])
         if r["salary_mid"]:
             scale_map[b]["salaries"].append(r["salary_mid"])
-    scale_order = ["50人以下", "50-150人", "150-500人", "500-1000人", "1000人以上", "未知规模"]
     scale_dist = [
         {"bucket": b,
          "job_count": scale_map[b]["jobs"],
@@ -424,7 +397,7 @@ def _employer_block(conn: sqlite3.Connection) -> dict:
              observatory._median(scale_map[b]["salaries"])
              if len(scale_map[b]["salaries"]) >= observatory._MIN_SALARY else None
          )}
-        for b in scale_order if b in scale_map
+        for b in observatory.SCALE_ORDER if b in scale_map
     ]
 
     # 公司性质分布

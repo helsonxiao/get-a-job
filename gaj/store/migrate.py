@@ -461,6 +461,7 @@ def migrate_one(
         assume_city=assume_city,
         dry_run=dry_run,
         report=report,
+        source_link=source_link,
     )
     return report
 

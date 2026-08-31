@@ -110,6 +110,43 @@ def _norm(value: str | None) -> str:
     return value.strip() or _UNKNOWN
 
 
+#: 公示工时 → 分桶 (雇主画像 与 下钻共用, 保证数字对齐)
+HOURS_ORDER = ["≤8h", "8-9h", "9-10h", "10h+", "未知"]
+
+
+def hours_bucket(h):
+    """公司公示每日工时 → 分桶标签; None → "未知"。"""
+    if h is None:
+        return "未知"
+    if h <= 8:
+        return "≤8h"
+    if h <= 9:
+        return "8-9h"
+    if h <= 10:
+        return "9-10h"
+    return "10h+"
+
+
+#: 公司规模段 → 分桶 (雇主画像 与 下钻共用, 保证数字对齐)
+SCALE_ORDER = ["50人以下", "50-150人", "150-500人", "500-1000人", "1000人以上", "未知规模"]
+
+
+def scale_bucket(scale_max, scale_min):
+    """公司规模 (取 max 优先) → 分桶标签; 未知 → "未知规模"。"""
+    s = scale_max or scale_min
+    if s is None:
+        return "未知规模"
+    if s < 50:
+        return "50人以下"
+    if s < 150:
+        return "50-150人"
+    if s < 500:
+        return "150-500人"
+    if s < 1000:
+        return "500-1000人"
+    return "1000人以上"
+
+
 def _percentile(sorted_vals: list[float], p: float) -> float | None:
     """线性插值分位, p in [0, 100]。"""
     n = len(sorted_vals)

@@ -232,18 +232,146 @@ def _migrate(conn: sqlite3.Connection) -> None:
 CURRENT_SCOPE: "contextvars.ContextVar[str]" = contextvars.ContextVar("gaj_current_scope", default="")
 
 
-def apply_scope(conn: sqlite3.Connection, scope_link: str) -> None:
-    """在连接上套用口径影子: temp.jobs 覆盖同名表, 只含该来源链接的岗位。
+def touch_job_source_link(job_id: str, source_link: str) -> bool:
+    """增量口径重归属的 DB 侧直更 (独立连接, 立即可见; 文件侧走 repo.update_source_link)。"""
+    conn = connect(DATA_ROOT / "index.db")
+    try:
+        cur = conn.execute(
+            "UPDATE jobs SET source_link = ? WHERE job_id = ?",
+            (source_link, job_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
 
-    - 所有 ``FROM jobs`` 查询自动只见该口径, 聚合/列表代码零改动;
-    - 影子生命周期 = 连接 (temp 表随连接销毁), 需要长期使用请轮询重建;
+
+def apply_scope(conn: sqlite3.Connection, scope_link: str) -> None:
+    """在连接上套用口径影子: temp.jobs + temp.company_stats 同名覆盖。
+
+    - temp.jobs: 只含该来源链接的岗位 —— 所有 ``FROM jobs`` 查询自动口径化;
+    - temp.company_stats: 从影子 jobs 实时重算的同构统计 —— 公司列表/象限/
+      详情聚合自动口径化 (company_stats 物化表是全库值, 必须覆盖);
+    - 影子生命周期 = 连接 (temp 表随连接销毁);
     - 写操作不要在影子连接上进行 (写入会落在影子表并随连接消失)。
     """
+    from ..core.context import parse_iso  # noqa: F401  (行内计算与 refresh_company_stats 一致)
+
     conn.execute("DROP TABLE IF EXISTS temp.jobs")
     conn.execute(
         "CREATE TEMP TABLE jobs AS SELECT * FROM main.jobs WHERE source_link = ?",
         (scope_link,),
     )
+    conn.execute("DROP TABLE IF EXISTS temp.company_stats")
+    conn.execute(
+        """CREATE TEMP TABLE company_stats (
+               brand_id TEXT PRIMARY KEY, job_count INTEGER, online_count INTEGER,
+               scored_count INTEGER, ai_scored_count INTEGER, best_score REAL,
+               avg_score REAL, company_score REAL, rank_tier TEXT, salary_mid_avg REAL,
+               cities TEXT, top_job_id TEXT, top_job_title TEXT, top_job_score REAL,
+               latest_seen TEXT, has_intro INTEGER, has_scope INTEGER,
+               excluded INTEGER, computed_at TEXT
+           )"""
+    )
+    g = cfg.SETTINGS.guide
+    now_ts = time.time()
+    computed_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+    # 为 companies 全表每行生成统计 (与全量物化语义一致: excluded 过滤才有效,
+    # 否则 LEFT JOIN 的 NULL 行会绕过 excluded 过滤混入口径视图)
+    for brand_id in [r[0] for r in conn.execute("SELECT brand_id FROM main.companies")]:
+        company = repo.load_company(brand_id)
+        rows = conn.execute(
+            "SELECT job_id, title, best_total, manual_total, rule_status, salary_mid,"
+            " city, online, last_seen, ai_count"
+            " FROM temp.jobs WHERE company_id = ?",
+            (brand_id,),
+        ).fetchall()
+        job_count = len(rows)
+        online_count = sum(1 for r in rows if r["online"])
+        scored = [r for r in rows if r["best_total"] is not None]
+        scored_count = len(scored)
+        ai_scored_count = sum(1 for r in rows if (r["ai_count"] or 0) > 0)
+        best_score = max((r["best_total"] for r in scored), default=None)
+        avg_score = (
+            round(sum(r["best_total"] for r in scored) / scored_count, 2)
+            if scored_count else None
+        )
+        salary_mids = [r["salary_mid"] for r in rows if r["salary_mid"] is not None]
+        salary_mid_avg = _median(salary_mids) if salary_mids else None
+        cities = sorted({r["city"] for r in rows if r["city"]})
+
+        head_pool = [
+            r for r in scored
+            if r["rule_status"] != "REJECTED"
+            or r["manual_total"] is not None
+            or (r["ai_count"] or 0) > 0
+        ]
+        head_pool.sort(key=lambda r: r["best_total"], reverse=True)
+        head = head_pool[: len(g.head_weights)]
+
+        company_score: float | None = None
+        if head:
+            weights = g.head_weights[: len(head)]
+            base = sum(r["best_total"] * w for r, w in zip(head, weights)) / sum(weights)
+            online_ratio = online_count / job_count if job_count else 0.0
+            seen_ts_list = [t for t in (parse_iso(r["last_seen"]) for r in rows) if t]
+            seen_ts = max(seen_ts_list) if seen_ts_list else None
+            age_days = (now_ts - seen_ts) / 86400 if seen_ts else float("inf")
+            if age_days <= g.fresh_window_high_days:
+                fresh = g.fresh_bonus_high
+            elif age_days <= g.fresh_window_low_days:
+                fresh = g.fresh_bonus_low
+            else:
+                fresh = -g.fresh_penalty
+            activity = (online_ratio - 0.5) * g.online_ratio_factor + fresh
+            activity = max(-g.activity_cap, min(g.activity_cap, activity))
+            intro = company.intro if company else ""
+            scope_txt = company.business_scope if company else ""
+            bonus = min(g.info_bonus_each * (bool(intro) + bool(scope_txt)), g.info_bonus_cap)
+            company_score = round(max(0.0, min(10.0, base + activity + bonus)), 2)
+        if company_score is None:
+            # AI 兜底仅对「本口径内有岗位」的公司生效 —— 口径外公司不能因
+            # 全库 AI 评分文件混入当前视图 (否则视角外的公司会泄漏进口径)。
+            ai_company = (
+                repo.latest_company_ai_score(brand_id) if job_count > 0 else None
+            )
+            if ai_company:
+                try:
+                    company_score = round(
+                        max(0.0, min(10.0, float(ai_company["company_score_ai"]))), 2
+                    )
+                except (TypeError, ValueError):
+                    pass
+        top_row = max(
+            (r for r in rows if r["best_total"] is not None),
+            key=lambda r: r["best_total"],
+            default=None,
+        )
+        seen_values = [r["last_seen"] for r in rows if r["last_seen"]]
+        excluded = 1 if (
+            brand_id.startswith("anon-")
+            or (company and (company.anonymous or company.data_conflict))
+        ) else 0
+        conn.execute(
+            "INSERT INTO temp.company_stats ("
+            " brand_id, job_count, online_count, scored_count, ai_scored_count,"
+            " best_score, avg_score, company_score, rank_tier, salary_mid_avg,"
+            " cities, top_job_id, top_job_title, top_job_score, latest_seen,"
+            " has_intro, has_scope, excluded, computed_at"
+            ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                brand_id, job_count, online_count, scored_count, ai_scored_count,
+                best_score, avg_score, company_score,
+                _company_rank_tier(company_score), salary_mid_avg,
+                _j(cities), top_row["job_id"] if top_row else None,
+                top_row["title"] if top_row else None,
+                top_row["best_total"] if top_row else None,
+                max(seen_values) if seen_values else None,
+                1 if (company and company.intro) else 0,
+                1 if (company and company.business_scope) else 0,
+                excluded, computed_at,
+            ),
+        )
 
 
 def clear_scope(conn: sqlite3.Connection) -> None:
@@ -494,6 +622,14 @@ def set_company_favorite(conn: sqlite3.Connection, brand_id: str, favorite: bool
 # ---------------------------------------------------------------- 公司聚合
 
 
+def _median(vals: list[float]) -> float | None:
+    vals = sorted(v for v in vals if v is not None)
+    n = len(vals)
+    if n == 0:
+        return None
+    return round(vals[n // 2] if n % 2 else (vals[n // 2 - 1] + vals[n // 2]) / 2, 2)
+
+
 def _company_rank_tier(score: float | None) -> str:
     """company_score → S/A/B/C 等级徽章 (纯视觉层, 阈值见 GuideConfig)。"""
     if score is None:
@@ -555,9 +691,8 @@ def refresh_company_stats(
             if scored_count else None
         )
         salary_mids = [r["salary_mid"] for r in rows if r["salary_mid"] is not None]
-        salary_mid_avg = (
-            round(sum(salary_mids) / len(salary_mids), 2) if salary_mids else None
-        )
+        # v0.6.0: 中位口径统一 (与报告/观察台一致; 键名沿用 salary_mid_avg)
+        salary_mid_avg = _median(salary_mids) if salary_mids else None
         cities = sorted({r["city"] for r in rows if r["city"]})
 
         # 头部加权候选: 剔除规则淘汰岗, 但人工调分或 AI 打分过的保留
@@ -963,6 +1098,52 @@ def _search_clause(search: str) -> tuple[str, list[Any]]:
     )
 
 
+def _skill_match_ids(conn: sqlite3.Connection, skill_key: str) -> list[str]:
+    """解析与技能热度榜同口径的岗位 id 集合。
+
+    技能榜 (observatory.observatory_skill_leaderboard) 用 iter_normalized_skills
+    归一化技能名计数 (如 "全栈项目经验/全栈无侧重/全栈侧重后端" 全部归并成 "全栈"),
+    下钻若用原始 ``LIKE '"全栈"'`` 只能命中裸写 "全栈" 的少数岗位 —— 与榜上
+    demand_count 对不上。这里复用同一套归一化逻辑, 返回命中该技能键的岗位 id。
+    """
+    from .observatory import iter_normalized_skills
+
+    out: list[str] = []
+    rows = conn.execute(
+        "SELECT job_id, skills FROM jobs"
+        " WHERE skills IS NOT NULL AND skills != '[]'"
+    ).fetchall()
+    for r in rows:
+        if skill_key in iter_normalized_skills(r["skills"]):
+            out.append(r["job_id"])
+    return out
+
+
+def _company_ids_for_bucket(
+    conn: sqlite3.Connection, *, scale: str = "", hours: str = ""
+) -> list[str]:
+    """按公司规模段/工时段解析命中的 brand_id 集合。
+
+    雇主画像表的 scale_dist（规模段）与 hours_dist（工时段）都来自 **公司级** 字段
+    （companies.scale_min/max、hours_per_day），而 /api/jobs 只筛岗位。这里先按
+    与 _employer_block 相同的分桶逻辑（observatory.scale_bucket/hours_bucket）
+    解析出命中的公司集，下钻再按 company_id 过滤岗位 —— 保证抽屉数字与表对齐。
+    """
+    from .observatory import hours_bucket, scale_bucket
+
+    rows = conn.execute(
+        "SELECT brand_id, scale_min, scale_max, hours_per_day FROM companies"
+    ).fetchall()
+    out = []
+    for r in rows:
+        if scale and scale_bucket(r["scale_max"], r["scale_min"]) != scale:
+            continue
+        if hours and hours_bucket(r["hours_per_day"]) != hours:
+            continue
+        out.append(r["brand_id"])
+    return out
+
+
 def _build_where(
     *,
     search: str = "",
@@ -980,6 +1161,12 @@ def _build_where(
     district: str = "",
     overtime: str = "",
     skill: str = "",
+    skill_ids: Iterable[str] = (),
+    welfare: str = "",
+    salary_months: int | None = None,
+    scale_bucket: str = "",
+    hours_bucket: str = "",
+    company_ids: Iterable[str] = (),
     edu_level: int | None = None,
     exp_min: float | None = None,
     company_id: str = "",
@@ -1057,12 +1244,34 @@ def _build_where(
             where.append("overtime = ?")
             params.append(overtime)
     if skill:
-        # skills 是 JSON 数组字符串, 用 LIKE 匹配 (参数化, 无注入风险)
-        where.append("skills LIKE ?")
-        params.append('%"' + skill.replace('"', '\\"') + '"%')
+        # 技能热度榜归一口径: 调方先 _skill_match_ids 归一化命中, 再按 id 集合过滤。
+        # 命中为空 → 0 结果 (与榜上 demand_count 完全同源), 不回退裸 LIKE 避免口径漂移。
+        ids = list(skill_ids or [])
+        if ids:
+            placeholders = ",".join("?" * len(ids))
+            where.append(f"job_id IN ({placeholders})")
+            params.extend(ids)
+        else:
+            where.append("1 = 0")
     if edu_level is not None:
         where.append("edu_level = ?")
         params.append(edu_level)
+    if welfare:
+        # welfare 是 JSON 数组字段, 用带引号 LIKE 匹配 (参数化, 无注入风险)
+        where.append("welfare LIKE ?")
+        params.append('%"' + welfare.replace('"', '\\"') + '"%')
+    if salary_months is not None:
+        where.append("salary_months = ?")
+        params.append(salary_months)
+    if company_ids and (scale_bucket or hours_bucket):
+        # 雇主画像下钻: 按公司级规模/工时段解析出的公司集过滤岗位
+        cids = list(company_ids)
+        placeholders = ",".join("?" * len(cids))
+        where.append(f"company_id IN ({placeholders})")
+        params.extend(cids)
+    elif scale_bucket or hours_bucket:
+        # 未命中任何公司 → 空结果 (与雇主画像表 bucket 对齐, 不回落全库)
+        where.append("1 = 0")
     if exp_min is not None:
         where.append("exp_min = ?")
         params.append(exp_min)
@@ -1098,17 +1307,31 @@ def query_jobs(
     district: str = "",
     overtime: str = "",
     skill: str = "",
+    welfare: str = "",
+    salary_months: int | None = None,
+    scale_bucket: str = "",
+    hours_bucket: str = "",
     edu_level: int | None = None,
     exp_min: float | None = None,
     company_id: str = "",
     has_salary: bool = False,
 ) -> list[dict]:
+    # 技能热度榜归一口径: 先归一化命中技能键, 再按岗位 id 过滤
+    skill_ids = _skill_match_ids(conn, skill) if skill else []
+    # 雇主画像下钻: 公司级规模/工时段 → 公司集
+    company_ids = (
+        _company_ids_for_bucket(conn, scale=scale_bucket, hours=hours_bucket)
+        if (scale_bucket or hours_bucket) else []
+    )
     where_clause, params = _build_where(
         search=search, cities=cities, statuses=statuses, scored=scored,
         providers=providers, salary_min=salary_min, online_only=online_only,
         outsourcing=outsourcing, favorite=favorite, ignored=ignored,
         new_since=new_since, industry=industry, district=district,
-        overtime=overtime, skill=skill, edu_level=edu_level,
+        overtime=overtime, skill=skill, skill_ids=skill_ids,
+        welfare=welfare, salary_months=salary_months,
+        scale_bucket=scale_bucket, hours_bucket=hours_bucket,
+        company_ids=company_ids, edu_level=edu_level,
         exp_min=exp_min, company_id=company_id, has_salary=has_salary,
     )
     sort_col = sort if sort in _SORTABLE else "best_total"
@@ -1143,18 +1366,30 @@ def count_jobs(
     district: str = "",
     overtime: str = "",
     skill: str = "",
+    welfare: str = "",
+    salary_months: int | None = None,
+    scale_bucket: str = "",
+    hours_bucket: str = "",
     edu_level: int | None = None,
     exp_min: float | None = None,
     company_id: str = "",
     has_salary: bool = False,
 ) -> int:
     """带筛选条件的职位计数, 参数与 query_jobs 一致。"""
+    skill_ids = _skill_match_ids(conn, skill) if skill else []
+    company_ids = (
+        _company_ids_for_bucket(conn, scale=scale_bucket, hours=hours_bucket)
+        if (scale_bucket or hours_bucket) else []
+    )
     where_clause, params = _build_where(
         search=search, cities=cities, statuses=statuses, scored=scored,
         providers=providers, salary_min=salary_min, online_only=online_only,
         outsourcing=outsourcing, favorite=favorite, ignored=ignored,
         new_since=new_since, industry=industry, district=district,
-        overtime=overtime, skill=skill, edu_level=edu_level,
+        overtime=overtime, skill=skill, skill_ids=skill_ids,
+        welfare=welfare, salary_months=salary_months,
+        scale_bucket=scale_bucket, hours_bucket=hours_bucket,
+        company_ids=company_ids, edu_level=edu_level,
         exp_min=exp_min, company_id=company_id, has_salary=has_salary,
     )
     sql = "SELECT COUNT(*) FROM jobs" + where_clause

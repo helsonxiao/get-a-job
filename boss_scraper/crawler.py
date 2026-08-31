@@ -255,12 +255,16 @@ class JobCrawler:
             return False
         return self.stats.jobs_scraped >= self.max_jobs_per_session
 
-    def crawl_from_url(self, list_url: str, har_path: Optional[str] = None):
+    def crawl_from_url(self, list_url: str, har_path: Optional[str] = None,
+                       on_page_seen=None):
         """从职位列表页 URL 启动采集
 
         Args:
             list_url: BOSS直聘职位列表页 URL
             har_path: HAR 文件路径 (可选, 用于验证 API 结构)
+            on_page_seen: 可选回调 on_page_seen(job_ids: list[str]) ——
+                每页列表解析完成后立即调用 (增量口径重归属用:
+                让「已采集过, 跳过」的历史岗位实时计入当前口径)
         """
         # 净化 URL: 移除反斜杠污染 (可能来自 Chrome 反爬 SDK 或 URL 规范化)
         list_url = sanitize_url(list_url)
@@ -374,6 +378,17 @@ class JobCrawler:
                 if not job_list:
                     log.warning(f"第 {page} 页职位列表为空, 停止翻页")
                     break
+
+                # 增量口径重归属: 本页列表出现的岗位 ID 先行上报
+                # (跳过详情的历史岗位也能实时计入当前口径, 不等采集结束)
+                if on_page_seen:
+                    try:
+                        on_page_seen([
+                            it.get("encryptJobId") for it in job_list
+                            if it.get("encryptJobId")
+                        ])
+                    except Exception as exc:
+                        log.warning(f"on_page_seen 回调失败: {exc}")
 
                 # 逐个处理职位
                 dup_on_page = 0

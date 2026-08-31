@@ -26,6 +26,16 @@ document.addEventListener('alpine:init', () => {
       this.loadList();
     },
 
+    // 口径切换/后台任务变化: 依当前口径刷新列表或当前详情
+    async onRefresh() {
+      if (this.$store.core.view !== 'industry') return;
+      if (this.detailName) {
+        await this.openIndustry(this.detailName);
+      } else {
+        await this.loadList();
+      }
+    },
+
     // 观察台联动入口 (store.openIndustry 派发)
     onOpenIndustry(detail) {
       if (detail && detail.name) {

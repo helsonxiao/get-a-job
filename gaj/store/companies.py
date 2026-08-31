@@ -42,6 +42,10 @@ def _company_where(
 ) -> tuple[str, list[Any]]:
     where: list[str] = []
     params: list[Any] = []
+    # 口径隔离一致语义: 只要"本视图内有岗位"的公司。
+    # 口径模式下 temp.company_stats 对所有公司都建了行 (口径外 job_count=0),
+    # 所以 LEFT JOIN 会把口径外公司漏进来 —— 必须要求 job_count > 0。
+    where.append("(s.job_count IS NOT NULL AND s.job_count > 0)")
     if not include_excluded:
         where.append("(s.excluded = 0 OR s.excluded IS NULL)")
     if q.strip():
@@ -178,17 +182,24 @@ def companies_by_district(
 
 
 def company_facets(conn: sqlite3.Connection) -> dict:
-    """图鉴顶栏概况 + 筛选面板选项。"""
+    """图鉴顶栏概况 + 筛选面板选项。
+
+    口径一致语义: 只统计"本视图内有岗位"的公司 (job_count > 0)。
+    口径模式下 temp.company_stats 对所有公司都建了行, 必须按 job_count 过滤。
+    """
+    _has_jobs = "job_count IS NOT NULL AND job_count > 0"
     row = conn.execute(
-        "SELECT COUNT(*) AS total,"
-        " SUM(CASE WHEN company_score IS NOT NULL THEN 1 ELSE 0 END) AS scored,"
-        " SUM(CASE WHEN ai_scored_count > 0 THEN 1 ELSE 0 END) AS unlocked"
-        " FROM company_stats WHERE excluded = 0"
+        f"SELECT COUNT(*) AS total,"
+        f" SUM(CASE WHEN company_score IS NOT NULL THEN 1 ELSE 0 END) AS scored,"
+        f" SUM(CASE WHEN ai_scored_count > 0 THEN 1 ELSE 0 END) AS unlocked"
+        f" FROM company_stats WHERE {_has_jobs} AND excluded = 0"
     ).fetchone()
     fav = conn.execute(
         "SELECT COUNT(*) FROM companies c"
         " LEFT JOIN company_stats s ON s.brand_id = c.brand_id"
-        " WHERE c.favorite = 1 AND (s.excluded = 0 OR s.excluded IS NULL)"
+        " WHERE c.favorite = 1"
+        " AND (s.job_count IS NOT NULL AND s.job_count > 0)"
+        " AND (s.excluded = 0 OR s.excluded IS NULL)"
     ).fetchone()[0]
 
     def group(col: str) -> list[dict]:
@@ -196,6 +207,7 @@ def company_facets(conn: sqlite3.Connection) -> dict:
             f"SELECT {col} AS k, COUNT(*) AS n FROM companies c"
             " LEFT JOIN company_stats s ON s.brand_id = c.brand_id"
             f" WHERE {col} IS NOT NULL AND {col} != ''"
+            " AND (s.job_count IS NOT NULL AND s.job_count > 0)"
             " AND (s.excluded = 0 OR s.excluded IS NULL)"
             f" GROUP BY {col} ORDER BY n DESC"
         ).fetchall()

@@ -9,7 +9,14 @@
   overflow-x: hidden;
   padding: 0 20px 16px;
 }
-.observatory-panel .tabs { margin: 0 -20px 16px; }
+.observatory-panel .tabs {
+  margin: 0 -20px 16px;
+  /* 观察台 tab 数量多, 允许换行, 避免"雇主画像"等被挤出 */
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 44px;
+}
+.observatory-panel .tabs .tab { height: 44px; flex-shrink: 0; }
 
 .obs-section {
   margin-bottom: 24px;
@@ -673,21 +680,3 @@
 }
 .obs-stat-card b { display: block; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .obs-stat-card span { font-size: 11px; color: var(--gaj-foreground-3); }
-
-/* === 当前数据口径徽标 (tabs 右侧) === */
-.obs-scope-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  padding: 3px 10px;
-  border: 1px solid var(--gaj-primary-border);
-  border-radius: var(--gaj-radius-pill);
-  background: var(--gaj-primary-muted);
-  color: var(--gaj-primary);
-  font-size: var(--gaj-font-size-xs);
-  max-width: 260px;
-  overflow: hidden;
-}
-.obs-scope-badge [data-lucide] { width: 12px; height: 12px; flex-shrink: 0; }
-.obs-scope-badge span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

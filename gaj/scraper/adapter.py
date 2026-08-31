@@ -109,7 +109,7 @@ def crawl(
 
             from ..store.migrate import migrate_one
 
-            mrep = migrate_one(Path(job_dir))
+            mrep = migrate_one(Path(job_dir), source_link=list_url)
             if mrep.migrated == 0:
                 log.warning(f"增量迁移未成功 (老目录={job_dir}): {mrep.skipped}")
                 return
@@ -184,7 +184,24 @@ def crawl(
             max_jobs_per_session=cfg.SETTINGS.crawl.max_jobs_per_session,
             resume_page=resume_page,
         )
-        crawler.crawl_from_url(list_url)
+        incremental_ids: set = set()
+
+        def _on_page_seen(job_ids: list) -> None:
+            """增量口径重归属: 列表页出现的历史岗位实时计入当前口径。"""
+            from ..store import index as _index
+            from ..store.repo import update_source_link
+
+            for jid in job_ids:
+                if not jid or jid in incremental_ids:
+                    continue
+                try:
+                    if _index.touch_job_source_link(jid, list_url):
+                        update_source_link(jid, list_url)
+                        incremental_ids.add(jid)
+                except Exception as exc:
+                    log.debug(f"增量口径重归属跳过 {jid}: {exc}")
+
+        crawler.crawl_from_url(list_url, on_page_seen=_on_page_seen)
         result["crawl_stats"] = crawler.stats.to_dict()
         result["crawl_stats_text"] = str(crawler.stats)
         result["crawl_dir"] = tmp_dir

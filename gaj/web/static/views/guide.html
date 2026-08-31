@@ -80,7 +80,7 @@
               <span x-text="c.scale_raw || '??'"></span>
             </div>
             <div class="gc-meta" x-show="guideUnlocked(c)">
-              <span class="salary" x-text="c.salary_mid_avg ? '均薪 ' + c.salary_mid_avg.toFixed(1) + '万' : '薪资面议'"></span>
+              <span class="salary" x-text="c.salary_mid_avg ? '薪资中位 ' + c.salary_mid_avg.toFixed(1) + '万' : '薪资面议'"></span>
               <span class="sep">·</span>
               <span x-text="(c.cities || []).join('/') || '?'"></span>
             </div>
@@ -145,7 +145,7 @@
                   <div class="cc-metrics">
                     <div><span>规模</span><strong x-text="compareDetails[id].company.scale_raw || '??'"></strong></div>
                     <div><span>阶段</span><strong x-text="compareDetails[id].company.stage || '??'"></strong></div>
-                    <div><span>均薪</span><strong x-text="compareDetails[id].stats?.salary_mid_avg ? compareDetails[id].stats.salary_mid_avg.toFixed(1) + '万' : '??'"></strong></div>
+                    <div><span>薪资中位</span><strong x-text="compareDetails[id].stats?.salary_mid_avg ? compareDetails[id].stats.salary_mid_avg.toFixed(1) + '万' : '??'"></strong></div>
                     <div><span>在招</span><strong x-text="(compareDetails[id].stats?.job_count || 0) + ' 岗'"></strong></div>
                     <div><span>最佳岗位</span><strong x-text="compareDetails[id].stats?.top_job_title || '-'"></strong></div>
                   </div>
@@ -198,7 +198,7 @@
           <span x-show="companyDetail.company.founded" x-text="'成立于 ' + companyDetail.company.founded"></span>
           <span x-show="companyDetail.company.hours_per_day" x-text="'日均 ' + companyDetail.company.hours_per_day + 'h'"></span>
           <span x-text="'在招 ' + (companyDetail.stats?.job_count || 0) + ' 岗'"></span>
-          <span x-show="companyDetail.stats?.salary_mid_avg" x-text="'均薪 ' + companyDetail.stats.salary_mid_avg.toFixed(1) + '万'"></span>
+          <span x-show="companyDetail.stats?.salary_mid_avg" x-text="'薪资中位 ' + companyDetail.stats.salary_mid_avg.toFixed(1) + '万'"></span>
         </div>
         <div class="cd-section" x-show="companyDetail.company.intro">
           <div class="cd-h"><i data-lucide="building-2"></i>公司简介</div>
@@ -237,7 +237,7 @@
               <span class="cdm-value" x-text="companyMarket.rangeMin + ' - ' + companyMarket.rangeMax + ' 万/年'"></span>
             </div>
             <div class="cdm-stat" x-show="companyMarket.midAvg != null">
-              <span class="cdm-label">公司均薪</span>
+              <span class="cdm-label">公司薪资中位</span>
               <span class="cdm-value" x-text="companyMarket.midAvg + ' 万/年'"></span>
             </div>
             <div class="cdm-stat">
@@ -256,7 +256,7 @@
               </span>
               <span class="cdm-hint">数据来自市场观察 · 行业: <span x-text="companyMarket.industry"></span></span>
             </div>
-            <!-- 行业分位条: 公司均薪在行业分位中的位置 -->
+            <!-- 行业分位条: 公司薪资中位在行业分位中的位置 -->
             <div class="pct-track-wrap" x-show="companyMarket.p25 != null && companyMarket.midAvg != null">
               <div class="pct-track" :class="{over: companyMarket.midAvg > companyMarket.p75, under: companyMarket.midAvg < companyMarket.p25}">
                 <div class="pct-zone p25" :style="'left:0;width:' + (companyMarket.p25 / companyMarket.p90 * 100) + '%'"></div>
@@ -269,9 +269,9 @@
               <span class="pct-tick p75 up" :style="'left:' + (companyMarket.p75 / companyMarket.p90 * 100) + '%'"><b>P75</b><i x-text="companyMarket.p75"></i></span>
               <span class="pct-tick p90 down" x-show="companyMarket.p90 != null" :style="'left:' + (companyMarket.p90 / companyMarket.p90 * 100) + '%'"><b>P90</b><i x-text="companyMarket.p90"></i></span>
               <span class="pct-marker" :class="{over: companyMarket.midAvg > companyMarket.p75, under: companyMarket.midAvg < companyMarket.p25}"
-                    :style="'left:' + Math.min(98, companyMarket.midAvg / companyMarket.p90 * 100) + '%'" :title="'公司均薪 ' + companyMarket.midAvg + ' 万/年'"></span>
+                    :style="'left:' + Math.min(98, companyMarket.midAvg / companyMarket.p90 * 100) + '%'" :title="'公司薪资中位 ' + companyMarket.midAvg + ' 万/年'"></span>
               <div class="pct-legend">
-                <span>公司均薪 <strong x-text="companyMarket.midAvg + ' 万/年'"></strong> 位于行业薪资分位</span>
+                <span>公司薪资中位 <strong x-text="companyMarket.midAvg + ' 万/年'"></strong> 位于行业薪资分位</span>
                 <span class="pct-hint" x-text="companyMarket.midAvg > companyMarket.p75 ? '· 高于行业 P75' : (companyMarket.midAvg < companyMarket.p25 ? '· 低于行业 P25' : '· 处于行业 P25-P75 主流区间')"></span>
               </div>
             </div>

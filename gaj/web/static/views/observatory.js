@@ -31,6 +31,14 @@ document.addEventListener('alpine:init', () => {
       this.load(t);
     },
 
+    // 口径切换/后台任务变化: 依当前口径重新拉当前 tab, 清公司象限缓存
+    async onRefresh() {
+      if (this.$store.core.view !== 'observatory') return;
+      this.quadrantCompanies = null;
+      this.quadrantQd = null;
+      await this.load(this.tab);
+    },
+
     // ---- 下钻: 点击图表元素 → 拉 /api/jobs 带筛选 → 抽屉显示岗位 ----
     // 注意: 方法名不能与状态属性 drill 同名, 否则对象字面量去重导致 bug
     // extra: 可选附加筛选 {industry, hasSalary} (表格下钻叠加行业; 薪资tab下钻保持薪资样本口径)
@@ -59,6 +67,10 @@ document.addEventListener('alpine:init', () => {
       else if (type === 'skill') params.set('skill', value);
       else if (type === 'edu_level') params.set('edu_level', value);
       else if (type === 'company') params.set('company_id', value);
+      else if (type === 'welfare') params.set('welfare', value);
+      else if (type === 'salary_months') params.set('salary_months', value);
+      else if (type === 'scale_bucket') params.set('scale_bucket', value);
+      else if (type === 'hours_bucket') params.set('hours_bucket', value);
       if (extra && extra.industry) params.set('industry', extra.industry);
       // 薪资定价 tab 的柱图 count 只含有薪资样本, 下钻保持同口径
       if (extra && extra.hasSalary) params.set('has_salary', '1');

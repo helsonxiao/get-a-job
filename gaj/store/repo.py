@@ -126,6 +126,29 @@ def save_job(
     return d
 
 
+def update_source_link(job_id: str, source_link: str) -> bool:
+    """轻量单岗口径更新: job.json 文件 source_link 字段原位改写。
+
+    用于采集增量回调 (爬虫逐页上报列表岗位) —— 不做全量 Job 读写,
+    文件与 DB 双更由调用方配合完成 (DB 侧 index.touch_job_source_link)。
+    返回 False = 岗位文件不存在。
+    """
+    jdir = jobs_dir() / job_id
+    path = jdir / "job.json"
+    if not path.is_file():
+        return False
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["source_link"] = source_link
+    prov = data.get("provenance")
+    if isinstance(prov, dict):
+        prov["source_link"] = source_link
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    return True
+
+
 def load_job(job_id: str) -> Job | None:
     data = read_json(job_dir(job_id) / cfg.JOB_FILE)
     return Job.from_dict(data) if data else None

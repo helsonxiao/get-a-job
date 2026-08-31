@@ -19,9 +19,6 @@
       <button class="tab" :class="{active: tab === 'quadrant'}" @click="setTab('quadrant')">
         <i data-lucide="scatter-chart"></i> 公司象限
       </button>
-      <span class="obs-scope-badge" x-show="$store.core.scope" :title="'当前数据口径: ' + ($store.core.scopeLabel || '全部数据')">
-        <i data-lucide="link-2"></i><span x-text="$store.core.scopeLabel || '全部数据'"></span>
-      </span>
       <button class="tab" :class="{active: tab === 'employer'}" @click="setTab('employer')">
         <i data-lucide="building-2"></i> 雇主画像
       </button>
@@ -205,7 +202,7 @@
                 <thead><tr><th>月数</th><th>岗位数</th><th>占比</th></tr></thead>
                 <tbody>
                   <template x-for="m in (employer.months_mix || [])" :key="m.months">
-                    <tr>
+                    <tr class="obs-clickable" @click="openDrill('salary_months', m.months, m.months + '薪岗位', {hasSalary: true})">
                       <td x-text="m.months + '薪'"></td>
                       <td x-text="m.count"></td>
                       <td>
@@ -222,7 +219,7 @@
                 <thead><tr><th>规模段</th><th>在招岗位</th><th>公司数</th><th>薪资中位(万/年)</th></tr></thead>
                 <tbody>
                   <template x-for="s in (employer.scale_dist || [])" :key="s.bucket">
-                    <tr><td x-text="s.bucket"></td><td x-text="s.job_count"></td><td x-text="s.company_count"></td><td x-text="s.salary_median != null ? s.salary_median : '—'"></td></tr>
+                    <tr class="obs-clickable" @click="openDrill('scale_bucket', s.bucket, s.bucket + ' 在招岗位')"><td x-text="s.bucket"></td><td x-text="s.job_count"></td><td x-text="s.company_count"></td><td x-text="s.salary_median != null ? s.salary_median : '—'"></td></tr>
                   </template>
                 </tbody>
               </table>
@@ -233,7 +230,7 @@
                 <thead><tr><th>工时段</th><th>岗位数</th><th>占比</th></tr></thead>
                 <tbody>
                   <template x-for="h in (employer.hours_dist || [])" :key="h.bucket">
-                    <tr>
+                    <tr class="obs-clickable" @click="openDrill('hours_bucket', h.bucket, h.bucket + ' 工时岗位')">
                       <td x-text="h.bucket"></td>
                       <td x-text="h.count"></td>
                       <td><div class="obs-minibar"><i :style="'width:' + (h.ratio * 100) + '%'"></i></div></td>
@@ -248,7 +245,7 @@
                 <thead><tr><th>福利</th><th>岗位数</th><th>覆盖率</th></tr></thead>
                 <tbody>
                   <template x-for="w in (employer.top_welfare || [])" :key="w.welfare">
-                    <tr>
+                    <tr class="obs-clickable" @click="openDrill('welfare', w.welfare, w.welfare + ' 福利岗位')">
                       <td x-text="w.welfare"></td>
                       <td x-text="w.count"></td>
                       <td><div class="obs-minibar"><i :style="'width:' + (w.ratio * 100) + '%'"></i></div></td>

@@ -246,13 +246,15 @@ document.addEventListener('alpine:init', () => {
     },
 
     // ---- 启动 (body x-init 调一次) ----
-    setScope(link, label = '') {
+    async setScope(link, label = '') {
       this.scope = link || '';
       this.scopeLabel = link ? (label || this.scopeLabel) : '';
       localStorage.setItem('gaj_scope', this.scope);
       localStorage.setItem('gaj_scope_label', this.scopeLabel);
-      // 整页刷新: 全部视图按新口径重新拉取 (最可靠的失效方式)
-      location.reload();
+      // header 统计沿用新口径先刷新, 再广播刷新事件让各视图依新口径重新取数
+      // —— 只刷新数据, 不做整页 reload, 避免闪屏
+      await this.loadStats();
+      window.dispatchEvent(new Event('gaj:refresh'));
     },
 
     async loadScopeOptions() {
@@ -266,6 +268,13 @@ document.addEventListener('alpine:init', () => {
           this.scope = '';
           this.scopeLabel = '';
           localStorage.setItem('gaj_scope', '');
+        }
+        // 页面刷新后重新从选项派生 label, 保证徽标/选择器文字与下拉一致
+        // (localStorage 里的 gaj_scope_label 可能过期/未写入, 不能只信它)
+        const cur = this.scopeOptions.find((o) => o.link === this.scope);
+        if (cur) {
+          this.scopeLabel = cur.label || this.scope;
+          localStorage.setItem('gaj_scope_label', this.scopeLabel);
         }
       } catch (e) { console.error('scope options error', e); }
     },
