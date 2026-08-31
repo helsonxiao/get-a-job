@@ -18,28 +18,28 @@
 <title>坑位图鉴 — 个人猎头系统</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235B8EF7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Ccircle cx='12' cy='12' r='6'/%3E%3Ccircle cx='12' cy='12' r='2'/%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js"></script>
-<script src="/static/core/icons.js?v=29"></script>
-<script src="/static/core/store.js?v=29"></script>
-<script src="/static/views/jobs.js?v=29"></script>
-<script src="/static/views/guide.js?v=29"></script>
-<script src="/static/views/config.js?v=29"></script>
+<script src="/static/core/icons.js?v=30"></script>
+<script src="/static/core/store.js?v=30"></script>
+<script src="/static/views/jobs.js?v=30"></script>
+<script src="/static/views/guide.js?v=30"></script>
+<script src="/static/views/config.js?v=30"></script>
 <script src="/static/views/scope.js?v=1"></script>
-<script src="/static/views/resume.js?v=29"></script>
-<script src="/static/views/observatory.js?v=29"></script>
-<script src="/static/views/industry.js?v=29"></script>
-<script src="/static/core/quadrant.js?v=29"></script>
-<link rel="stylesheet" href="/static/styles/base.css?v=29">
-<link rel="stylesheet" href="/static/style.css?v=29">
-<link rel="stylesheet" href="/static/styles/components.css?v=29">
-<link rel="stylesheet" href="/static/styles/jobs.css?v=29">
-<link rel="stylesheet" href="/static/styles/guide.css?v=29">
-<link rel="stylesheet" href="/static/styles/config.css?v=29">
-<link rel="stylesheet" href="/static/styles/resume.css?v=29">
-<link rel="stylesheet" href="/static/styles/observatory.css?v=29">
+<script src="/static/views/resume.js?v=30"></script>
+<script src="/static/views/observatory.js?v=30"></script>
+<script src="/static/views/industry.js?v=30"></script>
+<script src="/static/core/quadrant.js?v=30"></script>
+<link rel="stylesheet" href="/static/styles/base.css?v=30">
+<link rel="stylesheet" href="/static/style.css?v=30">
+<link rel="stylesheet" href="/static/styles/components.css?v=30">
+<link rel="stylesheet" href="/static/styles/jobs.css?v=30">
+<link rel="stylesheet" href="/static/styles/guide.css?v=30">
+<link rel="stylesheet" href="/static/styles/config.css?v=30">
+<link rel="stylesheet" href="/static/styles/resume.css?v=30">
+<link rel="stylesheet" href="/static/styles/observatory.css?v=30">
 <link rel="stylesheet" href="/static/styles/scope.css?v=1">
-<link rel="stylesheet" href="/static/styles/industry.css?v=29">
-<link rel="stylesheet" href="/static/styles/quadrant.css?v=29">
-<link rel="stylesheet" href="/static/styles/calibration.css?v=29">
+<link rel="stylesheet" href="/static/styles/industry.css?v=30">
+<link rel="stylesheet" href="/static/styles/quadrant.css?v=30">
+<link rel="stylesheet" href="/static/styles/calibration.css?v=30">
 </head>
 <!--
   Alpine 组件岛架构 (ADR-001/ADR-002): body 只做 store 引导, 无根组件。
@@ -120,15 +120,17 @@
     <!-- Sidebar 主导航 (分组: 工作台 / 市场 / 配置) -->
     <nav class="sidebar" aria-label="主导航">
       <!-- 全局口径筛选: 顶层参数, 高于一切分组, 作用于全部只读视图 -->
-      <div class="scope-filter" style="margin:0 0 4px;padding:12px 14px;border-bottom:2px solid var(--gaj-border);background:var(--gaj-surface)">
-        <label style="display:block;margin-bottom:6px;font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--gaj-primary)">数据口径 · 全局</label>
-        <select class="input" style="width:100%;font-size:12px"
+      <div class="nav-scope" x-effect="$store.core.scopeOptions.length">
+        <label class="nav-scope-label" for="nav-scope-select">
+          <i data-lucide="link-2"></i><span>数据口径</span>
+        </label>
+        <select id="nav-scope-select" class="nav-scope-select"
                 x-model="$store.core.scope"
                 @change="$store.core.setScope($event.target.value, ($store.core.scopeOptions.find(o => o.link === $event.target.value) || {}).label || '')"
                 title="切换当前数据口径 (工作台与市场全部只读视图生效)">
-          <option value="">全部数据 (不分口径)</option>
+          <option value="">全部数据</option>
           <template x-for="o in $store.core.scopeOptions" :key="o.link">
-            <option :value="o.link" x-text="(o.label || '未命名口径') + ' · ' + o.job_count + ' 岗'"></option>
+            <option :value="o.link" x-text="o.label || '未命名口径'" :title="(o.label || '未命名口径') + ' · ' + o.job_count + ' 岗'"></option>
           </template>
         </select>
       </div>
@@ -151,11 +153,7 @@
         <i data-lucide="settings"></i><span class="nav-label">规则配置</span>
       </button>
       <button class="sidebar-item" :class="{active: $store.core.view === 'scope'}" @click="$store.core.switchView('scope')">
-        <i data-lucide="link-2"></i>
-        <div>
-          <div class="item-title">口径管理</div>
-          <div class="item-sub">来源链接 · 命名 · 岗位数</div>
-        </div>
+        <i data-lucide="link-2"></i><span class="nav-label">口径管理</span>
       </button>
       <button class="sidebar-item" :class="{active: $store.core.view === 'resume'}" @click="$store.core.switchView('resume')">
         <i data-lucide="file-text"></i><span class="nav-label" x-text="$store.core.resumeExists ? '主简历' : '上传简历'"></span>
@@ -234,7 +232,7 @@
       用"先注入后加载"保证 Alpine 扫描时全部视图 DOM 已就位) -->
 <script>
 (function () {
-  var VER = '29';
+  var VER = '30';
   var nodes = Array.prototype.slice.call(document.querySelectorAll('[data-tpl]'));
   Promise.all(nodes.map(function (n) {
     return fetch('/static/views/' + n.dataset.tpl + '.html?v=' + VER)

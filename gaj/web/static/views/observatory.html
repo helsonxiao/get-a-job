@@ -19,6 +19,9 @@
       <button class="tab" :class="{active: tab === 'quadrant'}" @click="setTab('quadrant')">
         <i data-lucide="scatter-chart"></i> 公司象限
       </button>
+      <span class="obs-scope-badge" x-show="$store.core.scope" :title="'当前数据口径: ' + ($store.core.scopeLabel || '全部数据')">
+        <i data-lucide="link-2"></i><span x-text="$store.core.scopeLabel || '全部数据'"></span>
+      </span>
       <button class="tab" :class="{active: tab === 'employer'}" @click="setTab('employer')">
         <i data-lucide="building-2"></i> 雇主画像
       </button>

@@ -1,103 +1,107 @@
 <!-- ============================================
      VIEW: SCOPE — 来源口径管理 (逻辑 views/scope.js · 样式 styles/scope.css)
      长链接完整多行显示 (word-break), 支持重命名与「设为当前口径」。
+     容器复用 config-body (滚动+留白), scope-panel 居中。
      ============================================ -->
-<div class="scope-panel">
-  <div class="scope-head">
-    <div>
-      <h2>来源口径管理</h2>
-      <p class="desc">
-        一个 BOSS 筛选链接 = 一个数据口径。入库岗位携带来源链接, 报告按链接隔离统计;
-        侧边栏「数据口径」可全局切换当前口径 (作用于职位/市场观察/公司图鉴等全部只读视图)。
-      </p>
+<div class="config-body">
+  <div class="scope-panel">
+    <div class="scope-head">
+      <div>
+        <h2>来源口径管理</h2>
+        <p class="desc">
+          一个 BOSS 筛选链接 = 一个数据口径。入库岗位携带来源链接，报告按链接隔离统计；
+          侧边栏顶部「数据口径」可全局切换当前口径（作用于职位、市场观察、公司图鉴等全部只读视图）。
+        </p>
+      </div>
+      <button class="primary" @click="reload()" :disabled="loading" title="重新加载">
+        <i data-lucide="refresh-cw"></i> 刷新
+      </button>
     </div>
-    <button class="btn" @click="reload()" :disabled="loading" title="重新加载">
-      <i data-lucide="refresh-cw"></i> 刷新
-    </button>
-  </div>
 
-  <div class="scope-stats">
-    <div class="stat-card">
-      <div class="label">可见岗位总数</div>
-      <div class="value" x-text="data.total_job_count ?? '—'"></div>
+    <div class="scope-stats">
+      <div class="stat-card">
+        <div class="label">可见岗位总数</div>
+        <div class="value" x-text="data.total_job_count ?? '—'"></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">未分口径（历史数据）</div>
+        <div class="value" x-text="data.unscoped_job_count ?? '—'"></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">已登记口径</div>
+        <div class="value" x-text="(data.links || []).length"></div>
+      </div>
     </div>
-    <div class="stat-card">
-      <div class="label">未分口径 (历史数据)</div>
-      <div class="value" x-text="data.unscoped_job_count ?? '—'"></div>
-    </div>
-    <div class="stat-card">
-      <div class="label">已登记口径</div>
-      <div class="value" x-text="(data.links || []).length"></div>
-    </div>
-  </div>
 
-  <template x-if="!loading && data.links && data.links.length === 0">
-    <div class="scope-empty">
-      还没有登记任何口径 —— 生成一次
-      <code>gaj report-bundle --scope-link &lt;链接&gt;</code>
-      或执行 <code>gaj scope-link rename</code> 后, 链接会自动登记到这里。
-    </div>
-  </template>
+    <template x-if="!loading && data.links && data.links.length === 0">
+      <div class="scope-empty">
+        还没有登记任何口径 —— 生成一次
+        <code>gaj report-bundle --scope-link &lt;链接&gt;</code>
+        或执行 <code>gaj scope-link rename</code> 后，链接会自动登记到这里。
+      </div>
+    </template>
 
-  <table class="scope-table" x-show="data.links && data.links.length > 0">
-    <thead>
-      <tr>
-        <th style="width:46%">口径链接与命名</th>
-        <th style="width:9%">岗位数</th>
-        <th style="width:15%">登记时间</th>
-        <th>操作</th>
-      </tr>
-    </thead>
-    <tbody>
-      <template x-for="item in (data.links || [])" :key="item.link">
-        <tr :class="{ 'is-active': $store.core.scope === item.link }">
-          <td>
-            <div class="scope-label">
-              <span x-text="item.label || '(未命名口径)'"></span>
-              <span class="badge" x-show="$store.core.scope === item.link">当前口径</span>
-            </div>
-            <div class="scope-link-text" x-text="item.link"></div>
-          </td>
-          <td style="font-variant-numeric: tabular-nums" x-text="item.job_count"></td>
-          <td class="muted" style="font-size:12px"
-              x-text="(item.created_at || '').slice(0, 16).replace('T', ' ')"></td>
-          <td>
-            <div class="scope-actions">
-              <button class="btn" @click="setCurrent(item)"
-                      :disabled="$store.core.scope === item.link"
-                      :title="$store.core.scope === item.link ? '已是当前口径' : '全局切换到该口径 (全部只读视图生效)'">
-                <i data-lucide="crosshair"></i>
-                <span x-text="$store.core.scope === item.link ? '当前口径' : '设为当前口径'"></span>
-              </button>
-              <div class="scope-rename">
-                <input class="input" type="text" maxlength="40" placeholder="命名, 如: 无锡-全栈工程师-主口径"
-                       x-model="item._draft" @keyup.enter="save(item)">
-                <button class="btn" @click="save(item)" :disabled="item.saving">
-                  <i data-lucide="check"></i> 保存命名
-                </button>
-              </div>
-            </div>
-          </td>
+    <table class="scope-table" x-show="data.links && data.links.length > 0">
+      <thead>
+        <tr>
+          <th class="col-link">口径链接与命名</th>
+          <th class="col-count">岗位数</th>
+          <th class="col-time">登记时间</th>
+          <th>操作</th>
         </tr>
-      </template>
-      <tr x-show="data.unscoped_job_count > 0">
-        <td>
-          <div class="scope-label"><span>未分口径 (历史数据)</span></div>
-          <div class="scope-link-text">这批岗位采集于口径功能上线前, 没有来源链接; 只参与「全部数据」视图, 不参与任何单口径统计。</div>
-        </td>
-        <td style="font-variant-numeric: tabular-nums" x-text="data.unscoped_job_count"></td>
-        <td class="muted">—</td>
-        <td><span class="muted" style="font-size:12px">保留, 不删除; 可用 gaj scope-link assign 补归属</span></td>
-      </tr>
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        <template x-for="item in (data.links || [])" :key="item.link">
+          <tr :class="{ 'is-active': $store.core.scope === item.link }">
+            <td>
+              <div class="scope-label">
+                <span x-text="item.label || '（未命名口径）'"></span>
+                <span class="scope-badge-active" x-show="$store.core.scope === item.link">
+                  <i data-lucide="check"></i><span>当前口径</span>
+                </span>
+              </div>
+              <div class="scope-link-text" x-text="item.link"></div>
+            </td>
+            <td class="col-count" x-text="item.job_count"></td>
+            <td class="col-time" x-text="(item.created_at || '').slice(0, 16).replace('T', ' ')"></td>
+            <td>
+              <div class="scope-actions">
+                <button class="primary" @click="setCurrent(item)"
+                        :disabled="$store.core.scope === item.link"
+                        :title="$store.core.scope === item.link ? '已是当前口径' : '全局切换到该口径（全部只读视图生效）'">
+                  <i data-lucide="crosshair"></i>
+                  <span x-text="$store.core.scope === item.link ? '当前口径' : '设为当前口径'"></span>
+                </button>
+                <div class="scope-rename">
+                  <input type="text" maxlength="40" placeholder="命名，如：无锡-全栈工程师-主口径"
+                         x-model="item._draft" @keyup.enter="save(item)">
+                  <button @click="save(item)" :disabled="item.saving">
+                    <i data-lucide="check"></i> 保存命名
+                  </button>
+                </div>
+              </div>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="data.unscoped_job_count > 0">
+          <td>
+            <div class="scope-label"><span>未分口径（历史数据）</span></div>
+            <div class="scope-link-text">这批岗位采集于口径功能上线前，没有来源链接；只参与「全部数据」视图，不参与任何单口径统计。</div>
+          </td>
+          <td class="col-count" x-text="data.unscoped_job_count"></td>
+          <td class="col-time">—</td>
+          <td><span class="scope-note">保留，不删除；可用 gaj scope-link assign 补归属</span></td>
+        </tr>
+      </tbody>
+    </table>
 
-  <div class="scope-tip">
-    <b>使用流程:</b>
-    ① 带链接采集: <code>python3 -m gaj crawl "&lt;筛选链接&gt;"</code> (入库自动携带);
-    ② 这里重命名 (命名会用作报告标题);
-    ③ 侧边栏「数据口径」切换当前口径, 职位/观察台/公司图鉴即时过滤;
-    ④ 按口径出报告: <code>python3 -m gaj report-bundle --scope-link "&lt;链接&gt;"</code>
-    或生成器加 <code>--scope-link</code>。
+    <div class="scope-tip">
+      <b>使用流程：</b>
+      ① 带链接采集：<code>python3 -m gaj crawl "&lt;筛选链接&gt;"</code>（入库自动携带）；
+      ② 这里重命名（命名会用作报告标题）；
+      ③ 侧边栏顶部「数据口径」切换当前口径，职位、观察台、公司图鉴即时过滤；
+      ④ 按口径出报告：<code>python3 -m gaj report-bundle --scope-link "&lt;链接&gt;"</code>
+      或生成器加 <code>--scope-link</code>。
+    </div>
   </div>
 </div>

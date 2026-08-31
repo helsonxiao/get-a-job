@@ -1,58 +1,108 @@
 /* ============================================
-   来源口径管理 (scope) — 沿用全局 gaj-* 设计令牌
+   来源口径管理 (scope) — 复用全局令牌与组件
+   容器: config-body (滚动) + scope-panel (居中)
+   表格对齐 ind-table 风格; 控件用全局 button/input。
    ============================================ */
-.scope-panel { max-width: 1080px; }
+.scope-panel { max-width: 1100px; margin: 0 auto; }
 
-.scope-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
-.scope-head h2 { margin: 0; font-size: var(--gaj-font-size-xl); }
-.scope-head .desc { margin: 6px 0 0; color: var(--gaj-foreground-3); font-size: var(--gaj-font-size-sm); max-width: 46em; }
+/* --- 页头 --- */
+.scope-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 6px; }
+.scope-head h2 { margin: 0; font-size: var(--gaj-font-size-xl); font-weight: 600; color: var(--gaj-foreground); }
+.scope-head .desc { margin: 6px 0 0; color: var(--gaj-foreground-3); font-size: var(--gaj-font-size-sm); max-width: 52em; line-height: 1.7; }
 
-.scope-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
+/* --- 统计卡 (components.stat-card 同款) --- */
+.scope-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0 20px; }
 
-.scope-table { width: 100%; border-collapse: collapse; font-size: var(--gaj-font-size-sm); background: var(--gaj-surface); border: 1px solid var(--gaj-border); border-radius: var(--gaj-radius-lg); overflow: hidden; }
-.scope-table th { text-align: left; font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); font-weight: 500; padding: 10px 12px; border-bottom: 1px solid var(--gaj-border); white-space: nowrap; }
-.scope-table td { padding: 12px; border-bottom: 1px solid var(--gaj-border-subtle); vertical-align: top; }
+/* --- 口径表 (ind-table 同款风格) --- */
+.scope-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--gaj-font-size-sm);
+  background: var(--gaj-surface);
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-lg);
+  overflow: hidden;
+}
+.scope-table th {
+  text-align: left;
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-foreground-3);
+  font-weight: 500;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--gaj-border);
+  white-space: nowrap;
+}
+.scope-table td { padding: 14px; border-bottom: 1px solid var(--gaj-border-subtle); vertical-align: top; }
+.scope-table tbody tr { transition: background var(--gaj-transition-fast); }
+.scope-table tbody tr:hover { background: var(--gaj-surface-2); }
 .scope-table tr:last-child td { border-bottom: none; }
-.scope-table tr.is-active { background: color-mix(in srgb, var(--gaj-primary) 6%, transparent); }
+.scope-table tr.is-active { background: var(--gaj-primary-muted); }
+.scope-table tr.is-active:hover { background: var(--gaj-primary-muted); }
+.scope-table .col-count { font-variant-numeric: tabular-nums; color: var(--gaj-foreground); }
+.scope-table .col-time { font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); white-space: nowrap; }
 
-.scope-label { font-weight: 600; color: var(--gaj-foreground); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
-.scope-label .badge { font-size: 10px; font-weight: 600; letter-spacing: .04em; color: var(--gaj-primary); border: 1px solid var(--gaj-primary); border-radius: 3px; padding: 1px 6px; }
-.scope-link-text { color: var(--gaj-foreground-3); font-size: 12px; line-height: 1.55; word-break: break-all; white-space: normal; font-family: var(--gaj-font-mono, ui-monospace, monospace); }
+/* --- 行内容 --- */
+.scope-label { font-weight: 600; color: var(--gaj-foreground); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.scope-badge-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--gaj-primary);
+  background: var(--gaj-primary-muted);
+  border-radius: var(--gaj-radius-pill);
+  padding: 1px 8px;
+}
+.scope-badge-active [data-lucide] { width: 10px; height: 10px; }
+.scope-link-text {
+  color: var(--gaj-foreground-3);
+  font-size: var(--gaj-font-size-xs);
+  line-height: 1.55;
+  word-break: break-all;
+  white-space: normal;
+  font-family: var(--gaj-font-mono);
+}
+.scope-note { font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); line-height: 1.6; }
 
-.scope-rename { display: flex; gap: 8px; align-items: center; }
-.scope-rename .input { flex: 1; }
+/* --- 行内操作 --- */
+.scope-actions { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+.scope-rename { display: flex; gap: 6px; align-items: center; }
+.scope-rename input { flex: 1; min-width: 0; }
 
-.scope-actions { display: flex; flex-direction: column; gap: 6px; }
-.scope-empty { padding: 28px; text-align: center; color: var(--gaj-foreground-3); border: 1px dashed var(--gaj-border); border-radius: var(--gaj-radius-lg); margin-top: 10px; }
-.scope-tip { margin-top: 16px; padding: 12px 16px; border: 1px solid var(--gaj-border-subtle); border-radius: var(--gaj-radius-lg); color: var(--gaj-foreground-2); font-size: var(--gaj-font-size-sm); line-height: 1.8; background: var(--gaj-surface); }
-.scope-tip code { background: var(--gaj-primary-muted); border-radius: 3px; padding: 1px 6px; font-size: 12px; }
+/* --- 空态 / 提示卡 --- */
+.scope-empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--gaj-foreground-3);
+  border: 1px dashed var(--gaj-border);
+  border-radius: var(--gaj-radius-lg);
+  margin-top: 12px;
+  font-size: var(--gaj-font-size-sm);
+  line-height: 2;
+}
+.scope-tip {
+  margin-top: 16px;
+  padding: 14px 18px;
+  border: 1px solid var(--gaj-border);
+  border-radius: var(--gaj-radius-lg);
+  color: var(--gaj-foreground-2);
+  font-size: var(--gaj-font-size-sm);
+  line-height: 1.9;
+  background: var(--gaj-surface);
+}
+.scope-tip b { color: var(--gaj-foreground); }
+.scope-tip code {
+  background: var(--gaj-primary-muted);
+  color: var(--gaj-primary);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: var(--gaj-font-size-xs);
+  font-family: var(--gaj-font-mono);
+}
 
 @media (max-width: 900px) {
   .scope-stats { grid-template-columns: 1fr; }
+  .scope-table { display: block; overflow-x: auto; }
+  .scope-head { flex-direction: column; }
 }
-
-/* ---- 自包含控件 (沿用 obs-detail-btn 的视觉语言) ---- */
-.scope-panel .btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid var(--gaj-border); background: var(--gaj-surface);
-  color: var(--gaj-foreground); border-radius: var(--gaj-radius-md, 6px);
-  padding: 6px 12px; font-size: var(--gaj-font-size-sm); cursor: pointer;
-}
-.scope-panel .btn:hover { border-color: var(--gaj-primary); color: var(--gaj-primary); }
-.scope-panel .btn:disabled { opacity: .5; cursor: default; }
-.scope-panel .btn [data-lucide] { width: 14px; height: 14px; }
-.scope-panel .input {
-  border: 1px solid var(--gaj-border); background: var(--gaj-surface);
-  color: var(--gaj-foreground); border-radius: var(--gaj-radius-md, 6px);
-  padding: 6px 10px; font-size: var(--gaj-font-size-sm);
-}
-.scope-panel .input:focus { outline: none; border-color: var(--gaj-primary); }
-.scope-panel .muted { color: var(--gaj-foreground-3); }
-
-/* ---- 侧边栏全局口径筛选 (独立顶层区块) ---- */
-.scope-filter .input {
-  border: 1px solid var(--gaj-border); background: var(--gaj-surface);
-  color: var(--gaj-foreground); border-radius: var(--gaj-radius-md, 6px);
-  padding: 6px 8px; font-size: 12px; width: 100%;
-}
-.scope-filter .input:focus { outline: none; border-color: var(--gaj-primary); }
