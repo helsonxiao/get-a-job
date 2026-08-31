@@ -48,3 +48,11 @@
 }
 .scope-panel .input:focus { outline: none; border-color: var(--gaj-primary); }
 .scope-panel .muted { color: var(--gaj-foreground-3); }
+
+/* ---- 侧边栏全局口径筛选 (独立顶层区块) ---- */
+.scope-filter .input {
+  border: 1px solid var(--gaj-border); background: var(--gaj-surface);
+  color: var(--gaj-foreground); border-radius: var(--gaj-radius-md, 6px);
+  padding: 6px 8px; font-size: 12px; width: 100%;
+}
+.scope-filter .input:focus { outline: none; border-color: var(--gaj-primary); }

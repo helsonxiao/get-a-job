@@ -108,6 +108,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="行业对比候选池容量 (schema 2.2 默认 12, 生成器按样本量自适应切片)")
     p.add_argument("--scope-link", default=None,
                    help="来源筛选链接 (口径隔离): 指定后全部聚合只统计该链接采集的岗位")
+    p.add_argument("--exclude-ignored", action="store_true",
+                   help="排除已忽略岗位 (默认包含: 市场报告应体现全市场, 个人忽略不影响统计)")
 
     # ---- scope-link (来源口径管理: 列表/重命名/手工归属) ----
     p_scope = sub.add_parser("scope-link", help="来源筛选链接口径管理: list / rename / assign")
@@ -254,7 +256,8 @@ def main(argv: list[str] | None = None) -> int:
 
         with index.session() as conn:
             bundle = reportbundle.build_report_bundle(
-                conn, top_industries=args.top_industries, scope_link=args.scope_link
+                conn, top_industries=args.top_industries, scope_link=args.scope_link,
+                include_ignored=not args.exclude_ignored,
             )
         print(json.dumps(bundle, ensure_ascii=False, indent=2 if args.pretty else None))
         return 0

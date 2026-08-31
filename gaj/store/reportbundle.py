@@ -24,6 +24,11 @@ v2.2 (2026-08-30, 问题导向重构):
 - 榜单候选池扩容: 行业 12 / 公司双榜 30 / 技能榜 30 (build_report_bundle 可传参);
   生成器按样本量自适应取 Top N, 契约本身只承诺「足够大的候选池」。
 
+v2.3a (2026-08-31, 报告默认含已忽略岗位):
+- build_report_bundle 新增 include_ignored 参数 (默认 True):
+  市场报告体现全市场, 个人「忽略」只影响个人工作台不影响统计;
+  关闭时与旧口径一致 (仅可见岗位)。meta.scope.ignored_included 显式报数。
+
 v2.3 (2026-08-30, 来源口径隔离):
 - build_report_bundle 新增 scope_link 参数: 指定后全部聚合只统计
   jobs.source_link = scope_link 的岗位 (temp 表影子实现, 聚合代码零改动)。
@@ -962,12 +967,13 @@ def _scope_meta(conn: sqlite3.Connection, scope_link: str) -> dict:
     scoped_count = conn.execute(
         "SELECT COUNT(*) FROM jobs WHERE " + observatory._VISIBLE
     ).fetchone()[0]
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM main.jobs WHERE {observatory._VISIBLE}"
+    ignored_included = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE ignored = 1"
     ).fetchone()[0]
+    total = conn.execute("SELECT COUNT(*) FROM main.jobs").fetchone()[0]
     unscoped = conn.execute(
-        f"SELECT COUNT(*) FROM main.jobs WHERE {observatory._VISIBLE}"
-        " AND (source_link IS NULL OR source_link = '')"
+        "SELECT COUNT(*) FROM main.jobs"
+        " WHERE source_link IS NULL OR source_link = ''"
     ).fetchone()[0]
     label_row = conn.execute(
         "SELECT label FROM main.source_links WHERE link = ?", (scope_link,)
@@ -979,13 +985,16 @@ def _scope_meta(conn: sqlite3.Connection, scope_link: str) -> dict:
         "job_count": scoped_count,
         "total_job_count": total,
         "unscoped_job_count": unscoped,
+        "ignored_included": ignored_included,
+        "include_ignored": True,
     }
 
 
 def build_report_bundle(conn: sqlite3.Connection, top_industries: int = DEFAULT_INDUSTRY_SIZE,
                         board_size: int = DEFAULT_BOARD_SIZE,
                         skill_size: int = DEFAULT_SKILL_SIZE,
-                        scope_link: str | None = None) -> dict:
+                        scope_link: str | None = None,
+                        include_ignored: bool = True) -> dict:
     """打包报告数据契约。
 
     top_industries: 行业对比表候选池容量 (按岗位数降序, 与观察台口径一致)。
@@ -996,28 +1005,50 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = DEFAULT_
       finally 中拆除影子; 口径注册进 source_links 表并写入 meta.scope。
     """
     scoped = bool(scope_link)
-    if scoped:
-        conn.execute("DROP TABLE IF EXISTS temp.jobs")
-        conn.execute(
-            "CREATE TEMP TABLE jobs AS SELECT * FROM main.jobs WHERE source_link = ?",
-            (scope_link,),
-        )
+    # v2.3a: 统一走影子 —— 影子表把 ignored 列清零, 使聚合的 _VISIBLE
+    # (ignored=0) 在「含已忽略」模式下放行全部行; 口径过滤同层完成。
+    # 统计要在影子创建前完成 (影子内 ignored 恒 0, 统计不出真实忽略数)。
+    conn.execute("DROP TABLE IF EXISTS temp.jobs")
+    where, params = [], []
+    if scope_link:
+        where.append("source_link = ?")
+        params.append(scope_link)
         conn.execute(
             "INSERT OR IGNORE INTO main.source_links (link, label, created_at)"
             " VALUES (?, '', ?)",
             (scope_link, datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")),
         )
+    if not include_ignored:
+        where.append("(ignored = 0 OR ignored IS NULL)")
+    where_sql = (" AND " + " AND ".join(where)) if where else ""
+    if include_ignored:
+        q = "SELECT COUNT(*) FROM main.jobs WHERE ignored = 1"
+        q_params = []
+        if scope_link:
+            q += " AND source_link = ?"
+            q_params = [scope_link]
+        ignored_in_scope = conn.execute(q, q_params).fetchone()[0]
+    else:
+        ignored_in_scope = 0
+    conn.execute(
+        "CREATE TEMP TABLE jobs AS SELECT * FROM main.jobs WHERE 1=1" + where_sql,
+        params,
+    )
+    # 影子内全部视为「未忽略」: 让聚合的 _VISIBLE (ignored=0) 在含忽略模式下放行
+    conn.execute("UPDATE temp.jobs SET ignored = 0")
     try:
         return _build_scoped(conn, top_industries, board_size, skill_size,
-                             scope_link if scoped else None)
+                             scope_link if scoped else None,
+                             include_ignored=include_ignored,
+                             ignored_in_scope=ignored_in_scope)
     finally:
-        if scoped:
-            conn.execute("DROP TABLE IF EXISTS temp.jobs")
+        conn.execute("DROP TABLE IF EXISTS temp.jobs")
 
 
 def _build_scoped(conn: sqlite3.Connection, top_industries: int,
                   board_size: int, skill_size: int,
-                  scope_link: str | None) -> dict:
+                  scope_link: str | None, include_ignored: bool = True,
+                  ignored_in_scope: int = 0) -> dict:
     with_pricing = observatory.observatory_salary_pricing(conn)
     industry_list_full = observatory.observatory_industry_list(conn)
 
@@ -1087,6 +1118,18 @@ def _build_scoped(conn: sqlite3.Connection, top_industries: int,
     meta = _crawl_meta(conn)
     if scope_link:
         meta["scope"] = _scope_meta(conn, scope_link)
+        meta["scope"]["ignored_included"] = ignored_in_scope
+    else:
+        meta["scope"] = {
+            "scope_link": None, "scope_label": "",
+            "job_count": meta["job_count"],
+            "total_job_count": conn.execute(
+                "SELECT COUNT(*) FROM main.jobs"
+            ).fetchone()[0],
+            "unscoped_job_count": 0,
+            "ignored_included": ignored_in_scope,
+            "include_ignored": include_ignored,
+        }
 
     return {
         "schema_version": SCHEMA_VERSION,

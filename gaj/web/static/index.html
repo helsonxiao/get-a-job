@@ -119,20 +119,20 @@
 
     <!-- Sidebar 主导航 (分组: 工作台 / 市场 / 配置) -->
     <nav class="sidebar" aria-label="主导航">
-      <div class="sidebar-group">工作台</div>
-      <!-- 全局口径筛选: 顶层参数, 作用于全部只读视图 -->
-      <div class="scope-filter" style="padding:10px 14px;border-bottom:1px solid var(--gaj-border-subtle)">
-        <label class="item-title" style="display:block;margin-bottom:6px;color:var(--gaj-foreground-3);font-size:11px;letter-spacing:.06em">数据口径</label>
+      <!-- 全局口径筛选: 顶层参数, 高于一切分组, 作用于全部只读视图 -->
+      <div class="scope-filter" style="margin:0 0 4px;padding:12px 14px;border-bottom:2px solid var(--gaj-border);background:var(--gaj-surface)">
+        <label style="display:block;margin-bottom:6px;font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--gaj-primary)">数据口径 · 全局</label>
         <select class="input" style="width:100%;font-size:12px"
                 x-model="$store.core.scope"
                 @change="$store.core.setScope($event.target.value, ($store.core.scopeOptions.find(o => o.link === $event.target.value) || {}).label || '')"
-                title="切换当前数据口径 (职位/观察台/公司图鉴等只读视图生效)">
+                title="切换当前数据口径 (工作台与市场全部只读视图生效)">
           <option value="">全部数据 (不分口径)</option>
           <template x-for="o in $store.core.scopeOptions" :key="o.link">
             <option :value="o.link" x-text="(o.label || '未命名口径') + ' · ' + o.job_count + ' 岗'"></option>
           </template>
         </select>
       </div>
+      <div class="sidebar-group">工作台</div>
       <button class="sidebar-item" :class="{active: $store.core.view === 'jobs'}" @click="$store.core.switchView('jobs')">
         <i data-lucide="briefcase"></i><span class="nav-label">职位列表</span>
       </button>
