@@ -1,0 +1,50 @@
+/* ============================================
+   来源口径管理 (scope) — 沿用全局 gaj-* 设计令牌
+   ============================================ */
+.scope-panel { max-width: 1080px; }
+
+.scope-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.scope-head h2 { margin: 0; font-size: var(--gaj-font-size-xl); }
+.scope-head .desc { margin: 6px 0 0; color: var(--gaj-foreground-3); font-size: var(--gaj-font-size-sm); max-width: 46em; }
+
+.scope-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
+
+.scope-table { width: 100%; border-collapse: collapse; font-size: var(--gaj-font-size-sm); background: var(--gaj-surface); border: 1px solid var(--gaj-border); border-radius: var(--gaj-radius-lg); overflow: hidden; }
+.scope-table th { text-align: left; font-size: var(--gaj-font-size-xs); color: var(--gaj-foreground-3); font-weight: 500; padding: 10px 12px; border-bottom: 1px solid var(--gaj-border); white-space: nowrap; }
+.scope-table td { padding: 12px; border-bottom: 1px solid var(--gaj-border-subtle); vertical-align: top; }
+.scope-table tr:last-child td { border-bottom: none; }
+.scope-table tr.is-active { background: color-mix(in srgb, var(--gaj-primary) 6%, transparent); }
+
+.scope-label { font-weight: 600; color: var(--gaj-foreground); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+.scope-label .badge { font-size: 10px; font-weight: 600; letter-spacing: .04em; color: var(--gaj-primary); border: 1px solid var(--gaj-primary); border-radius: 3px; padding: 1px 6px; }
+.scope-link-text { color: var(--gaj-foreground-3); font-size: 12px; line-height: 1.55; word-break: break-all; white-space: normal; font-family: var(--gaj-font-mono, ui-monospace, monospace); }
+
+.scope-rename { display: flex; gap: 8px; align-items: center; }
+.scope-rename .input { flex: 1; }
+
+.scope-actions { display: flex; flex-direction: column; gap: 6px; }
+.scope-empty { padding: 28px; text-align: center; color: var(--gaj-foreground-3); border: 1px dashed var(--gaj-border); border-radius: var(--gaj-radius-lg); margin-top: 10px; }
+.scope-tip { margin-top: 16px; padding: 12px 16px; border: 1px solid var(--gaj-border-subtle); border-radius: var(--gaj-radius-lg); color: var(--gaj-foreground-2); font-size: var(--gaj-font-size-sm); line-height: 1.8; background: var(--gaj-surface); }
+.scope-tip code { background: var(--gaj-primary-muted); border-radius: 3px; padding: 1px 6px; font-size: 12px; }
+
+@media (max-width: 900px) {
+  .scope-stats { grid-template-columns: 1fr; }
+}
+
+/* ---- 自包含控件 (沿用 obs-detail-btn 的视觉语言) ---- */
+.scope-panel .btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--gaj-border); background: var(--gaj-surface);
+  color: var(--gaj-foreground); border-radius: var(--gaj-radius-md, 6px);
+  padding: 6px 12px; font-size: var(--gaj-font-size-sm); cursor: pointer;
+}
+.scope-panel .btn:hover { border-color: var(--gaj-primary); color: var(--gaj-primary); }
+.scope-panel .btn:disabled { opacity: .5; cursor: default; }
+.scope-panel .btn [data-lucide] { width: 14px; height: 14px; }
+.scope-panel .input {
+  border: 1px solid var(--gaj-border); background: var(--gaj-surface);
+  color: var(--gaj-foreground); border-radius: var(--gaj-radius-md, 6px);
+  padding: 6px 10px; font-size: var(--gaj-font-size-sm);
+}
+.scope-panel .input:focus { outline: none; border-color: var(--gaj-primary); }
+.scope-panel .muted { color: var(--gaj-foreground-3); }

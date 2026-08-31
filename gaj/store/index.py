@@ -8,6 +8,7 @@ data/ 下的 JSON 文件完整重建。它存在的唯一目的是让 Web 界面
 from __future__ import annotations
 
 import json
+import contextvars
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -225,14 +226,43 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+#: 当前请求的数据口径 (来源筛选链接)。Web 层在「只读数据请求」上设置,
+#: session() 打开连接后自动套用 temp 表影子, 使全部查询只见该口径的岗位。
+#: 空字符串 = 全部数据 (不影子)。ContextVar 保证并发请求互不串扰。
+CURRENT_SCOPE: "contextvars.ContextVar[str]" = contextvars.ContextVar("gaj_current_scope", default="")
+
+
+def apply_scope(conn: sqlite3.Connection, scope_link: str) -> None:
+    """在连接上套用口径影子: temp.jobs 覆盖同名表, 只含该来源链接的岗位。
+
+    - 所有 ``FROM jobs`` 查询自动只见该口径, 聚合/列表代码零改动;
+    - 影子生命周期 = 连接 (temp 表随连接销毁), 需要长期使用请轮询重建;
+    - 写操作不要在影子连接上进行 (写入会落在影子表并随连接消失)。
+    """
+    conn.execute("DROP TABLE IF EXISTS temp.jobs")
+    conn.execute(
+        "CREATE TEMP TABLE jobs AS SELECT * FROM main.jobs WHERE source_link = ?",
+        (scope_link,),
+    )
+
+
+def clear_scope(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP TABLE IF EXISTS temp.jobs")
+
+
 @contextmanager
 def session(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     """便捷连接: ``with index.session() as conn: ...``
 
     正常退出时提交, 异常时回滚, 无论如何都关闭连接。
+    若 Web 层设置了当前口径 (CURRENT_SCOPE), 打开连接后自动套用影子,
+    使本连接上的全部查询只见该口径 —— 因此 **不要在口径连接上做写操作**。
     """
     conn = connect(db_path)
     try:
+        scope = CURRENT_SCOPE.get()
+        if scope:
+            apply_scope(conn, scope)
         yield conn
         conn.commit()
     except Exception:

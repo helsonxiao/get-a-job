@@ -19,6 +19,10 @@ document.addEventListener('alpine:init', () => {
     // ---- 视图路由 (单一真相源) ----
     // jobs | guide | observatory | industry | config | resume
     view: 'jobs',
+    // ---- 全局口径筛选 (来源链接): '' = 全部数据 ----
+    scope: localStorage.getItem('gaj_scope') || '',
+    scopeLabel: localStorage.getItem('gaj_scope_label') || '',
+    scopeOptions: [],
 
     // ---- 主题 (日/夜; 初始化由 head 内联脚本写入 data-theme) ----
     theme: document.documentElement.getAttribute('data-theme') || 'dark',
@@ -59,6 +63,10 @@ document.addEventListener('alpine:init', () => {
     // ---- API ----
     async api(path, method = 'GET', body = null) {
       try {
+        // 全局口径筛选: 只读 GET 请求自动附加当前口径 (后端按链接过滤 jobs)
+        if (method === 'GET' && this.scope && !path.includes('scope=')) {
+          path += (path.includes('?') ? '&' : '?') + 'scope=' + encodeURIComponent(this.scope);
+        }
         const opts = { method };
         if (body) {
           opts.headers = { 'Content-Type': 'application/json' };
@@ -81,7 +89,7 @@ document.addEventListener('alpine:init', () => {
     },
 
     // ---- 视图切换 (hash 路由: 写入 #/view, 浏览器后退/前进可返回上一模块) ----
-    _VIEW_HASH: { jobs: 1, guide: 1, observatory: 1, industry: 1, config: 1, resume: 1 },
+    _VIEW_HASH: { jobs: 1, guide: 1, observatory: 1, industry: 1, config: 1, resume: 1, scope: 1 },
     _setView(v) {
       if (this.view === v) return;
       this.view = v;
@@ -238,7 +246,32 @@ document.addEventListener('alpine:init', () => {
     },
 
     // ---- 启动 (body x-init 调一次) ----
+    setScope(link, label = '') {
+      this.scope = link || '';
+      this.scopeLabel = link ? (label || this.scopeLabel) : '';
+      localStorage.setItem('gaj_scope', this.scope);
+      localStorage.setItem('gaj_scope_label', this.scopeLabel);
+      // 整页刷新: 全部视图按新口径重新拉取 (最可靠的失效方式)
+      location.reload();
+    },
+
+    async loadScopeOptions() {
+      try {
+        const res = await fetch('/api/scope/links');
+        if (!res.ok) return;
+        const body = await res.json();
+        this.scopeOptions = body.links || [];
+        // 当前口径若已不存在 (被归集/清理), 回退全部数据
+        if (this.scope && !this.scopeOptions.some((o) => o.link === this.scope)) {
+          this.scope = '';
+          this.scopeLabel = '';
+          localStorage.setItem('gaj_scope', '');
+        }
+      } catch (e) { console.error('scope options error', e); }
+    },
+
     async bootstrap() {
+      await this.loadScopeOptions();
       await this.loadStats();
       await this.loadProviders();
       this.connectSSE();

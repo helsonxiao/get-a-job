@@ -15,7 +15,13 @@ router = APIRouter(prefix="/api/report", tags=["report"])
 @router.get("/bundle")
 async def api_report_bundle(
     top_industries: int = Query(12, ge=1, le=40),
+    scope: str = Query("", description="来源筛选链接 (口径隔离)"),
 ) -> dict:
-    """报告数据包: 单次调用返回生成报告所需的全部聚合数据。"""
+    """报告数据包: 单次调用返回生成报告所需的全部聚合数据。
+
+    scope: 来源筛选链接 —— 指定后全部聚合只统计该口径 (meta.scope 显式报数)。
+    """
     with index.session() as conn:
-        return reportbundle.build_report_bundle(conn, top_industries=top_industries)
+        return reportbundle.build_report_bundle(
+            conn, top_industries=top_industries, scope_link=scope or None
+        )
