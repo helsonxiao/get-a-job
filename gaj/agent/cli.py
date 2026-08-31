@@ -217,7 +217,6 @@ def cmd_status(args) -> int:
         "crawl_config": {
             "dup_stop_pages": cfg.SETTINGS.crawl.dup_stop_pages,
             "dup_slowdown": cfg.SETTINGS.crawl.dup_slowdown,
-            "max_jobs_per_session": cfg.SETTINGS.crawl.max_jobs_per_session,
             "page_delay": [
                 cfg.SETTINGS.crawl.page_delay_min,
                 cfg.SETTINGS.crawl.page_delay_max,
@@ -499,6 +498,7 @@ def cmd_crawl(args) -> int:
     out = do_crawl(
         url,
         max_pages=args.max_pages,
+        start_page=args.start_page,
         fetch_company=not args.no_company,
         auto_score=not args.no_score,
     )
@@ -660,7 +660,13 @@ def cmd_daily(args) -> int:
         warnings.append("未登录 zhipin.com, 本次跳过采集 (只分析存量职位)")
     else:
         before = repo.all_job_ids()
-        out = do_crawl(url, max_pages=args.max_pages, fetch_company=True, auto_score=True)
+        out = do_crawl(
+            url,
+            max_pages=args.max_pages,
+            start_page=args.start_page,
+            fetch_company=True,
+            auto_score=True,
+        )
         new_ids = sorted(repo.all_job_ids() - before)
         if "error" in out:
             warnings.append(f"采集失败: {out['error']}")
@@ -763,9 +769,9 @@ def main(argv: list[str] | None = None) -> int:
 
   crawl    增量采集 BOSS直聘职位。已抓过的自动跳过。连续整页全重复时翻页间隔
            逐次拉长(上限 60s)，连续 3 页全重复即提前结束(early_stop=covered)。
-           新职位达 60 个也会停止(early_stop=session_limit)。
-           续翻: covered时若上次有 last_dup_page 记录, 跳到那里再试几页,
-           有新职位则继续, 全重复才真停(下次从更后页续翻)。
+           续翻: 无论因何停止(covered/翻页上限/失败/中断), 都记录最后到达的页码;
+           下次前几页全重复时跳到该页接着翻, 有新职位则继续, 全重复才真停。
+           前面几页全重复又没锚点时, 可用 --start-page N 直接跳到 N 页继续采集。
            返回 crawl_stats(含 last_dup_page/resume_used) + migrated + scored。
            首次需 --url 提供 BOSS 筛选页 URL，之后记住可省略。
 
@@ -827,13 +833,19 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("crawl", help="增量采集 (自动降速/覆盖提前结束)")
     p.add_argument("--url", default="", help="BOSS 列表页 URL (缺省用上次记住的)")
-    p.add_argument("--max-pages", type=int, default=10, help="最大翻页数 (默认 10)")
+    p.add_argument("--max-pages", type=int, default=None,
+                   help="最大翻页数, 缺省不限 (直到 hasMore=False 或连续重复页提前结束)")
+    p.add_argument("--start-page", type=int, default=0,
+                   help="从第 N 页开始采集 (0=自动/第1页; 前面几页全重复时可直接跳到后面)")
     p.add_argument("--no-company", action="store_true", help="不抓公司详情页")
     p.add_argument("--no-score", action="store_true", help="不自动规则打分")
 
     p = sub.add_parser("daily", help="每日编排: 采集→AI分析→摘要 (定时任务首选)")
     p.add_argument("--url", default="", help="BOSS 列表页 URL (缺省用上次记住的)")
-    p.add_argument("--max-pages", type=int, default=10, help="最大翻页数 (默认 10)")
+    p.add_argument("--max-pages", type=int, default=None,
+                   help="最大翻页数, 缺省不限 (直到 hasMore=False 或连续重复页提前结束)")
+    p.add_argument("--start-page", type=int, default=0,
+                   help="从第 N 页开始采集 (0=自动/第1页; 前面几页全重复时可直接跳到后面)")
     p.add_argument("--no-crawl", action="store_true", help="跳过采集, 只分析存量")
     p.add_argument("--analyze-limit", type=int, default=3, help="AI 分析的职位数 (默认 3)")
     p.add_argument("--provider", default="deepseek", help="deepseek/doubao/tongyi/kimi")

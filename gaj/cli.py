@@ -34,7 +34,10 @@ def main(argv: list[str] | None = None) -> int:
     # ---- crawl ----
     p = sub.add_parser("crawl", help="从 BOSS 列表页 URL 爬取")
     p.add_argument("url", help="BOSS直聘筛选过的列表页 URL")
-    p.add_argument("--max-pages", type=int, default=10, help="最大翻页数 (默认 10)")
+    p.add_argument("--max-pages", type=int, default=None,
+                   help="最大翻页数, 缺省不限 (直到 hasMore=False 或连续重复页提前结束)")
+    p.add_argument("--start-page", type=int, default=0,
+                   help="从第 N 页开始采集 (0=自动/第1页; 前面几页全重复时可直接跳到后面)")
     p.add_argument("--no-company", action="store_true", help="不抓公司详情页")
     p.add_argument("--no-score", action="store_true", help="不自动打分")
 
@@ -150,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         out = crawl(
             args.url,
             max_pages=args.max_pages,
+            start_page=args.start_page,
             fetch_company=not args.no_company,
             auto_score=not args.no_score,
         )

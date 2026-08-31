@@ -36,6 +36,7 @@ def crawl(
     auto_score: bool = True,
     auto_reindex: bool = True,
     skip_recent_hours: float | None = None,
+    start_page: int = 0,
 ) -> dict:
     """从 BOSS直聘列表页 URL 启动采集。
 
@@ -53,6 +54,8 @@ def crawl(
         skip_recent_hours: 最近 N 小时内已采集的职位跳过, 避免重复抓取。
                            None 用配置 SETTINGS.scraper.skip_recent_hours (默认 60 天)。
                            设为 0 表示不跳过 (全量重采)。
+        start_page: 手动指定从第几页开始翻 (0=默认第 1 页)。前面几页全重复、
+                   又没到续翻锚点时, 可这样直接跳到后面继续采集。
 
     Returns:
         dict: {crawl_stats, migrated, scored, reindexed}
@@ -181,8 +184,8 @@ def crawl(
             dup_slowdown=cfg.SETTINGS.crawl.dup_slowdown,
             dup_stop_pages=cfg.SETTINGS.crawl.dup_stop_pages,
             slowdown_cap=cfg.SETTINGS.crawl.slowdown_cap,
-            max_jobs_per_session=cfg.SETTINGS.crawl.max_jobs_per_session,
             resume_page=resume_page,
+            start_page=start_page,
         )
         incremental_ids: set = set()
 
@@ -213,10 +216,9 @@ def crawl(
             result["crawl_state"] = crawl_state.record_crawl(
                 list_url, crawler.stats.to_dict()
             )
-            # 续翻页码持久化: 仅当 crawler 显式修改过 last_dup_page 时才写
-            # - covered 停止: 写入页码, 下次续翻
-            # - hasMore=False 翻到底: 写入 0, 清除之前的锚点
-            # 避免 session_limit / max_pages 等场景下初始值 0 误清有效锚点
+            # 续翻页码持久化: 无论因何停止(covered/翻页上限/失败/中断)都记录
+            # 下次从该页接着翻; 真正翻到底(hasMore=False)时 crawler 会把
+            # last_dup_page 重置为 0, 下次从第 1 页重新抓最新。
             stats_dict = crawler.stats.to_dict()
             if stats_dict.get("last_dup_page_dirty"):
                 crawl_state.save_last_dup_page(

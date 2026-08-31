@@ -79,9 +79,8 @@ class CrawlConfig:
 
     cdp_port: int = 9222
 
-    # 单次会话上限
+    # 单次会话上限 (只限翻页数, 不再限制新职位数量)
     max_pages: int | None = None
-    max_jobs_per_session: int = 60
 
     # 翻页间隔 (秒)
     page_delay_min: float = 4.0
