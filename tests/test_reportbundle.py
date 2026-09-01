@@ -215,6 +215,35 @@ def test_company_boards_named(conn):
     assert "hiring_lite" not in boards and "salary_lite" not in boards
 
 
+def test_company_boards_dynamic_min_jobs_relaxed():
+    """双榜动态阈值·放宽: ≥2 岗可靠公司不足 MIN_BOARD_ENTRIES → 门槛放宽到 1, 单岗高薪入薪资榜。"""
+    c = _make_db()
+    for item in (("A", 2), ("B", 2), ("D", 2)):
+        comp, n = item
+        for i in range(n):
+            _insert_job(c, f"{comp.lower()}{i}", f"c{comp}", f"多岗{comp}", "无锡", "计算机软件", 20 + i, 3)
+    _insert_job(c, "e1", "cE", "单岗高薪", "无锡", "计算机软件", 50, 3)  # 第 4 家, 单岗
+    c.commit()
+    boards = reportbundle.build_report_bundle(c)["market"]["company_boards"]
+    assert boards["min_jobs"] == 1, "可靠公司数 < MIN_BOARD_ENTRIES → 应放宽到 1"
+    assert boards["salary"][0]["company"] == "单岗高薪", "放宽后单岗高薪应按均薪排首"
+    c.close()
+
+
+def test_company_boards_dynamic_min_jobs_strict():
+    """双榜动态阈值·严格: ≥2 岗可靠公司达标 → 门槛保持 2, 单岗公司不入薪资榜。"""
+    c = _make_db()
+    for comp in ("甲", "乙", "丙", "丁", "戊"):  # 5 家 ≥2 岗 → 达标严格门槛
+        for i in range(2):
+            _insert_job(c, f"{comp}{i}", f"c{comp}", f"{comp}公司", "无锡", "计算机软件", 20 + i, 3)
+    _insert_job(c, "z1", "cz", "单岗公司", "无锡", "计算机软件", 99, 3)
+    c.commit()
+    boards = reportbundle.build_report_bundle(c)["market"]["company_boards"]
+    assert boards["min_jobs"] == 2, "≥2 岗公司数达标 → 应保持严格门槛 2"
+    assert "单岗公司" not in [x["company"] for x in boards["salary"]]
+    c.close()
+
+
 # ------------------------------------------------------- v2.1 新增块契约测试
 
 

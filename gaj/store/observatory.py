@@ -601,12 +601,23 @@ def observatory_skill_leaderboard(conn: sqlite3.Connection, top_n: int = 40) -> 
     }
 
 
+#: 双榜动态最小样本阈值: 优先要求公司「在招 ≥ MIN_BOARD_ENTRIES 家可靠公司 ≥2 岗」
+#: 才用 2 作为样本门槛 (可靠); 若满足 ≥2 岗的公司数不足该值, 放宽到 ≥1 以防榜单过空。
+#: 实际应用的阈值随结果返回 (company_boards.min_jobs), 由消费端显式标注口径。
+MIN_BOARD_ENTRIES = 5
+
+
 def observatory_company_boards(conn: sqlite3.Connection, top_n: int = 30) -> dict:
     """公司双榜 (唯一实现, 报告与 web 共用): 招聘力度榜 + 薪资榜。
 
     每条: company(公示名) / industry(众数) / city(岗位标注城市众数, 可空) /
     job_count / salary_samples / avg_salary(键名沿用, 语义 = **薪资中位数**)。
     脱敏代号化由消费端 (reporter lite) 自行完成 —— gaj 只出真名聚合。
+
+    双榜共用动态样本门槛 (min_jobs, 1 或 2):
+    - 招聘力度榜: 在招岗数 ≥ min_jobs;
+    - 薪资榜: 带薪资样本数 ≥ min_jobs (且必须有中位薪资)。
+    门槛返回在结果顶层 min_jobs, 供报告标注「样本 ≥ N 岗」以诚实反映可靠性。
     """
     rows = conn.execute(
         f"SELECT j.company_id, j.company_name, j.city, j.salary_mid, c.industry"
@@ -637,9 +648,15 @@ def observatory_company_boards(conn: sqlite3.Connection, top_n: int = 30) -> dic
                     "city": city, "job_count": d["jobs"],
                     "salary_samples": len(d["salaries"]),
                     "avg_salary": _median(d["salaries"]) if d["salaries"] else None})
-    hiring = sorted(out, key=lambda c: (-c["job_count"], c["_key"]))[:top_n]
+    # 动态样本门槛: 满足「≥2 岗」的可靠公司数不足 → 放宽到 ≥1, 防窄口径下榜过空
+    n_reliable = sum(1 for c in out if c["job_count"] >= 2)
+    min_jobs = 2 if n_reliable >= MIN_BOARD_ENTRIES else 1
+    hiring = sorted(
+        (c for c in out if c["job_count"] >= min_jobs),
+        key=lambda c: (-c["job_count"], c["_key"]),
+    )[:top_n]
     salary_board = sorted(
-        (c for c in out if c["avg_salary"] is not None and c["salary_samples"] >= 2),
+        (c for c in out if c["avg_salary"] is not None and c["salary_samples"] >= min_jobs),
         key=lambda c: (-c["avg_salary"], c["_key"]),
     )[:top_n]
     public = lambda c: {"company": c["company_name"], "industry": c["industry"],
@@ -648,6 +665,7 @@ def observatory_company_boards(conn: sqlite3.Connection, top_n: int = 30) -> dic
     return {
         "hiring": [public(c) for c in hiring],
         "salary": [public(c) for c in salary_board],
+        "min_jobs": min_jobs,
     }
 
 

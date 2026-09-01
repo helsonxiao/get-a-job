@@ -937,6 +937,7 @@ def _build_scoped(conn: sqlite3.Connection, top_industries: int,
     market["company_boards"] = {
         "hiring": boards_full["hiring"],
         "salary": boards_full["salary"],
+        "min_jobs": boards_full.get("min_jobs", 2),
     }
 
     meta = _crawl_meta(conn)
