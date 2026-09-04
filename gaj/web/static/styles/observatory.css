@@ -432,6 +432,20 @@
   font-weight: 600;
 }
 
+/* 浏览历史快照时的指示条 */
+.obs-snap-ind {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+  font-size: var(--gaj-font-size-xs);
+  color: var(--gaj-primary);
+}
+.obs-snap-ind::before {
+  content: "◉";
+  margin-right: 6px;
+}
+
 /* ============================================================
    抽屉内嵌详情 (岗位/公司)
    ============================================================ */

@@ -55,6 +55,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import config as cfg
+from ..logging_setup import get_logger
 from . import observatory
 
 SCHEMA_VERSION = "3.0"
@@ -868,10 +869,22 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = DEFAULT_
     # 影子内全部视为「未忽略」: 让聚合的 _VISIBLE (ignored=0) 在含忽略模式下放行
     conn.execute("UPDATE temp.jobs SET ignored = 0")
     try:
-        return _build_scoped(conn, top_industries, board_size, skill_size,
-                             scope_link if scoped else None,
-                             include_ignored=include_ignored,
-                             ignored_in_scope=ignored_in_scope)
+        bundle = _build_scoped(conn, top_industries, board_size, skill_size,
+                               scope_link if scoped else None,
+                               include_ignored=include_ignored,
+                               ignored_in_scope=ignored_in_scope)
+        # ---- 快照副作用: 仅带 scope 的导出固化为当前纪元的不可变快照并推进纪元 ----
+        if scope_link:
+            try:
+                from .observatory_snapshot import capture_snapshot
+
+                capture_snapshot(conn, scope_link, include_ignored=include_ignored)
+            except Exception:
+                # 快照是副作用, 失败不影响报告导出本身
+                get_logger("reportbundle").exception(
+                    f"固化口径快照失败 (scope={scope_link}), 报告导出仍继续"
+                )
+        return bundle
     finally:
         conn.execute("DROP TABLE IF EXISTS temp.jobs")
 

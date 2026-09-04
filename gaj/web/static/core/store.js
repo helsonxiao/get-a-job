@@ -23,6 +23,9 @@ document.addEventListener('alpine:init', () => {
     scope: localStorage.getItem('gaj_scope') || '',
     scopeLabel: localStorage.getItem('gaj_scope_label') || '',
     scopeOptions: [],
+    // ---- 当前口径的历史快照选择 (仅在市场观察的薪资/热力/雷达/技能生效) ----
+    snapshot: localStorage.getItem('gaj_snapshot') || '',
+    snapshotOptions: [],
 
     // ---- 主题 (日/夜; 初始化由 head 内联脚本写入 data-theme) ----
     theme: document.documentElement.getAttribute('data-theme') || 'dark',
@@ -251,10 +254,35 @@ document.addEventListener('alpine:init', () => {
       this.scopeLabel = link ? (label || this.scopeLabel) : '';
       localStorage.setItem('gaj_scope', this.scope);
       localStorage.setItem('gaj_scope_label', this.scopeLabel);
+      // 口径变了 → 快照选择失效, 一并重置并重载该口径的历史快照
+      this.snapshot = '';
+      this.snapshotOptions = [];
+      localStorage.removeItem('gaj_snapshot');
       // header 统计沿用新口径先刷新, 再广播刷新事件让各视图依新口径重新取数
       // —— 只刷新数据, 不做整页 reload, 避免闪屏
       await this.loadStats();
+      await this.loadSnapshotOptions();
       window.dispatchEvent(new Event('gaj:refresh'));
+    },
+
+    // 切换该口径的历史快照 ('' = 实时数据); 仅市场观察的四个快照视图生效
+    async setSnapshot(ref, label = '') {
+      this.snapshot = ref || '';
+      this.snapshotLabel = ref ? (label || '') : '';
+      localStorage.setItem('gaj_snapshot', this.snapshot);
+      window.dispatchEvent(new Event('gaj:refresh'));
+    },
+
+    // 加载当前口径的历史快照列表 (供侧边栏「快照」下拉)
+    async loadSnapshotOptions() {
+      try {
+        const d = await this.api('/api/observatory/snapshots');
+        this.snapshotOptions = d && d.items ? d.items : [];
+        if (this.snapshot && !this.snapshotOptions.some(s => s.snapshot_id === this.snapshot)) {
+          this.snapshot = '';
+          localStorage.removeItem('gaj_snapshot');
+        }
+      } catch (e) { console.error('snapshot options error', e); this.snapshotOptions = []; }
     },
 
     async loadScopeOptions() {
@@ -281,6 +309,7 @@ document.addEventListener('alpine:init', () => {
 
     async bootstrap() {
       await this.loadScopeOptions();
+      await this.loadSnapshotOptions();
       await this.loadStats();
       await this.loadProviders();
       this.connectSSE();

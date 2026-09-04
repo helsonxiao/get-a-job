@@ -149,6 +149,31 @@ python3 -m gaj web --port 8765
 Web 图鉴纯前端 + 本地后端，不消耗任何 AI 词元。
 在公司图鉴 Tab 里可以手动触发公司级 AI 尽调（走网页版大模型）。
 
+### 场景九：同口径多采集快照与月度 / 季度 Diff
+
+同一「口径」（BOSS 筛选链接）每隔一两个月重采。**每次带 scope 的 report 导出会把
+该口径当前活跃纪元的市场状态固化为一份不可变快照**（各观察台聚合 + 岗位成员），并开启新纪元，
+保证下次导出不会把旧月份的滞留数据带进来。可用只读命令列快照 / 做同口径多月度季度对比：
+
+```bash
+# 导出某口径 report —— 同时固化该口径快照并推进入口纪元
+python3 -m gaj report-bundle --scope-link "https://www.zhipin.com/..." --pretty
+
+# 列出该口径历史快照（含 period_month / period_quarter / job_count）
+python3 -m gaj snapshot list --scope-link "https://www.zhipin.com/..."
+
+# 同口径两个月度快照差异对比（新增/消失岗位 + 各观察台 delta）
+python3 -m gaj snapshot diff --scope-link "https://www.zhipin.com/..." \
+    --from "2026-09" --to "2026-11" --pretty
+# --from/--to 支持 snapshot_id 或 period_month("YYYY-MM") / period_quarter("YYYY-QN")
+```
+
+- 快照只统计该口径**当前活跃纪元**内的岗位：11 月导出的快照不会带入 9 月遗留数据。
+- daily 增量采集照常并入活跃纪元，**不会**单独固化快照；只有上述带 scope 的导出才固化并切纪元。
+- 采集中断不落快照、不切纪元：下次沿用续翻机制（resume_page / last_dup_page）继续，无需重启新一轮。
+- **Web 图鉴**市场观察台顶部有「快照/纪元」切换：选某历史快照即可浏览该口径当时固化的薪资/热力/雷达/技能（雇主画像与公司象限走实时）。口径切换时快照选择自动重置。
+- **gaj-reporter** 可用指定数据包出报告：`--source bundle --bundle <hist.bundle.json>`（用之前导出的 bundle JSON 快照复显，不依赖 gaj 实时接口）。
+
 ## 容错与超时保障
 
 所有命令都有最外层异常兜底：**任何情况下都会输出 JSON 信封并以退出码结束，

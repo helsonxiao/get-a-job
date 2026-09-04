@@ -377,9 +377,13 @@ def reassign_source_links(src: Path, source_link: str) -> dict:
     本函数从本次采集的列表页原始响应 (_debug/joblist_page_*.json) 收集
     全部 encryptJobId, 对库中已存在的岗位仅更新 source_link (不重抓详情)。
 
+    同时把命中岗位打到该口径当前活跃纪元 (collection_epoch), 参与未来快照成员统计。
+
     返回: {"seen": 列表去重岗位数, "reassigned": 库中存在且归属变化的岗位数}
     """
     import json as _json
+
+    from .observatory_snapshot import active_epoch_id
 
     debug_dir = src / "_debug"
     if not debug_dir.is_dir():
@@ -395,15 +399,20 @@ def reassign_source_links(src: Path, source_link: str) -> dict:
             jid = (item or {}).get("encryptJobId")
             if jid:
                 seen.add(jid)
+    if not seen:
+        return {"seen": 0, "reassigned": 0}
+    epoch_id = active_epoch_id(source_link)
     reassigned = 0
     for jid in seen:
         job = repo.load_job(jid)
         if not job:
             continue
-        if job.source_link != source_link:
-            job.source_link = source_link
-            job.provenance["source_link"] = source_link
-            repo.save_job(job)
+        changed = bool(job.source_link != source_link or job.collection_epoch != epoch_id)
+        job.source_link = source_link
+        job.collection_epoch = epoch_id
+        job.provenance["source_link"] = source_link
+        repo.save_job(job)
+        if changed:
             reassigned += 1
     log.info(f"列表级口径重归属: 列表出现 {len(seen)} 岗, 重归属 {reassigned} 岗 → {source_link[:60]}...")
     return {"seen": len(seen), "reassigned": reassigned}

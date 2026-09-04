@@ -107,6 +107,23 @@ AI 独立评分（`company_score_ai` 0-10）。结果 append-only 落盘，可�
    - `ok=false` → 按下方错误处理策略。
 4. 用户想看某职位：`jobs` 搜索拿 `job_id` → `job <ID>` 取 `jd_markdown` 和打分。
 
+## 快照与月度季度 Diff
+
+同一口径（BOSS 筛选链接）每隔一两个月重采。**每次带 scope 的 report 导出都会把该口径
+当前活跃纪元的市场状态固化为一份不可变快照**（各观察台聚合 + 岗位成员）并开启新纪元，
+避免下一次导出把旧月份的滞留数据带进来。daily 增量采集只并入活跃纪元，不会单独固化快照。
+
+用法（只读，不产生新快照）：
+1. **导出（顺带固化快照）**：`gaj report-bundle --scope-link "<口径URL>"`。
+2. **列快照**：`gaj snapshot list --scope-link "<口径URL>"` → 看 `period_month` / `period_quarter` / `job_count`。
+3. **对比**：`gaj snapshot diff --scope-link "<口径URL>" --from "<2026-09 | snapshot_id>" --to "<2026-11>"`，
+   `data.jobs_added` / `data.jobs_removed` 是新增/消失岗位，`data.metric_deltas` 是各观察台视图增减。
+
+> 采集中断不会固化快照、也不会切换纪元；下次沿用续翻机制继续即可，不要重启新一轮。
+
+Web 图鉴市场观察台顶部「快照/纪元」切换可浏览历史快照（薪资/热力/雷达/技能）。
+gaj-reporter 可用指定数据包复显历史报告：`--source bundle --bundle <hist.bundle.json>`。
+
 ## 错误处理策略
 
 按 `error.code` 类别决策（全部错误码列表见 `<python> -m gaj agent -h`

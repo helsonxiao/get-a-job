@@ -134,6 +134,18 @@ def crawl(
                 log.warning(f"无法从 {meta_path} 提取 encryptJobId, 跳过打分/索引")
                 return
 
+            # 新岗位打当前活跃纪元: 参与未来快照成员统计
+            try:
+                from ..store import repo as _repo
+                from ..store.observatory_snapshot import active_epoch_id
+
+                _job = _repo.load_job(real_jid)
+                if _job and not _job.collection_epoch:
+                    _job.collection_epoch = active_epoch_id(list_url)
+                    _repo.save_job(_job)
+            except Exception as exc:
+                log.debug(f"新岗位打纪元失败 (job_id={real_jid}): {exc}")
+
             log.info(f"✓ 增量入库: {real_jid}")
             incremental_count += 1
         except Exception as e:
@@ -192,14 +204,17 @@ def crawl(
         def _on_page_seen(job_ids: list) -> None:
             """增量口径重归属: 列表页出现的历史岗位实时计入当前口径。"""
             from ..store import index as _index
-            from ..store.repo import update_source_link
+            from ..store.observatory_snapshot import active_epoch_id
+            from ..store.repo import set_collection_epoch, update_source_link
 
+            epoch = active_epoch_id(list_url)
             for jid in job_ids:
                 if not jid or jid in incremental_ids:
                     continue
                 try:
                     if _index.touch_job_source_link(jid, list_url):
                         update_source_link(jid, list_url)
+                        set_collection_epoch(jid, epoch)
                         incremental_ids.add(jid)
                 except Exception as exc:
                     log.debug(f"增量口径重归属跳过 {jid}: {exc}")

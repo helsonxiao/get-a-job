@@ -119,12 +119,12 @@
 
     <!-- Sidebar 主导航 (分组: 工作台 / 市场 / 配置) -->
     <nav class="sidebar" aria-label="主导航">
-      <!-- 全局口径筛选: 顶层参数, 高于一切分组, 作用于全部只读视图 -->
-      <div class="nav-scope" x-effect="$store.core.scopeOptions.length">
-        <label class="nav-scope-label" for="nav-scope-select">
+      <!-- 数据源: 口径 + (可见时) 快照, 一致的一块 -->
+      <div class="nav-source" x-effect="$store.core.scopeOptions.length">
+        <label class="nav-source-label" for="nav-scope-select">
           <i data-lucide="link-2"></i><span>数据口径</span>
         </label>
-        <select id="nav-scope-select" class="nav-scope-select"
+        <select id="nav-scope-select" class="nav-source-select"
                 x-model="$store.core.scope"
                 x-effect="$store.core.scopeOptions.length && $store.core.scope && ($el.value = $store.core.scope)"
                 @change="$store.core.setScope($event.target.value, ($store.core.scopeOptions.find(o => o.link === $event.target.value) || {}).label || '')"
@@ -132,6 +132,18 @@
           <option value="">全部数据</option>
           <template x-for="o in $store.core.scopeOptions" :key="o.link">
             <option :value="o.link" x-text="o.label || '未命名口径'" :title="(o.label || '未命名口径') + ' · ' + o.job_count + ' 岗'"></option>
+          </template>
+        </select>
+        <label class="nav-source-label nav-source-sublabel" for="nav-snapshot-select">
+          <i data-lucide="history"></i><span>快照</span>
+        </label>
+        <select id="nav-snapshot-select" class="nav-source-select"
+                x-model="$store.core.snapshot" :disabled="!$store.core.scope"
+                @change="$store.core.setSnapshot($event.target.value, ($store.core.snapshotOptions.find(o => o.snapshot_id === $event.target.value) || {}).period_month || '')"
+                title="切换查看该口径的历史快照 (需先选口径; 市场观察的薪资/热力/雷达/技能生效)">
+          <option value="">实时数据</option>
+          <template x-for="s in $store.core.snapshotOptions" :key="s.snapshot_id">
+            <option :value="s.snapshot_id" x-text="s.period_month + ' · ' + (s.period_quarter || '') + ' · ' + s.job_count + ' 岗'"></option>
           </template>
         </select>
       </div>
@@ -147,14 +159,14 @@
         <i data-lucide="radar"></i><span class="nav-label">市场观察</span>
       </button>
       <button class="sidebar-item" :class="{active: $store.core.view === 'industry'}" @click="$store.core.switchView('industry')">
-        <i data-lucide="telescope"></i><span class="nav-label">行业观察</span><span class="nav-badge">新</span>
+        <i data-lucide="telescope"></i><span class="nav-label">行业观察</span>
       </button>
       <div class="sidebar-group">配置</div>
       <button class="sidebar-item" :class="{active: $store.core.view === 'config'}" @click="$store.core.switchView('config')">
         <i data-lucide="settings"></i><span class="nav-label">规则配置</span>
       </button>
       <button class="sidebar-item" :class="{active: $store.core.view === 'scope'}" @click="$store.core.switchView('scope')">
-        <i data-lucide="link-2"></i><span class="nav-label">口径管理</span>
+        <i data-lucide="link-2"></i><span class="nav-label">口径管理</span><span class="nav-badge">新</span>
       </button>
       <button class="sidebar-item" :class="{active: $store.core.view === 'resume'}" @click="$store.core.switchView('resume')">
         <i data-lucide="file-text"></i><span class="nav-label" x-text="$store.core.resumeExists ? '主简历' : '上传简历'"></span>

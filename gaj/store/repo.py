@@ -133,7 +133,7 @@ def update_source_link(job_id: str, source_link: str) -> bool:
     文件与 DB 双更由调用方配合完成 (DB 侧 index.touch_job_source_link)。
     返回 False = 岗位文件不存在。
     """
-    jdir = jobs_dir() / job_id
+    jdir = job_dir(job_id)
     path = jdir / "job.json"
     if not path.is_file():
         return False
@@ -142,6 +142,25 @@ def update_source_link(job_id: str, source_link: str) -> bool:
     prov = data.get("provenance")
     if isinstance(prov, dict):
         prov["source_link"] = source_link
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    return True
+
+
+def set_collection_epoch(job_id: str, collection_epoch: str) -> bool:
+    """轻量打纪元: job.json 文件 collection_epoch 字段原位改写 (类似 source_link)。
+
+    用于采集增量回调; 文件与 DB 双更由调用方配合完成 (DB 侧 index.touch_job_source_link)。
+    返回 False = 岗位文件不存在。字段会随 reindex 重建进索引。
+    """
+    jdir = job_dir(job_id)
+    path = jdir / "job.json"
+    if not path.is_file():
+        return False
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["collection_epoch"] = collection_epoch
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",

@@ -118,9 +118,14 @@
   padding: 0;
 }
 .search-input input::placeholder { color: var(--gaj-foreground-3); }
-.filters .filter-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.filters .filter-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+}
+.f-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.f-field .filter-select { width: 100%; min-width: 0; }
 .filter-select {
-  min-width: 72px;
   padding: 4px 8px;
   background: var(--gaj-surface-2);
   border: 1px solid var(--gaj-border);
@@ -780,7 +785,7 @@
 .filter-label {
   font-size: var(--gaj-font-size-xs);
   color: var(--gaj-foreground-3);
-  line-height: 26px;
+  line-height: 1.5;
   user-select: none;
 }
 .link-btn {

@@ -125,6 +125,20 @@ def main(argv: list[str] | None = None) -> int:
     a_scope.add_argument("--link", required=True, help="来源筛选链接")
     a_scope.add_argument("--job-ids", required=True, help="逗号分隔的 job_id 列表")
 
+    # ---- snapshot (同口径多采集快照: 只读 list / diff) ----
+    p_snap = sub.add_parser("snapshot", help="同口径采集快照 (只读): list / diff")
+    sp_snap = p_snap.add_subparsers(dest="snapshot_action", required=True)
+    sp_snap.add_parser("list", help="列出某口径全部快照 (含 period 标签)").add_argument(
+        "--scope-link", required=True, help="来源筛选链接 (口径)")
+    p_snap2 = sp_snap.add_parser("diff", help="同一口径两个快照差异对比")
+    p_snap2.add_argument("--scope-link", required=True, help="来源筛选链接 (口径)")
+    p_snap2.add_argument("--from", dest="from_ref", required=True,
+                         help="起始引用: snapshot_id 或 period_month / period_quarter")
+    p_snap2.add_argument("--to", dest="to_ref", required=True,
+                         help="目标引用: snapshot_id 或 period_month / period_quarter")
+    for _sp in (sp_snap.choices["list"], sp_snap.choices["diff"]):
+        _sp.add_argument("--pretty", action="store_true", help="缩进美化输出")
+
     # ---- agent (面向 AI 智能体的 JSON 接口, 详见 AGENT.md) ----
     p = sub.add_parser(
         "agent",
@@ -264,6 +278,22 @@ def main(argv: list[str] | None = None) -> int:
                 include_ignored=not args.exclude_ignored,
             )
         print(json.dumps(bundle, ensure_ascii=False, indent=2 if args.pretty else None))
+        return 0
+
+    if args.command == "snapshot":
+        import json as _j
+
+        from .store import index
+        from .store import observatory_snapshot as obsnap
+
+        with index.session() as conn:
+            if args.snapshot_action == "list":
+                out = obsnap.list_snapshots(conn, args.scope_link)
+            elif args.snapshot_action == "diff":
+                out = obsnap.diff_snapshots(conn, args.scope_link, args.from_ref, args.to_ref)
+            else:
+                out = {"error": f"未知子命令: {args.snapshot_action}"}
+        print(_j.dumps(out, ensure_ascii=False, indent=2 if getattr(args, "pretty", False) else None))
         return 0
 
     if args.command == "scope-link":

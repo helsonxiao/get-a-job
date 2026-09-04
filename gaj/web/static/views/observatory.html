@@ -3,6 +3,8 @@
      岛声明 (x-data/事件) 在 index.html 挂载点 [data-tpl="observatory"],
      由 loader 在 Alpine 启动前注入本片段。
      ============================================ -->
+    <div class="obs-snap-ind" x-show="$store.core.snapshot"
+         x-text="'浏览历史快照: ' + (($store.core.snapshotOptions.find(o => o.snapshot_id === $store.core.snapshot) || {}).period_month || '')"></div>
     <div class="tabs">
       <button class="tab" :class="{active: tab === 'salary'}" @click="setTab('salary')">
         <i data-lucide="trending-up"></i> 薪资定价

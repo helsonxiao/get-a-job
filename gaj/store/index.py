@@ -202,9 +202,65 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN lng REAL")
     if "source_link" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN source_link TEXT DEFAULT ''")
+    if "collection_epoch" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN collection_epoch TEXT DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_favorite ON jobs(favorite)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_geo ON jobs(lat)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_source_link ON jobs(source_link)")
+    # 采集纪元表 + 快照表 + 快照成员表 (同口径多采集快照, 见 observatory_snapshot.py)
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS collection_epochs (
+               epoch_id     TEXT PRIMARY KEY,
+               source_link  TEXT NOT NULL,
+               opened_at    TEXT NOT NULL DEFAULT '',
+               status       TEXT NOT NULL DEFAULT 'active',
+               closed_at    TEXT NOT NULL DEFAULT ''
+           )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_epochs_source_status"
+        " ON collection_epochs(source_link, status)"
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS observatory_snapshots (
+               snapshot_id     TEXT PRIMARY KEY,
+               source_link     TEXT NOT NULL,
+               epoch_id        TEXT,
+               captured_at     TEXT NOT NULL,
+               period_month    TEXT,
+               period_quarter  TEXT,
+               job_count       INTEGER DEFAULT 0,
+               company_count   INTEGER DEFAULT 0,
+               metrics         TEXT,
+               created_at      TEXT NOT NULL DEFAULT ''
+           )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_snapshots_source"
+        " ON observatory_snapshots(source_link)"
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS snapshot_members (
+               snapshot_id   TEXT NOT NULL,
+               job_id        TEXT NOT NULL,
+               title         TEXT,
+               company_name  TEXT,
+               city          TEXT,
+               district      TEXT,
+               industry      TEXT,
+               salary_mid    REAL,
+               exp_min       REAL,
+               edu_level     INTEGER,
+               overtime      TEXT,
+               outsourcing   INTEGER,
+               best_total    REAL,
+               online        INTEGER,
+               PRIMARY KEY (snapshot_id, job_id)
+           )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_members_snap ON snapshot_members(snapshot_id)"
+    )
 
     # 来源口径注册表: link 主键 + 自定义命名 (用于报告标题) + 首次登记时间
     conn.execute(
@@ -233,12 +289,19 @@ CURRENT_SCOPE: "contextvars.ContextVar[str]" = contextvars.ContextVar("gaj_curre
 
 
 def touch_job_source_link(job_id: str, source_link: str) -> bool:
-    """增量口径重归属的 DB 侧直更 (独立连接, 立即可见; 文件侧走 repo.update_source_link)。"""
+    """增量口径重归属的 DB 侧直更 (独立连接, 立即可见; 文件侧走 repo.update_source_link)。
+
+    同时把岗位打到该口径当前活跃纪元 (collection_epoch), 使本次筛选列表出现的历史岗位
+    实时计入当前纪元, 参与未来快照的成员统计。
+    """
+    from . import observatory_snapshot as obsnap
+
     conn = connect(DATA_ROOT / "index.db")
     try:
+        epoch_id = obsnap.ensure_active_epoch(conn, source_link)
         cur = conn.execute(
-            "UPDATE jobs SET source_link = ? WHERE job_id = ?",
-            (source_link, job_id),
+            "UPDATE jobs SET source_link = ?, collection_epoch = ? WHERE job_id = ?",
+            (source_link, epoch_id, job_id),
         )
         conn.commit()
         return cur.rowcount > 0
@@ -434,6 +497,7 @@ def _job_row(
         "title": job.title,
         "url": job.url,
         "source_link": getattr(job, "source_link", "") or "",
+        "collection_epoch": getattr(job, "collection_epoch", "") or "",
         "company_id": job.company_id,
         "company_name": job.company_name or (company.name if company else ""),
         "city": job.city,

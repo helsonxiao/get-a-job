@@ -5,6 +5,8 @@
    所有图表纯 SVG, 无 CDN 依赖, 遵循项目硬约束。
    ============================================ */
 document.addEventListener('alpine:init', () => {
+  // 可浏览历史快照的视图 (数据固化于 observatory_snapshots; employer/quadrant 走实时)
+  const SNAP_TABS = ['salary', 'geo', 'radar', 'skills'];
   Alpine.data('observatoryPanel', () => ({
     tab: 'salary',
     salary: null,
@@ -32,6 +34,7 @@ document.addEventListener('alpine:init', () => {
     },
 
     // 口径切换/后台任务变化: 依当前口径重新拉当前 tab, 清公司象限缓存
+    // (快照选择在侧边栏 $store.core.snapshot 全局管理, 口径切换时 store 会重置)
     async onRefresh() {
       if (this.$store.core.view !== 'observatory') return;
       this.quadrantCompanies = null;
@@ -173,7 +176,13 @@ document.addEventListener('alpine:init', () => {
         return;
       }
       this.loading = true;
-      const d = await Alpine.store('core').api('/api/observatory/' + tab);
+      let url = '/api/observatory/' + tab;
+      // 历史快照: 仅支持固化了 metrics 的视图; employer/quadrant 走实时
+      const sref = this.$store.core.snapshot;
+      if (sref && SNAP_TABS.includes(tab)) {
+        url += (url.includes('?') ? '&' : '?') + 'snapshot=' + encodeURIComponent(sref);
+      }
+      const d = await this.$store.core.api(url);
       if (d) this[tab] = d;
       this.loading = false;
     },

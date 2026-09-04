@@ -168,6 +168,9 @@ class Job:
     #: 来源筛选链接 (BOSS 列表页 URL, 含筛选器参数) —— 口径隔离的唯一标识。
     #: 一个链接对应一批同口径数据; 历史数据无此字段即为「未分口径」。
     source_link: str = ""
+    #: 采集纪元: 所属口径的活跃纪元 id (见 store/observatory_snapshot.py)。
+    #: 采集写入时打上; 持久化于 job.json, reindex 不丢失; 空/历史数据 = 未分纪元 (首纪元容差)。
+    collection_epoch: str = ""
     title: str = ""
 
     salary: dict = field(default_factory=dict)
