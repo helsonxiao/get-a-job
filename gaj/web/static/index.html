@@ -210,7 +210,7 @@
            @gaj:open-job.window="onOpenJob($event.detail.jobId)"
            @gaj:toggle-select.window="onToggleSelect()"
            @gaj:refresh.window="onRefresh()"
-           x-effect="jobs.length; selectedJobId; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="jobs">
+           x-effect="jobs.length; selectedJobId; detail; detailLoading; marketRef; $nextTick(() => window.refreshIconsDebounced && window.refreshIconsDebounced())" data-tpl="jobs">
       </div>
     </div>
 
