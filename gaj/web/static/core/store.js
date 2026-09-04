@@ -324,3 +324,65 @@ document.addEventListener('alpine:init', () => {
   // 自检标记 (验收: 控制台可见即代表共享层已加载)
   console.log('[gaj] core store registered');
 });
+
+/* ============================================
+   分位条标签防重叠布局 (岗位/公司详情共用)
+   标签上下两排交替 (p10/p50/p90 上排, p25/p75 下排),
+   初值按分位点百分比定位 (Alpine :style),
+   渲染后由此函数按排分组改写为像素位置:
+   1. 同排每个标签先在自己的分位点居中;
+   2. 从左到右扫描, 与前一个重叠则右推;
+   3. 从右到左扫描, 超出容器右缘则左移回推;
+   4. 左缘钳制到 0。
+   刻度线(.pct-tick-line)恒定落在分位点, 不参与移动,
+   因此标签即使被推开也能通过刻度线找到真实分位点。
+   ============================================ */
+window.gajPctLayout = function (wrap) {
+  const chart = wrap && wrap.querySelector ? (wrap.querySelector('.pct-chart') || wrap) : null;
+  if (!chart) return;
+  const W = chart.clientWidth;
+  if (!W) return;
+  const GAP = 8;
+  const collect = (isUp) => Array.from(chart.querySelectorAll('.pct-tick')).filter(el => {
+    const up = el.classList.contains('up');
+    const pct = parseFloat(el.dataset.pct);
+    return up === isUp && el.offsetParent !== null && !isNaN(pct) && pct >= 0;
+  }).map(el => ({
+    el,
+    w: el.getBoundingClientRect().width,
+    x: parseFloat(el.dataset.pct) / 100 * W,
+    left: 0,
+    right: 0,
+  })).sort((a, b) => a.x - b.x);
+  const layoutRow = (items) => {
+    if (!items.length) return;
+    // 前向: 居中放置, 相邻重叠则右推
+    let right = -Infinity;
+    for (const it of items) {
+      let left = it.x - it.w / 2;
+      if (left < right + GAP) left = right + GAP;
+      it.left = left;
+      it.right = left + it.w;
+      right = it.right;
+    }
+    // 后向: 钳制右缘, 与右侧标签重叠则左推
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.right > W) { it.right = W; it.left = W - it.w; }
+      if (i > 0) {
+        const p = items[i - 1];
+        if (p.right > it.left - GAP) { p.right = it.left - GAP; p.left = p.right - p.w; }
+      }
+    }
+    // 左缘钳制 + 写回
+    for (const it of items) {
+      if (it.left < 0) { it.left = 0; it.right = it.w; }
+      it.el.style.left = it.left + 'px';
+    }
+  };
+  layoutRow(collect(true));   // 上排
+  layoutRow(collect(false));  // 下排
+};
+window.addEventListener('resize', () => {
+  document.querySelectorAll('.pct-track-wrap').forEach(w => window.gajPctLayout(w));
+});

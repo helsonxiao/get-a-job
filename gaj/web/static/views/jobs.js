@@ -52,6 +52,20 @@ document.addEventListener('alpine:init', () => {
       };
     },
 
+    // 分位条分母: 取当前可见分位中的最大值 (p90 缺失时自动用 p75/p50 兜底, 避免 NaN)
+    pctMax() {
+      const m = this.marketRef?.market;
+      const vals = [m?.p90, m?.p75, m?.p50, m?.p25, m?.p10].filter(v => v != null && v > 0);
+      return vals.length ? Math.max(...vals) : null;
+    },
+
+    // 分位百分比 (0-100, 相对 pctMax): 分位条定位统一入口, 避免 NaN
+    pctLeft(v) {
+      if (v == null) return 0;
+      const max = this.pctMax();
+      return max ? Math.round(v / max * 10000) / 100 : 0;
+    },
+
     // 经验对标: 岗位经验要求匹配行业经验-薪资桶
     expBenchmark() {
       const m = this.marketRef;

@@ -339,20 +339,30 @@
               <span class="ms-hint">数据来自市场观察 · 全量可见岗位聚合</span>
             </div>
           </div>
-          <!-- 行业分位条: 本岗在市场分位中的位置 -->
-          <div class="pct-track-wrap" x-show="marketRef.market.p25 != null && jobAnnualWan() != null">
-            <div class="pct-track" :class="{over: jobAnnualWan() > marketRef.market.p75, under: jobAnnualWan() < marketRef.market.p25}">
-              <div class="pct-zone p25" :style="'left:0;width:' + (marketRef.market.p25 / marketRef.market.p90 * 100) + '%'"></div>
-              <div class="pct-zone p50" :style="'left:' + (marketRef.market.p25 / marketRef.market.p90 * 100) + '%;width:' + ((marketRef.market.p50 - marketRef.market.p25) / marketRef.market.p90 * 100) + '%'"></div>
-              <div class="pct-zone p75" :style="'left:' + (marketRef.market.p50 / marketRef.market.p90 * 100) + '%;width:' + ((marketRef.market.p75 - marketRef.market.p50) / marketRef.market.p90 * 100) + '%'"></div>
+          <!-- 行业分位条: 本岗在市场分位中的位置 (标签由 gajPctLayout 防重叠布局) -->
+          <div class="pct-track-wrap" x-show="marketRef.market.p25 != null && jobAnnualWan() != null"
+               x-effect="marketRef && $nextTick(() => window.gajPctLayout($el))">
+            <div class="pct-chart">
+              <div class="pct-track" :class="{over: jobAnnualWan() > marketRef.market.p75, under: jobAnnualWan() < marketRef.market.p25}">
+                <div class="pct-zone p25" :style="'left:0;width:' + pctLeft(marketRef.market.p25) + '%'"></div>
+                <div class="pct-zone p50" :style="'left:' + pctLeft(marketRef.market.p25) + '%;width:' + (pctLeft(marketRef.market.p50) - pctLeft(marketRef.market.p25)) + '%'"></div>
+                <div class="pct-zone p75" :style="'left:' + pctLeft(marketRef.market.p50) + '%;width:' + (pctLeft(marketRef.market.p75) - pctLeft(marketRef.market.p50)) + '%'"></div>
+              </div>
+              <!-- 刻度线: 恒定落在分位点 -->
+              <span class="pct-tick-line" x-show="marketRef.market.p10 != null" :style="'left:' + pctLeft(marketRef.market.p10) + '%'"></span>
+              <span class="pct-tick-line" :style="'left:' + pctLeft(marketRef.market.p25) + '%'"></span>
+              <span class="pct-tick-line" :style="'left:' + pctLeft(marketRef.market.p50) + '%'"></span>
+              <span class="pct-tick-line" :style="'left:' + pctLeft(marketRef.market.p75) + '%'"></span>
+              <span class="pct-tick-line" x-show="marketRef.market.p90 != null" :style="'left:' + pctLeft(marketRef.market.p90) + '%'"></span>
+              <!-- 分位标签: 初值=分位点%, gajPctLayout 改写为防重叠后的 px -->
+              <span class="pct-tick up" x-show="marketRef.market.p10 != null" :data-pct="pctLeft(marketRef.market.p10)" :style="'left:' + pctLeft(marketRef.market.p10) + '%'"><b>P10</b><i x-text="marketRef.market.p10"></i></span>
+              <span class="pct-tick" :data-pct="pctLeft(marketRef.market.p25)" :style="'left:' + pctLeft(marketRef.market.p25) + '%'"><b>P25</b><i x-text="marketRef.market.p25"></i></span>
+              <span class="pct-tick up" :data-pct="pctLeft(marketRef.market.p50)" :style="'left:' + pctLeft(marketRef.market.p50) + '%'"><b>P50</b><i x-text="marketRef.market.p50"></i></span>
+              <span class="pct-tick" :data-pct="pctLeft(marketRef.market.p75)" :style="'left:' + pctLeft(marketRef.market.p75) + '%'"><b>P75</b><i x-text="marketRef.market.p75"></i></span>
+              <span class="pct-tick up" x-show="marketRef.market.p90 != null" :data-pct="pctLeft(marketRef.market.p90)" :style="'left:' + pctLeft(marketRef.market.p90) + '%'"><b>P90</b><i x-text="marketRef.market.p90"></i></span>
+              <span class="pct-marker" :class="{over: jobAnnualWan() > marketRef.market.p75, under: jobAnnualWan() < marketRef.market.p25}"
+                    :style="'left:' + Math.min(98, pctLeft(jobAnnualWan())) + '%'" :title="'本岗 ' + jobAnnualWan() + ' 万/年'"></span>
             </div>
-            <span class="pct-tick p10 down" x-show="marketRef.market.p10 != null" :style="'left:' + (marketRef.market.p10 / marketRef.market.p90 * 100) + '%'"><b>P10</b><i x-text="marketRef.market.p10"></i></span>
-            <span class="pct-tick p25 up" :style="'left:' + (marketRef.market.p25 / marketRef.market.p90 * 100) + '%'"><b>P25</b><i x-text="marketRef.market.p25"></i></span>
-            <span class="pct-tick p50 down" :style="'left:' + (marketRef.market.p50 / marketRef.market.p90 * 100) + '%'"><b>P50</b><i x-text="marketRef.market.p50"></i></span>
-            <span class="pct-tick p75 up" :style="'left:' + (marketRef.market.p75 / marketRef.market.p90 * 100) + '%'"><b>P75</b><i x-text="marketRef.market.p75"></i></span>
-            <span class="pct-tick p90 down" x-show="marketRef.market.p90 != null" :style="'left:' + (marketRef.market.p90 / marketRef.market.p90 * 100) + '%'"><b>P90</b><i x-text="marketRef.market.p90"></i></span>
-            <span class="pct-marker" :class="{over: jobAnnualWan() > marketRef.market.p75, under: jobAnnualWan() < marketRef.market.p25}"
-                  :style="'left:' + Math.min(98, jobAnnualWan() / marketRef.market.p90 * 100) + '%'" :title="'本岗 ' + jobAnnualWan() + ' 万/年'"></span>
             <div class="pct-legend">
               <span>本岗 <strong x-text="jobAnnualWan() + ' 万/年'"></strong> 位于行业薪资分位</span>
               <span class="pct-hint" x-text="jobAnnualWan() > marketRef.market.p75 ? '· 高于行业 P75，属高位' : (jobAnnualWan() < marketRef.market.p25 ? '· 低于行业 P25，属低位' : '· 处于行业 P25-P75 主流区间')"></span>

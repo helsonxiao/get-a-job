@@ -103,10 +103,17 @@ a:focus-visible, [tabindex]:focus-visible {
   margin-left: 8px;
 }
 
-/* === 分位条 (岗位/公司市场定位: P25/P50/P75 区间 + 当前值菱形标记) === */
-.pct-track-wrap { position: relative; margin-top: 46px; width: 100%; flex-basis: 100%; }
+/* === 分位条 (岗位/公司市场定位: P25/P50/P75 区间 + 当前值菱形标记) ===
+   结构: .pct-chart 固定高度画布 (上 16px 给菱形标记 + 10px 轨道 + 下方两排标签)
+        刻度线(.pct-tick-line)恒定落在分位点; 标签(.pct-tick)上下交替两排,
+        left 初值=分位点%, 由 store.js 的 gajPctLayout 按排分组防重叠改写为 px。 */
+.pct-track-wrap { width: 100%; flex-basis: 100%; margin-top: 14px; }
+.pct-chart { position: relative; height: 86px; }
 .pct-track {
-  position: relative;
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
   height: 10px;
   border-radius: 999px;
   background: var(--gaj-surface-3);
@@ -118,9 +125,18 @@ a:focus-visible, [tabindex]:focus-visible {
 .pct-zone { position: absolute; top: 0; bottom: 0; }
 .pct-zone.p25, .pct-zone.p75 { background: var(--gaj-primary-muted); }
 .pct-zone.p50 { background: var(--gaj-primary-border); }
+/* 刻度线: 永远精确落在分位点, 不随标签移动 */
+.pct-tick-line {
+  position: absolute;
+  top: 28px;
+  width: 1px;
+  height: 30px;
+  background: linear-gradient(to bottom, var(--gaj-border-hover) 30%, transparent);
+}
+/* 分位标签: 上下两排交替 (p10/p50/p90 上排 up, p25/p75 下排默认), 位置由 gajPctLayout 防重叠计算 */
 .pct-tick {
   position: absolute;
-  top: 18px;
+  bottom: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -131,29 +147,12 @@ a:focus-visible, [tabindex]:focus-visible {
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
+.pct-tick.up { bottom: 26px; }
 .pct-tick b { font-weight: 500; letter-spacing: 0.04em; }
 .pct-tick i { font-style: normal; color: var(--gaj-foreground-2); font-size: 10px; }
-/* 上下交替: p25/p75 在上, p50 在下, 相邻标签不同侧避免覆盖 */
-.pct-tick.up { top: -40px; }
-/* 边缘对齐: p25 左对齐防左溢出, p75 右对齐防右溢出, p50 居中 */
-.pct-tick.p25 { transform: translateX(0); }
-.pct-tick.p50 { transform: translateX(-50%); }
-.pct-tick.p75 { transform: translateX(-100%); }
-.pct-tick::before {
-  content: '';
-  position: absolute;
-  width: 1px;
-  height: 6px;
-  background: var(--gaj-border-hover);
-  left: 50%;
-}
-.pct-tick.down::before { top: -8px; }
-.pct-tick.up::before { top: 100%; }
-.pct-tick.p25::before { left: 2px; }
-.pct-tick.p75::before { left: calc(100% - 3px); }
 .pct-marker {
   position: absolute;
-  top: -6px;
+  top: 16px;
   width: 10px;
   height: 10px;
   border-radius: 2px;
@@ -165,7 +164,7 @@ a:focus-visible, [tabindex]:focus-visible {
 .pct-marker.over { background: var(--gaj-state-success); }
 .pct-marker.under { background: var(--gaj-state-warning); }
 .pct-legend {
-  margin-top: 46px;
+  margin-top: 6px;
   font-size: var(--gaj-font-size-xs);
   color: var(--gaj-foreground-2);
 }
