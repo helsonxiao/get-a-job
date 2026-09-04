@@ -1,8 +1,9 @@
----
+***
+
 name: gaj-agent
 description: 通过 `python3 -m gaj agent` JSON CLI 操作坑位图鉴（GAJ）个人猎头系统（BOSS直聘职位采集 + 规则/AI 打分），执行每日采集分析、职位查询、AI 打分（岗位级与公司级评价）并生成摘要。当用户要求跑每日职位报告、查询/分析职位、评价某家公司、采集 BOSS直聘职位，或定时任务需要调用坑位图鉴系统时使用。
 version: 0.1.0
----
+--------------
 
 # 坑位图鉴智能体操作技能
 
@@ -49,12 +50,12 @@ cd <repo_path> && <python> -m gaj agent <command> [options]
 stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 时看
 `error.code` / `error.message`。退出码：0 成功 / 1 失败 / 2 参数错误。
 
-**可用命令及参数请运行 `<python> -m gaj agent -h` 查看，以 CLI 实际输出为准。**
+**可用命令及参数请运行** **`<python> -m gaj agent -h`** **查看，以 CLI 实际输出为准。**
 本技能不重复罗列参数，只定义操作策略与注意事项。
 
 > **想了解有哪些使用场景和案例？** 见仓库根目录 `AGENT.md` 的「应用场景与案例」
 > 小节，覆盖了每日报告、搜索分析、公司尽调、批量补打分、首次采集、过期重评、
-> Backlog 巡检、Web 图鉴浏览共 8 个典型用法，可直接复制命令运行。
+> Backlog 巡检、Web 图鉴浏览、同口径快照 diff 共 9 个典型用法，可直接复制命令运行。
 
 ## AI 打分与去重
 
@@ -62,9 +63,13 @@ stdout 只输出一个 JSON 信封：`ok=true` 时数据在 `data`，`ok=false` 
 
 - `analyze --auto`：走 backlog 队列，默认 `--pool all`（补历史未打分 +
   重打已过时的分），不会重复打已打过分且未过时的岗位。
+
   - `--pool backfill`：只补从未 AI 打分的岗位
+
   - `--pool rescore`：只重打已过时的分（画像/规则变了或超保鲜期）
+
   - `--dry-run`：只看候选名单不调用大模型，**先 dry-run 再决定要不要真打**
+
 - `daily` 内部已集成 backlog 调度，新岗位不足时预算自动流向补历史欠分。
 
 手动查未打分职位仍可用 `jobs --scored no_ai`，但 `--auto` 本身已覆盖此逻辑。
@@ -80,7 +85,7 @@ AI 独立评分（`company_score_ai` 0-10）。结果 append-only 落盘，可�
 （返回 `cached=true`），公司信息变化慢，大半年不重评也没问题。
 `--force` 强制重评，`--max-age-days` 覆盖保鲜期。
 
-**获取 brand_id**：`jobs --search <公司名>` 结果的 `company_id` 字段，
+**获取 brand\_id**：`jobs --search <公司名>` 结果的 `company_id` 字段，
 或 `job <ID>` 详情里的 `job.company_id`。
 
 需要 Chrome CDP 就绪（同样走网页版大模型）。公司名下至少要有一个岗位，
@@ -96,14 +101,18 @@ AI 独立评分（`company_score_ai` 0-10）。结果 append-only 落盘，可�
 ## 每日任务标准流程
 
 1. **健康检查** `status`：
+
    - `chrome_cdp_ready=false` → 运行 `<python> -m gaj setup-chrome`，等 5 秒
      再查一次；仍 false 通知用户"请启动 Chrome CDP"并结束。
      （注意：必须是可见的 Chrome 窗口，无头模式不行）
+
    - `boss_logged_in=false` → 通知用户在 CDP Chrome 窗口登录 BOSS直聘
      （可继续，daily 会跳过采集只分析存量职位）。
 2. **执行编排** `daily --analyze-limit 3`。
 3. **处理返回**：
+
    - `ok=true` → 把 `data.digest_markdown` 发给用户；`warnings` 非空时一并说明。
+
    - `ok=false` → 按下方错误处理策略。
 4. 用户想看某职位：`jobs` 搜索拿 `job_id` → `job <ID>` 取 `jd_markdown` 和打分。
 
@@ -114,6 +123,7 @@ AI 独立评分（`company_score_ai` 0-10）。结果 append-only 落盘，可�
 避免下一次导出把旧月份的滞留数据带进来。daily 增量采集只并入活跃纪元，不会单独固化快照。
 
 用法（只读，不产生新快照）：
+
 1. **导出（顺带固化快照）**：`gaj report-bundle --scope-link "<口径URL>"`。
 2. **列快照**：`gaj snapshot list --scope-link "<口径URL>"` → 看 `period_month` / `period_quarter` / `job_count`。
 3. **对比**：`gaj snapshot diff --scope-link "<口径URL>" --from "<2026-09 | snapshot_id>" --to "<2026-11>"`，
@@ -121,7 +131,8 @@ AI 独立评分（`company_score_ai` 0-10）。结果 append-only 落盘，可�
 
 > 采集中断不会固化快照、也不会切换纪元；下次沿用续翻机制继续即可，不要重启新一轮。
 
-Web 图鉴市场观察台顶部「快照/纪元」切换可浏览历史快照（薪资/热力/雷达/技能）。
+Web 图鉴左侧栏「数据口径」下的「快照」选择器可浏览历史快照（市场观察的
+薪资/热力/雷达/技能生效，需先选口径）。
 gaj-reporter 可用指定数据包复显历史报告：`--source bundle --bundle <hist.bundle.json>`。
 
 ## 错误处理策略
@@ -131,13 +142,16 @@ gaj-reporter 可用指定数据包复显历史报告：`--source bundle --bundle
 
 - **环境类**（`chrome_not_ready` / `not_logged_in`）：尝试修复一次
   （setup-chrome / 提示登录）后重试；仍失败 → 通知用户，停止。
+
 - **输入类**（`usage` / `no_crawl_url` / `job_not_found`）：不要原样重试。
   修正参数、向用户要列表页 URL、用 `jobs` 重查正确 ID。
+
 - **任务类**（`crawl_failed` / `ai_failed` / `timeout`）：重试 1 次；
   `ai_failed` 连续失败可换 `--provider doubao/tongyi/kimi` 再试
   （注意：目前仅 deepseek 支持较成熟，其它 provider 为实验性，
   失败率可能更高，换用后仍失败就停止并通知用户）；
   `crawl_failed` 多为服务端临时拦截，隔几小时再试。
+
 - **内部类**（`internal` / `index_error`）：通知用户，附 `error.message`。
 
 **同一错误码连续出现两次 = 需要人工介入，通知用户而不是继续重试。**
@@ -147,7 +161,9 @@ gaj-reporter 可用指定数据包复显历史报告：`--source bundle --bundle
 系统内部已有全部重试与退出保护，命令不会静默挂起；调用方只需包进程级超时：
 
 - `status` / `jobs` / `job`：预算 30 秒足够。
+
 - `crawl`：通常几分钟，最坏约 30 分钟。
+
 - `daily`：建议预算 **45 分钟**。
 
 超时 kill 后重试是安全的（数据增量落盘，重跑自动跳过已抓职位）。
@@ -161,14 +177,19 @@ gaj-reporter 可用指定数据包复显历史报告：`--source bundle --bundle
   就继续，全重复才真停。前面几页全重复又没锚点时，可用 `--start-page N`
   直接跳到 N 页继续采集。多次运行逐步覆盖全部页面，最新职位优先（前几页），
   旧职位也不会一直采不到。
+
 - 分析期间大模型标签页会短暂切到前台、完成后自动切回，属正常行为；
   若用户正在高频使用浏览器，避免在高峰时段排 `daily`。
+
 - 首次采集需要用户提供 BOSS 筛选页 URL（报 `no_crawl_url` 时索取），
   之后系统记住，可省略 `--url`。
+
 - `daily` 始终产出 `digest_markdown`，`warnings` 不阻断流程，局部失败
   不要整体重跑。
+
 - `ai_failed` 反复出现且 message 含"注入失败/选择器" → 大模型网站改版，
   通知用户检查 `<repo_path>/gaj/browser/llm_driver_deepseek.py`，不要无限重试。
+
 - 采集节奏模拟人工浏览，不要为提速改动节奏逻辑或并发多开 crawl。
 
 ## 验证
@@ -179,3 +200,4 @@ gaj-reporter 可用指定数据包复显历史报告：`--source bundle --bundle
 cd <repo_path> && <python> -m gaj agent status \
   | <python> -c "import json,sys; d=json.load(sys.stdin); print(d['ok'], d['data']['chrome_cdp_ready'])"
 ```
+
