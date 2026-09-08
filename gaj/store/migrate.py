@@ -401,6 +401,11 @@ def reassign_source_links(src: Path, source_link: str) -> dict:
                 seen.add(jid)
     if not seen:
         return {"seen": 0, "reassigned": 0}
+    # 本次列表命中老岗位并归入该口径 → 同步登记注册表 (幂等)
+    try:
+        index.register_source_link(source_link)
+    except Exception as exc:
+        log.warning(f"登记口径失败 (重归属 {source_link[:40]}...): {exc}")
     epoch_id = active_epoch_id(source_link)
     reassigned = 0
     for jid in seen:
@@ -472,6 +477,12 @@ def migrate_one(
         report=report,
         source_link=source_link,
     )
+    # 每入库一条到某口径, 同步登记注册表 (幂等, 保证 Web 口径管理立即可见)
+    if report.migrated and source_link:
+        try:
+            index.register_source_link(source_link)
+        except Exception as exc:
+            log.warning(f"登记口径失败 (migrate_one {source_link[:40]}...): {exc}")
     return report
 
 
@@ -516,6 +527,13 @@ def migrate(
             report=report,
             source_link=source_link,
         )
+
+    # 批量迁移后如确有成岗位入某口径, 同步登记注册表 (幂等)
+    if report.migrated and source_link:
+        try:
+            index.register_source_link(source_link)
+        except Exception as exc:
+            log.warning(f"登记口径失败 (migrate {source_link[:40]}...): {exc}")
 
     if not dry_run and rebuild_index:
         index.reindex()

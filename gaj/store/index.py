@@ -295,16 +295,48 @@ def touch_job_source_link(job_id: str, source_link: str) -> bool:
     实时计入当前纪元, 参与未来快照的成员统计。
     """
     from . import observatory_snapshot as obsnap
+    from datetime import datetime, timezone
 
-    conn = connect(DATA_ROOT / "index.db")
+    conn = connect()
     try:
         epoch_id = obsnap.ensure_active_epoch(conn, source_link)
+        # 归属到某口径时同步登记注册表 (幂等), 保证即使该口径本次没抓新岗位
+        # (全是列表页命中的历史岗位) 也会在 UI 中可见。
+        conn.execute(
+            "INSERT OR IGNORE INTO main.source_links (link, label, created_at)"
+            " VALUES (?, '', ?)",
+            (source_link, datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")),
+        )
         cur = conn.execute(
             "UPDATE jobs SET source_link = ?, collection_epoch = ? WHERE job_id = ?",
             (source_link, epoch_id, job_id),
         )
         conn.commit()
         return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def register_source_link(link: str) -> None:
+    """把来源链接登记进 source_links 口径注册表 (已存在则跳过)。
+
+    报告生成 (reportbundle) 在出报告时也会登记; 这里保证采集后口径立即可被
+    Web 口径管理 / 侧边栏下拉选中, 而不是要等先出一份该口径报告才可见。
+    用独立连接 + main.source_links, 避免被当前请求的影子过滤干扰。
+    """
+    link = (link or "").strip()
+    if not link:
+        return
+    from datetime import datetime, timezone
+
+    conn = connect()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO main.source_links (link, label, created_at)"
+            " VALUES (?, '', ?)",
+            (link, datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")),
+        )
+        conn.commit()
     finally:
         conn.close()
 

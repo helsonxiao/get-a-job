@@ -226,6 +226,13 @@ def crawl(
         result["incremental"] = incremental_count
         log.info(f"采集完成: {crawler.stats} (增量入库 {incremental_count} 个)")
 
+        # 把本次采集链接登记进口径注册表 (已存在则跳过), 让 Web 口径管理 /
+        # 侧边栏下拉立即可选; 无需再等先出一份该口径报告才可见。
+        try:
+            index.register_source_link(list_url)
+        except Exception as exc:
+            log.warning(f"登记口径失败 (不影响采集结果): {exc}")
+
         # 记录覆盖率与 URL, 供下次降速决策 / agent daily 复用
         try:
             result["crawl_state"] = crawl_state.record_crawl(

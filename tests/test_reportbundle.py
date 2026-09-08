@@ -65,6 +65,35 @@ def conn():
     c.close()
 
 
+#: 文件仓储侧测试共享的临时数据根 (防污染真实 data/)
+_TMP_DATA_ROOT = None
+
+
+@pytest.fixture()
+def isolated_repo(tmp_path_factory, monkeypatch):
+    """把 repo 文件侧 + index.db 重定向到临时目录 (每测试后自动还原)。
+
+    仅 test_rescrape_same_job_no_duplicate 与 test_reassign_source_links
+    会走文件仓储 (repo.save_job / active_epoch_id / register_source_link),
+    其余测试都用 :memory: conn, 本就碰不到真实 data/。这两个测试在一个
+    临时数据根上串行 (先写 j10 再重归属), 故用模块级共享路径 + 函数级
+    monkeypatch 还原, 杜绝把 https://new 这类测试口径写进真实库。
+    """
+    global _TMP_DATA_ROOT
+    from gaj import config as cfg
+
+    if _TMP_DATA_ROOT is None:
+        _TMP_DATA_ROOT = tmp_path_factory.mktemp("gaj-real-repo")
+        (_TMP_DATA_ROOT / "jobs").mkdir(parents=True, exist_ok=True)
+        (_TMP_DATA_ROOT / "companies").mkdir(parents=True, exist_ok=True)
+    data = _TMP_DATA_ROOT
+    monkeypatch.setattr(cfg, "DATA_ROOT", data)
+    monkeypatch.setattr(cfg, "JOBS_DIR", data / "jobs")
+    monkeypatch.setattr(cfg, "COMPANIES_DIR", data / "companies")
+    monkeypatch.setattr(cfg, "INDEX_DB", data / "index.db")
+    return data
+
+
 def _walk_keys(obj):
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -384,7 +413,7 @@ def test_scope_rename_and_label(conn):
     assert b["meta"]["scope"]["scope_label"] == "无锡-后端-双休"
 
 
-def test_rescrape_same_job_no_duplicate(conn):
+def test_rescrape_same_job_no_duplicate(conn, isolated_repo):
     """口径去重锁定: 同一岗位被第二个来源链接重采 (upsert) 后,
     库内仍只有一行且归属最新口径 —— 合并展示永不产生重复岗位。"""
     from gaj.store import repo
@@ -415,7 +444,7 @@ def test_skill_board_same_as_observatory(conn):
         observatory.observatory_company_boards(conn, top_n=30)
 
 
-def test_reassign_source_links(tmp_path):
+def test_reassign_source_links(tmp_path, isolated_repo):
     """列表级口径重归属: 列表出现的历史岗位挪入新口径; 库外岗位跳过。"""
     from gaj.store import repo
     from gaj.store.migrate import reassign_source_links
