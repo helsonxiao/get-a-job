@@ -533,8 +533,9 @@ def _quadrant_block(conn: sqlite3.Connection, market_median) -> dict:
 def _salary_median_maps(conn: sqlite3.Connection):
     """报告口径统一: 公司/区县级薪资一律取中位数。
 
-    观察台聚合的 avg_salary 为均值 (供 gaj web UI 使用, 语义不变);
-    报告以中位数为统一口径, 此处按下列三种口径重算:
+    观察台聚合的 avg_salary 现已是**中位数** (observatory 薪资口径注册表统一, 见
+    observatory._VISIBLE 上方的"薪资口径注册表"); 报告仍以中位数为统一口径,
+    按公司/行业×公司/行业×区县三级重算, 与原值一致即为幂等, 不会漂移:
     - by_company: brand_id -> 公司全部在招岗位薪资中位 (信号公司榜口径);
     - by_comp_ind: (industry, brand_id) -> 行业内公司薪资中位 (焦点代表公司口径);
     - by_dist_ind: (industry, district) -> 行业×区县薪资中位 (焦点区域分布口径)。

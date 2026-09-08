@@ -12,13 +12,11 @@
 
 | 主题 | 优先级 | 卡在哪 / 状态 | 详见 |
 |---|---|---|---|
-| 数据分析口径一致：均/中位混用 + 双 sort + 黄金测试 | **P0** | 未开工，方案已出，建议下一轮动手 | [data-analysis-improvement-plan.md](docs/data-analysis-improvement-plan.md#第一层--口径固化p0正确性) |
 | SQLite 公司分公式去重 | P0 | 未开工，改动小收益高 | [db-sqlite-refactor-plan.md](docs/db-sqlite-refactor-plan.md#p0--公司分公式去重首推) |
 | 基础工程：venv + 依赖锁定 | P1 | 未开工，等你确认方案 | §工程基础设施 |
 | 整库冷备 + WAL checkpoint | P1 | 未开工 | [db-sqlite-refactor-plan.md](docs/db-sqlite-refactor-plan.md#p1--整库冷备--wal-checkpoint) |
 
-> 建议一次只做一项，做完回填状态再挪下一个。数据分析是项目立身之本，其 P0 口径一致项
-> 优先于其他 P0（当前无阻塞项，但不可再让口径继续漂移）。
+> 建议一次只做一项，做完回填状态再挪下一个。数据分析 P0（口径统一 + 双 sort + 黄金测试）已于 09-08 完成。
 
 ---
 
@@ -66,9 +64,9 @@
 
 | 优先级 | 项 | 一句话 |
 |---|---|---|
-| P0 | 薪资口径统一 | 同一字段 `avg_salary` 在统计引擎内一半是均值一半是中位数（observatory 多处），统一为中位 + 改名均值 + 注册表锁死 |
-| P0 | 行业代表公司双 sort 修复 | `industry_detail` 两次 sort 互相覆盖，"有公司分按分排前"实际未生效 |
-| P0 | 统计黄金测试 | `tests/test_observatory_metrics.py`：固定 fixture 断言每个聚合函数输出，防口径漂移 |
+| ✅ P0 | 薪资口径统一（已做 09-08） | `avg_salary` 全引擎统一中位数，均值改名 `avg_salary_mean`，注册表说明已加 |
+| ✅ P0 | 行业代表公司双 sort 修复（已做 09-08） | 合并为单次排序，"有公司分按分排前"生效 |
+| ✅ P0 | 统计黄金测试（已做 09-08） | `tests/test_observatory_metrics.py` 已建，锚定均/中位语义防漂移 |
 | P1 | 数据质量体检 CLI | `gaj qa data`：重复率/空值率/异常薪资/污染率/快照新鲜度 |
 | P1 | 快照自动化 + 行情趋势 | 周期自动 capture + diff 持久化 + 趋势端点（岗位量/薪资 P50/技能热度环比） |
 | P1 | 可信度透出 | 视图统一标注样本量 / 数据日期 / 门槛，低样本视图前端提示 |
@@ -96,5 +94,6 @@
 
 ## 更新日志
 
+- 2026-09-08：完成数据分析 P0（`avg_salary` 全引擎统一中位 + `avg_salary_mean` 均值保留、行业代表公司双 sort 修复、黄金测试锚定口径）。明细见本次 git commit。
 - 2026-09-07：新增「数据分析可信度与统计维度」backlog（P0 口径一致挂入当前优先队列首位），完整方案见 [data-analysis-improvement-plan.md](docs/data-analysis-improvement-plan.md)。
 - 2026-09-06：建档，取代粗糙 `TODO.md`；归并旧条目并标注实际完成状态；挂入基础工程 backlog 与 SQLite 改进 backlog。

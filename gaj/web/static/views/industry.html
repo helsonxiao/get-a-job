@@ -124,7 +124,7 @@
               </div>
             </div>
             <div class="ind-byexp" x-show="detail.by_exp && detail.by_exp.length">
-              <div class="ind-byexp-title">经验-薪资（行业口径）</div>
+              <div class="ind-byexp-title">经验-薪资中位（行业口径）</div>
               <template x-for="e in detail.by_exp" :key="e.bucket">
                 <div class="ind-bar-row small">
                   <span class="ind-bar-label" x-text="e.label"></span>
@@ -136,7 +136,7 @@
               </template>
             </div>
             <div class="ind-byexp" x-show="detail.by_edu && detail.by_edu.length">
-              <div class="ind-byexp-title">学历-薪资（行业口径）</div>
+              <div class="ind-byexp-title">学历-薪资中位（行业口径）</div>
               <template x-for="e in detail.by_edu" :key="e.level">
                 <div class="ind-bar-row small">
                   <span class="ind-bar-label" x-text="e.label"></span>
@@ -151,9 +151,9 @@
 
           <!-- 技能热度 -->
           <div class="ind-section" x-show="detail.top_skills && detail.top_skills.length">
-            <div class="ind-section-title"><i data-lucide="bar-chart-3"></i>技能热度 Top 10 <span class="ind-section-hint">需求岗位 · 均薪 (万/年)</span></div>
+            <div class="ind-section-title"><i data-lucide="bar-chart-3"></i>技能热度 Top 10 <span class="ind-section-hint">需求岗位 · 薪资中位 (万/年)</span></div>
             <table class="ind-table">
-              <thead><tr><th>#</th><th>技能</th><th>需求岗</th><th>招聘公司</th><th>均薪</th><th>相对市场中位</th></tr></thead>
+              <thead><tr><th>#</th><th>技能</th><th>需求岗</th><th>招聘公司</th><th>薪资中位</th><th>相对市场中位</th></tr></thead>
               <tbody>
                 <template x-for="(s, i) in detail.top_skills" :key="s.name">
                   <tr>
@@ -191,7 +191,7 @@
                   <div class="ind-district-meta">
                     <span x-text="d.job_count + ' 岗'"></span>
                     <span x-text="d.company_count + ' 家'"></span>
-                    <span x-show="d.avg_salary != null" x-text="'均薪 ' + d.avg_salary + ' 万'"></span>
+                    <span x-show="d.avg_salary != null" x-text="'中位薪 ' + d.avg_salary + ' 万'"></span>
                   </div>
                 </div>
               </template>
@@ -208,14 +208,14 @@
                   <div class="ind-company-meta">
                     <span x-text="'在招 ' + (c.job_count || 0) + ' 岗'"></span>
                     <span x-text="c.company_score != null ? '公司分 ' + c.company_score.toFixed(1) : ''"></span>
-                    <span x-text="c.salary_mid_avg != null ? '均薪 ' + c.salary_mid_avg + ' 万' : ''"></span>
+                    <span x-text="c.salary_mid_avg != null ? '薪资中位 ' + c.salary_mid_avg + ' 万' : ''"></span>
                   </div>
                 </div>
               </template>
             </div>
           </div>
 
-          <!-- 公司象限 (行业视角: 该行业公司在均薪-分数空间的分布) -->
+          <!-- 公司象限 (行业视角: 该行业公司在薪资中位-分数空间的分布) -->
           <div class="ind-section" x-show="indQuadrantLoading || indQd">
             <div class="state-loading" x-show="indQuadrantLoading" style="padding:20px;">加载中...</div>
             <template x-if="!indQuadrantLoading && indQd && (indQd.pts.length > 0 || indQd.unknown.length > 0)">
@@ -224,7 +224,7 @@
                 <div class="quadrant-wrap">
                   <div class="quadrant-hint">
                     <i data-lucide="info"></i>
-                    <span>x = 公司均薪(万/年) · y = 公司分 · 气泡大小 = 在招岗位数</span>
+                    <span>x = 公司薪资中位(万/年) · y = 公司分 · 气泡大小 = 在招岗位数</span>
                   </div>
                   <svg viewBox="0 0 760 440" class="quadrant-svg" @click="onIndQuadrantClick($event)">
                     <g x-html="indQuadrantGridSvg(indQd)"></g>

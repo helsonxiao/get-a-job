@@ -217,7 +217,7 @@ document.addEventListener('alpine:init', () => {
         const intensity = (v / maxCount).toFixed(2);
         // tooltip 用全区口径 (district_total), 与点击后抽屉显示的数字一致
         const tip = `${this._esc(c.top_district || '未知区域')}: ${c.district_total ?? c.count} 岗位 · ${c.district_company_total ?? c.company_count ?? 0} 公司` +
-          (c.avg_salary ? ` · 网格均薪 ${c.avg_salary} 万` : '') +
+          (c.avg_salary ? ` · 网格中位薪 ${c.avg_salary} 万` : '') +
           (c.top_company ? `\n代表公司: ${this._esc(c.top_company)}` : '') +
           `\n${this._esc(c.top_industry || '未知行业')}`;
         // 按公司模式 → 下钻公司列表; 按岗位模式 → 下钻岗位列表

@@ -15,6 +15,16 @@ _VISIBLE = "(ignored = 0 OR ignored IS NULL)"
 #: 聚合端把 NULL/空字段的展示值; 下钻端 (index._build_where) 会把"未知"翻译回 NULL/空匹配
 _UNKNOWN = "未知"
 
+# ------------------------------------------------------------ 薪资口径注册表
+#
+# 本引擎薪资字段一律遵守以下语义 (黄金测试锁定, 改口径必须先改测试):
+#   avg_salary       = 薪资**中位数** (全引擎统一默认口径; 与 salary_pricing/技能榜/公司双榜一致)
+#   avg_salary_mean  = 薪资**均值** (仅在有明显需要的视图保留, 供 UI 参考, 不作市场水位表述)
+#   salary_median    = 薪资中位数 (行业总览等显式中位字段)
+#   market_avg_salary / market_median = 全市场**中位数** (溢价/对比基准, 键名沿用历史)
+#   salary_mid_avg   = 公司级薪资中位 (company_stats 物化值)
+# 报告侧 (reportbundle) 以此为单一事实源, 不再自行重算口径。
+
 
 # ------------------------------------------------------------ 技能标签归一化
 #
@@ -255,7 +265,8 @@ def observatory_salary_pricing(conn: sqlite3.Connection) -> dict:
 def observatory_geo_heatmap(conn: sqlite3.Connection, cell_size: float = 0.01) -> dict:
     """区域机会热力图。按 lat/lng 网格分桶(cell_size 度≈1.1km)。
 
-    每格: count、company_count(去重公司数)、avg_salary_mid、top_industry、top_district、top_company、
+    每格: count、company_count(去重公司数)、avg_salary(中位)、avg_salary_mean(均值, 参考)、
+    top_industry、top_district、top_company、
     district_total/district_company_total (所在区域全区岗位/公司数, 下钻抽屉的口径)。
     网格是空间近似, 点击下钻按 top_district 整区查询, 故 tooltip/前端应以 district_total 为准,
     保证图表数字与抽屉数字一致。
@@ -318,7 +329,8 @@ def observatory_geo_heatmap(conn: sqlite3.Connection, cell_size: float = 0.01) -
         if max_lng is None or clng > max_lng:
             max_lng = clng
         sals = b["salaries"]
-        avg_sal = round(sum(sals) / len(sals), 2) if sals else None
+        avg_sal = _median(sals) if sals else None
+        avg_sal_mean = round(sum(sals) / len(sals), 2) if sals else None
         top_ind = b["industries"].most_common(1)[0][0] if b["industries"] else None
         top_dist = b["districts"].most_common(1)[0][0] if b["districts"] else None
         comp_names = b.get("company_names", {})
@@ -332,6 +344,7 @@ def observatory_geo_heatmap(conn: sqlite3.Connection, cell_size: float = 0.01) -
             "count": b["count"],
             "company_count": len(b["companies"]),
             "avg_salary": avg_sal,
+            "avg_salary_mean": avg_sal_mean,
             "top_industry": top_ind,
             "top_district": top_dist,
             "top_company": top_comp,
@@ -396,7 +409,8 @@ def observatory_district_top(conn: sqlite3.Connection, top_n: int = 10) -> list[
             "industry": rep_industry.get(d, _UNKNOWN),
             "count": s["count"],
             "company_count": len(s["companies"]),
-            "avg_salary": round(sum(s["salaries"]) / len(s["salaries"]), 2) if s["salaries"] else None,
+            "avg_salary": _median(s["salaries"]) if s["salaries"] else None,
+            "avg_salary_mean": round(sum(s["salaries"]) / len(s["salaries"]), 2) if s["salaries"] else None,
             "top_company": top_comp,
         })
     items.sort(key=lambda x: x["count"], reverse=True)
@@ -521,7 +535,8 @@ def observatory_signal_radar(conn: sqlite3.Connection) -> dict:
                 ("外包", d["outsourcing"] > 0),
                 ("出差频繁", d["travel"] > 0),
             ) if v],
-            "avg_salary": round(sum(d["salaries"]) / len(d["salaries"]), 2) if d["salaries"] else None,
+            "avg_salary": _median(d["salaries"]) if d["salaries"] else None,
+            "avg_salary_mean": round(sum(d["salaries"]) / len(d["salaries"]), 2) if d["salaries"] else None,
         })
     red_flag_companies.sort(key=lambda x: x["job_count"], reverse=True)
     red_flag_companies = red_flag_companies[:20]
@@ -838,7 +853,8 @@ def observatory_industry_detail(conn: sqlite3.Connection, industry: str) -> dict
             "name": name,
             "demand_count": cnt,
             "company_count": len({r["company_id"] for r in holder_rows}),
-            "avg_salary": round(sum(vals) / len(vals), 2) if vals else None,
+            "avg_salary": _median(vals) if vals else None,
+            "avg_salary_mean": round(sum(vals) / len(vals), 2) if vals else None,
         })
 
     # 红旗信号
@@ -875,14 +891,20 @@ def observatory_industry_detail(conn: sqlite3.Connection, industry: str) -> dict
             "brand_id": cid,
             "name": d["name"],
             "job_count": d["job_count"],
-            "avg_salary": round(sum(d["salaries"]) / len(d["salaries"]), 2) if d["salaries"] else None,
+            "avg_salary": _median(d["salaries"]) if d["salaries"] else None,
+            "avg_salary_mean": round(sum(d["salaries"]) / len(d["salaries"]), 2) if d["salaries"] else None,
             "best_score": round(max(d["scores"]), 1) if d["scores"] else None,
         })
-    top_companies.sort(key=lambda x: (x["best_score"] is not None, x["best_score"]), reverse=True)
-    top_companies.sort(key=lambda x: x["job_count"], reverse=True)
+    # 在招数优先, 有公司分的按分数排前 (合并为单次排序, 修复原双 sort 互相覆盖: 第二行 sort 会覆盖第一行,
+    # 导致"有公司分按分排前"从未生效)
+    top_companies.sort(
+        key=lambda x: (-(x["job_count"] or 0),
+                       x["best_score"] is None,     # 有分者排前
+                       -(x["best_score"] or 0)),    # 分高者排前
+    )
     top_companies = top_companies[:8]
 
-    # 区域分布 Top10 (区县维度: 岗位数/公司数/均薪, 样本>=2)
+    # 区域分布 Top10 (区县维度: 岗位数/公司数/薪资中位, 样本>=2)
     dist_map: dict[str, dict] = defaultdict(lambda: {"job_count": 0, "company_ids": set(), "salaries": []})
     for r in ind_rows:
         d = dist_map[r["district"] or _UNKNOWN]
@@ -899,7 +921,8 @@ def observatory_industry_detail(conn: sqlite3.Connection, industry: str) -> dict
             "district": name,
             "job_count": d["job_count"],
             "company_count": len(d["company_ids"]),
-            "avg_salary": round(sum(d["salaries"]) / len(d["salaries"]), 2) if d["salaries"] else None,
+            "avg_salary": _median(d["salaries"]) if d["salaries"] else None,
+            "avg_salary_mean": round(sum(d["salaries"]) / len(d["salaries"]), 2) if d["salaries"] else None,
         })
     top_districts.sort(key=lambda x: x["job_count"], reverse=True)
     top_districts = top_districts[:10]

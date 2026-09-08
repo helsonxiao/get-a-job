@@ -62,7 +62,7 @@
       const p = xy(c, qd.xMax);
       const title = esc(
         c.name + ' · 分 ' + (c.company_score != null ? c.company_score.toFixed(1) : '?')
-        + ' · 均薪 ' + c.salary_mid_avg.toFixed(1) + '万 · ' + (c.job_count || 0) + '岗');
+        + ' · 薪资中位 ' + c.salary_mid_avg.toFixed(1) + '万 · ' + (c.job_count || 0) + '岗');
       return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${bubbleR(c).toFixed(1)}" `
            + `class="qbubble ${TIER[c.rank_tier] || ''}" data-brand="${esc(c.brand_id)}">`
            + `<title>${title}</title></circle>`;
