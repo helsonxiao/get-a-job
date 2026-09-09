@@ -33,6 +33,7 @@ from .. import config as cfg
 from ..logging_setup import get_logger
 from .models import Company, Job
 from .profile import Profile
+from .signals import find_blacklist_hits
 from .scoring_config import ScoringOverrides, load_overrides
 
 log = get_logger("scoring")
@@ -340,8 +341,10 @@ def run_hard_checks(job: Job, company: Company, profile: Profile, overrides: Sco
     checks.append(h6)
 
     # H-07 黑名单关键词
+    # 注意: 不能用采集时缓存的 job.signals.blacklist_hits —— 画像的排除关键词
+    # 修改后旧命中记录仍会生效, 导致"改画像不生效"的困惑。这里实时匹配 JD 文本。
     h7 = HardCheck("H-07", "命中排除关键词", floor=floor)
-    hits = list((job.signals or {}).get("blacklist_hits") or [])
+    hits = list(find_blacklist_hits(job.jd_text, profile.blacklist_keywords))
     if hits:
         h7.hit = True
         h7.reason = f"JD 命中排除关键词: {', '.join(hits)}"

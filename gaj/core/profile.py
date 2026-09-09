@@ -207,6 +207,9 @@ class Profile:
         return "\n".join(lines)
 
 
+# 模板里存在但代码不消费的展示性字段 (仅供人工阅读, 解析时静默忽略)
+_IGNORED_KEYS = {"当前净资产", "当前储蓄率", "财务自由度"}
+
 # 文件里的键名 -> Profile 字段名
 _KEY_MAP: dict[str, str] = {
     "年龄": "age",
@@ -282,6 +285,11 @@ def parse_profile_text(text: str) -> Profile:
 
         field_name = special.get(key_raw) or _KEY_MAP.get(_norm_key(key_raw))
         if not field_name:
+            # 模板遗留的展示性字段 (仅供人工阅读, 代码不消费), 静默跳过 (归一化后匹配)
+            if _norm_key(key_raw) in _IGNORED_KEYS:
+                continue
+            # 其余未知键不静默吞掉: 提示用户, 避免"改了画像但没生效"的困惑
+            log.warning(f"画像键「{key_raw}」未识别, 已忽略 (检查拼写, 正确键名见 templates/profile.md)")
             continue
 
         if field_name in _LIST_FIELDS:
