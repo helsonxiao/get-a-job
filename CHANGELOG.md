@@ -10,6 +10,27 @@
 
 ***
 
+## \[v0.8.0] — OpenAI 兼容 API 打分 + 简历内容质量方法论 (#2)
+
+> 2026-09-10。可选走 OpenAI 兼容 API 打分（不再依赖 Chrome CDP/登录态），
+> 新增简历内容质量方法论，并修 3 处画像/打分体验问题。
+
+### 新增
+
+- **API 打分驱动**（`gaj/browser/llm_driver_api.py`）：HTTP 直连任意 OpenAI 兼容端点
+  （DeepSeek/通义/豆包/Kimi/vLLM/Ollama），无 CDP 会话、无登录态；`get_driver("api")`
+  即可用。环境变量 `GAJ_API_BASE_URL/KEY/MODEL/TIMEOUT/MAX_TOKENS`。
+- **简历内容质量方法论**：简历 Prompt 内置证据分级（A/B/C/D）、量化门禁、敏感措辞泛化
+  三条硬约束 + 详细规范 `references/resume-methodology.md`。
+
+### 修复
+
+- **H-07 黑名单改实时匹配**：不再用采集时缓存的命中，改为即时匹配 JD 文本，修"改了画像排除关键词不生效"。
+- **画像未知键告警**：模板展示字段（净资产/储蓄率/财务自由度）静默忽略；其它未知键 warn 提示，防改画像不生效的困惑。
+- **打分日志**：`crawl` 后补充 `skipped` 计数含义 + `--force` 重打指引。
+
+***
+
 ## \[v0.7.1] — 落地页 CI 发布 + docs 文档统一归位
 
 > 2026-09-10。工程/文档整理：落地页改为 GitHub Actions 自动发布到 `gh-pages` 分支，与仓库
