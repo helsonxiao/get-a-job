@@ -297,7 +297,11 @@ def crawl(
             out = score_all(force=False)
             stats = out.get("stats", {})
             result["scored"] = stats
-            log.info(f"规则打分完成: {stats}")
+            # skipped 表示"已有分数未重算" (本次新采集的职位已在迁移时打过);
+            # 首次采集常出现全 skipped, 属正常, 需要重打时用 `gaj score --all --force`
+            skipped = stats.get("skipped", 0)
+            suffix = f" (跳过 {skipped} 个已有分数, 需要重打请用 --force)" if skipped else ""
+            log.info(f"规则打分完成: {stats}{suffix}")
         except Exception as exc:
             log.error(f"打分失败: {exc}")
             result["score_error"] = str(exc)

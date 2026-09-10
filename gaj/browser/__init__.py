@@ -19,6 +19,7 @@ from .llm_driver_deepseek import DeepSeekDriver
 from .llm_driver_doubao import DoubaoDriver
 from .llm_driver_kimi import KimiDriver
 from .llm_driver_tongyi import TongyiDriver
+from .llm_driver_api import APIDriver
 
 log = get_logger("browser")
 
@@ -29,10 +30,15 @@ _DRIVERS: dict[str, type[LLMDriver]] = {
     "kimi": KimiDriver,
 }
 
+# API provider 不走 CDP, 在 get_driver 里特判
+_API_PROVIDERS: dict[str, type] = {
+    "api": APIDriver,
+}
+
 
 def available_providers() -> list[str]:
     """返回所有已注册的 provider 名称。"""
-    return list(_DRIVERS.keys())
+    return list(_DRIVERS.keys()) + list(_API_PROVIDERS.keys())
 
 
 def get_driver(
@@ -41,21 +47,26 @@ def get_driver(
     sid: str | None = None,
     tid: str | None = None,
 ) -> LLMDriver:
-    """获取网页版大模型驱动。
+    """获取大模型驱动。
 
     Args:
-        provider: provider 名称 (deepseek/doubao/tongyi/kimi)
+        provider: provider 名称 (deepseek/doubao/tongyi/kimi/api)
         session: 已有的 CDPSession (复用), None 则自动创建
         sid: 已有的标签页 sessionId (复用), None 则自动创建
         tid: 已有标签页的 targetId (与 sid 配套), 用于前台切换/焦点恢复
 
-    调用此函数前, Chrome 必须已以 CDP 调试模式运行, 且用户已登录目标大模型。
+    API provider (api) 不需要 Chrome CDP 与登录态, 直接返回 HTTP 驱动;
+    其余 provider 调用此函数前, Chrome 必须已以 CDP 调试模式运行, 且用户已登录。
     """
-    cls = _DRIVERS.get(provider)
+    cls = _DRIVERS.get(provider) or _API_PROVIDERS.get(provider)
     if not cls:
         raise ValueError(
-            f"未知 provider: {provider}。可选: {', '.join(_DRIVERS.keys())}"
+            f"未知 provider: {provider}。可选: {', '.join(available_providers())}"
         )
+
+    if provider in _API_PROVIDERS:
+        # API 驱动不走 CDP: 无 Chrome 会话, 无登录态, 直接 HTTP 调用
+        return cls()
 
     own_session = False
     if session is None:
