@@ -2,8 +2,8 @@
 
 前后端按功能域分治的结构说明。**改代码前先看本文**，可直接定位到
 目标文件，避免全库扫描。架构决策背景见
-[ADR-001](../../.trae/documents/adr-001-frontend-framework.md)（Alpine 组件岛选型）
-与 [ADR-002](../../.trae/documents/adr-002-module-split.md)（本次分治重构）。
+[ADR-001](../../docs/adr/adr-001-frontend-framework.md)（Alpine 组件岛选型）
+与 [ADR-002](../../docs/adr/adr-002-module-split.md)（本次分治重构）。
 
 ## 目录总览
 

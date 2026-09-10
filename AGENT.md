@@ -7,6 +7,17 @@
 | **AGENT.md**（本文）       | 应用场景与容错机制：9 个使用案例、重试/降级/超时策略、注意事项 | 开发者、想了解系统行为细节的智能体 |
 | **gaj-agent/SKILL.md** | 操作策略：首次配置、每日流程编排、错误处理决策树、超时预算     | 可安装到各智能体的技能包      |
 
+### 文档放哪（红线）
+
+| 位置 | 装什么 | 约定 |
+|---|---|---|
+| **`docs/`** | 工程/设计文档**唯一家**（`adr/` 架构决策、`proposals/` 待决策方案、`archive/YYYY-MM/` 一次性产物） | 写文档一律进这里；命名建议 `YYYY-MM-DD-<类型>-<主题>.md` |
+| **`landing/`** | 公网站点源码（`index.html` + `assets/`），由 GitHub Actions 自动发布到 `gh-pages` | agent **不得**往 landing 或 docs 根塞站点/图片 |
+| **`.trae/specs/`** | Trae 在制工作区 | 仅放进行中的 spec，完成后归 `docs/` |
+| `gaj-agent/` | Skill 包 | 随代码走，不算文档 |
+
+> **不要**把工程文档写到仓库根、`landing/` 或散落目录；`docs/` 不是 GitHub Pages 发布面（发布走 landing → gh-pages）。
+
 命令的参数、返回字段、错误码、退出码等信息已内置于 CLI help text，
 运行 `python3 -m gaj agent -h` 即可查看完整说明，本文不再重复。
 

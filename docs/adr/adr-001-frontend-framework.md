@@ -2,7 +2,7 @@
 
 > **状态**：已采纳（2026-08-18）
 > **决策者**：项目维护者
-> **相关**：[市场观察迭代计划](../.trae/documents/market-insights-iteration-plan.md) §0
+> **相关**：[市场观察迭代计划](../proposals/market-insights-iteration-plan.md) §0
 
 ---
 

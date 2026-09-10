@@ -4,7 +4,7 @@
    view 路由/跨视图跳转 (openJob/openCompany)。
 
    视图岛通过 $store.core.xxx 调用, 禁止各岛自带副本。
-   (架构决策见 .trae/documents/adr-001-frontend-framework.md)
+   (架构决策见 docs/adr/adr-001-frontend-framework.md)
 
    设计要点:
    - view 单一状态替代旧 N 个布尔 flag (showGuide/showConfig/...)

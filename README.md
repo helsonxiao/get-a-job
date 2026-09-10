@@ -49,7 +49,7 @@ python3 -m gaj web
 # → http://127.0.0.1:8765
 ```
 
-> 完整产品介绍与截图见 [docs/index.html](docs/index.html)，命令详解见 [AGENT.md](AGENT.md)。
+> 完整产品介绍与截图见 [线上落地页](https://helsonxiao.github.io/get-a-job/)（源码在 `landing/`，CI 自动发布），命令详解见 [AGENT.md](AGENT.md)。
 
 ## 项目结构
 
@@ -92,7 +92,7 @@ Python · Chrome CDP · FastAPI · SQLite（仅作派生索引，文件是真相
 
 觉得好用？想交流求职 / 技术经验？欢迎加我微信，当然也可以打赏一杯咖啡，支持项目持续维护：
 
-![微信二维码](docs/assets/wechat-qr.jpg)
+![微信二维码](landing/assets/wechat-qr.jpg)
 
 ## License
 
