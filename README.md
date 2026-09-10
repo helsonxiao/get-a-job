@@ -8,7 +8,7 @@
 
 一个跑在本机的个人猎头系统：CDP 驱动真实 Chrome 采集 BOSS直聘职位，规则引擎 + 网页版大模型打分，数据全本地存储，零云端依赖。
 
-> **当前状态：v0.7，个人主力工具，持续迭代中。**
+> **当前状态：v0.7.1，个人主力工具，持续迭代中。**
 > AI 打分目前仅对 **DeepSeek 网页版**有较好的支持，其它网页版大模型
 > driver（doubao / tongyi / kimi）有待测试与改进。
 > **简历优化为实验性功能**，尚未充分测试与优化，欢迎贡献改进。
@@ -65,6 +65,8 @@ gaj/
   ├── resume/    # 针对性简历生成（实验性）
   └── agent/     # 面向智能体的 JSON CLI
 gaj-agent/       # Skill 包（可安装到各智能体）
+landing/         # 公网站点源码（index.html + assets，CI 自动发布到 gh-pages）
+docs/            # 工程/设计文档唯一家（adr/ proposals/ archive/YYYY-MM）
 references/      # 打分规则 / JD 字段 / AI 触发条件
 templates/       # profile.md 模板
 ```

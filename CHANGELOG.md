@@ -10,6 +10,29 @@
 
 ***
 
+## \[v0.7.1] — 落地页 CI 发布 + docs 文档统一归位
+
+> 2026-09-10。工程/文档整理：落地页改为 GitHub Actions 自动发布到 `gh-pages` 分支，与仓库
+> docs 解耦（GitHub Pages 无法直接部署 `landing/`）；工程文档统一归入 `docs/`，消除
+> 「docs 既当发布面又当文档堆、agent 顺手乱塞」的混乱。
+
+### 工程 / 发布
+
+- **落地页部署**：新增 `.github/workflows/deploy-pages.yml`，推 `main` 自动把 `landing/`
+  发布到 `gh-pages` 分支。上线地址 `https://helsonxiao.github.io/get-a-job/`
+  （需在仓库 Settings 一次性启用 Pages：Deploy from a branch → `gh-pages` / root）。
+
+### 文档 / 约定
+
+- **docs/ 唯一工程文档家**：原 `.trae/documents/` 下 ADR、方案、行业观察/UI 改版交接等
+  用 git mv 归入 `docs/{adr,proposals,archive/YYYY-MM}`；新建 `docs/README.md` 立牌。
+- **AGENT.md 增补「文档放哪」红线**：工程文档一律进 `docs/`；`landing/` 只放公网站点源码
+  （CI 自动发布）；`.trae/specs/` 仅放进行中的 spec。防止 agent 往 docs/ 或散落目录乱塞。
+- 修复 README / gaj-web 指向已失效 `docs/index.html` 与 `.trae/documents/` 的死链
+  （CHANGELOG 历史记录不回溯修改）。
+
+***
+
 ## \[v0.7.0] — 采集纪元与快照（同口径多期对比）
 
 > 2026-09-04。新增顶层能力: 同个口径每隔一两个月重新采集时，按「采集纪元」隔离数据。
