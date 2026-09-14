@@ -14,12 +14,15 @@ boss_scraper 是经过验证的老爬虫, 直接复用它的 CDP 采集能力。
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
 from .. import config as cfg
 from ..logging_setup import get_logger
 from ..store import index, repo
+
+from . import progress
 
 log = get_logger("scraper")
 
@@ -63,6 +66,25 @@ def crawl(
     started = time.time()
     result: dict[str, Any] = {}
     incremental_count = 0
+
+    # ---- 0. 互斥锁: 共享一个 CDP Chrome, 并发多开会触发反爬, 拒绝并发采集 ----
+    busy = progress.acquire_lock(list_url)
+    if busy:
+        log.warning(
+            f"已有采集在运行 (pid={busy.get('pid')}), 本次拒绝启动 (crawl_busy)"
+        )
+        return {"error_code": "crawl_busy", "busy": busy, "elapsed": 0.0}
+
+    progress.write_progress(
+        {
+            "phase": "crawl",
+            "url": list_url,
+            "pid": os.getpid(),
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "error": None,
+            "result_summary": None,
+        }
+    )
 
     # ---- 构建最近已采集职位 ID 集合, 翻页时跳过 ----
     if skip_recent_hours is None:
@@ -184,6 +206,13 @@ def crawl(
         # 续翻: 上次因连续重复页停止时的页码, 本次前几页全重复时跳到那里再试
         resume_page = crawl_state.get_last_dup_page(list_url)
 
+        def _forward_progress(evt: dict) -> None:
+            """爬虫进度事件 → 进度文件 (phase 固定为 crawl)。"""
+            evt = dict(evt)
+            evt["phase"] = "crawl"
+            evt["pid"] = os.getpid()
+            progress.write_progress(evt)
+
         crawler = JobCrawler(
             cdp_port=port,
             jobs_dir=tmp_dir,
@@ -198,6 +227,7 @@ def crawl(
             slowdown_cap=cfg.SETTINGS.crawl.slowdown_cap,
             resume_page=resume_page,
             start_page=start_page,
+            on_progress=_forward_progress,
         )
         incremental_ids: set = set()
 
@@ -252,9 +282,20 @@ def crawl(
         log.error(f"采集失败: {exc}")
         result["error"] = f"采集失败: {exc}"
         result["elapsed"] = round(time.time() - started, 1)
+        progress.write_progress({"phase": "error", "error": result["error"]})
+        progress.archive_run(
+            {
+                "url": list_url,
+                "phase": "error",
+                "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "error": result["error"],
+            }
+        )
+        progress.release_lock()
         return result
 
     # ---- 2. 迁移 (migrate 内部会调 reindex) ----
+    progress.write_progress({"phase": "migrate"})
     migrated_reindexed = False
     if auto_migrate:
         try:
@@ -290,6 +331,7 @@ def crawl(
             result["reassign_error"] = str(exc)
 
     # ---- 3. 规则打分 ----
+    progress.write_progress({"phase": "score"})
     if auto_score:
         try:
             from ..core.score_runner import score_all
@@ -307,6 +349,7 @@ def crawl(
             result["score_error"] = str(exc)
 
     # ---- 4. 重建索引 (migrate 没做过才做) ----
+    progress.write_progress({"phase": "reindex"})
     if auto_reindex and not migrated_reindexed:
         try:
             idx = index.reindex()
@@ -318,6 +361,25 @@ def crawl(
 
     result["elapsed"] = round(time.time() - started, 1)
     log.info(f"采集全流程完成, 耗时 {result['elapsed']}s")
+    summary = {
+        "crawl_stats": result.get("crawl_stats"),
+        "incremental": result.get("incremental"),
+        "migrated": result.get("migrated"),
+        "reassigned": result.get("reassigned"),
+        "scored": result.get("scored"),
+        "reindexed": result.get("reindexed"),
+        "elapsed": result.get("elapsed"),
+    }
+    progress.write_progress({"phase": "done", "result_summary": summary})
+    progress.archive_run(
+        {
+            "url": list_url,
+            "phase": "done",
+            "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "result_summary": summary,
+        }
+    )
+    progress.release_lock()
     return result
 
 

@@ -152,6 +152,10 @@ gaj-reporter 可用指定数据包复显历史报告：`--source bundle --bundle
   失败率可能更高，换用后仍失败就停止并通知用户）；
   `crawl_failed` 多为服务端临时拦截，隔几小时再试。
 
+- **冲突类**（`crawl_busy`）：已有采集在运行（共享一个 CDP Chrome，
+  系统强制串行）。不要重试也不要杀进程，用 `crawl-status` 轮询等待其
+  done 后再发起新采集；多口径采集（如无锡/苏州）本就应串行逐个跑。
+
 - **内部类**（`internal` / `index_error`）：通知用户，附 `error.message`。
 
 **同一错误码连续出现两次 = 需要人工介入，通知用户而不是继续重试。**
@@ -160,23 +164,35 @@ gaj-reporter 可用指定数据包复显历史报告：`--source bundle --bundle
 
 系统内部已有全部重试与退出保护，命令不会静默挂起；调用方只需包进程级超时：
 
-- `status` / `jobs` / `job`：预算 30 秒足够。
+- `status` / `jobs` / `job` / `crawl-status`：预算 30 秒足够
+  （`crawl-status --wait` 例外，等多久由参数定，上限 600s）。
 
-- `crawl`：通常几分钟，最坏约 30 分钟。
+- `crawl`：**阻塞时长与采集量成正比，单口径完整采集常见数小时**，前台
+  等待不现实。agent 一律用 `--background`：立即返回 pid/日志/进度文件；
+  大口径再用 `--max-pages 10` 分块（一块约 40-60 分钟），每块 done 后
+  视 `early_stop_reason` 决定是否启动下一块（非 covered 就继续，续翻
+  自动接续）。
+
+- 等待策略：分次 `crawl-status --wait 480`（每次一个 shell 调用，
+  `timed_out=true` 就再调一次），**不要高频空转轮询数小时**；也可以
+  启动后先向用户报告"采集中"，按需再查。进程崩溃/被 kill 时
+  `running=false 且 pid_alive=false`，锁会被下次采集自动接管。
 
 - `daily`：建议预算 **45 分钟**。
 
 超时 kill 后重试是安全的（数据增量落盘，重跑自动跳过已抓职位）。
+多口径采集（如无锡/苏州对比）必须串行逐个跑（锁强制互斥），每个口径
+的最终结果在 `crawl-status` 的 `last_runs` 归档里可追溯。
 
 ## 操作注意
 
 - **控制采集量**：`crawl` 和 `daily` 默认 `--max-pages` 不限，一次会翻到
-  `hasMore=False` 才停（仍有连续 3 页全重复的 `covered` 提前停止兜底），
-  也可用 `--max-pages N` 限制单次页数，建议 `N <= 10`，避免一次采集太多页。系统有续翻机制：记住上次停止的
-  页码（`last_dup_page`），下次前几页全重复时跳到那里再试几页，有新职位
-  就继续，全重复才真停。前面几页全重复又没锚点时，可用 `--start-page N`
-  直接跳到 N 页继续采集。多次运行逐步覆盖全部页面，最新职位优先（前几页），
-  旧职位也不会一直采不到。
+  `hasMore=False` 才停（仍有连续 3 页全重复的 `covered` 提前停止兜底）。
+  **大口径（预计数小时）建议 `--max-pages N`（N ≈ 10）分块跑**：块与块之间
+  有干净检查点，系统有续翻机制记住上次停止的页码，下次前几页全重复时跳到
+  那里再试几页，有新职位就继续，全重复才真停（`early_stop_reason=covered`
+  即已覆盖，无需再跑）。前面几页全重复又没锚点时，可用 `--start-page N`
+  直接跳到 N 页继续采集。
 
 - 分析期间大模型标签页会短暂切到前台、完成后自动切回，属正常行为；
   若用户正在高频使用浏览器，避免在高峰时段排 `daily`。
@@ -190,7 +206,8 @@ gaj-reporter 可用指定数据包复显历史报告：`--source bundle --bundle
 - `ai_failed` 反复出现且 message 含"注入失败/选择器" → 大模型网站改版，
   通知用户检查 `<repo_path>/gaj/browser/llm_driver_deepseek.py`，不要无限重试。
 
-- 采集节奏模拟人工浏览，不要为提速改动节奏逻辑或并发多开 crawl。
+- 采集节奏模拟人工浏览，不要为提速改动节奏逻辑或并发多开 crawl
+  （系统已用 `data/crawl.lock` 强制互斥，并发会得到 `crawl_busy`）。
 
 ## 验证
 

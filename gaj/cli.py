@@ -171,6 +171,17 @@ def main(argv: list[str] | None = None) -> int:
             fetch_company=not args.no_company,
             auto_score=not args.no_score,
         )
+        if out.get("error_code") == "crawl_busy":
+            busy = out.get("busy") or {}
+            print(
+                f"\n❌ 已有采集在运行 (pid={busy.get('pid')}, "
+                f"started_at={busy.get('started_at')}), "
+                "共享一个 CDP Chrome 不允许并发采集。\n"
+                "  可用 `python3 -m gaj agent crawl-status` 查看其进度, "
+                "等它结束后再发起。",
+                file=sys.stderr,
+            )
+            return 1
         if "error" in out:
             print(f"\n❌ {out['error']}", file=sys.stderr)
             return 1

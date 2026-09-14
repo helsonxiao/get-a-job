@@ -17,7 +17,8 @@
     job <ID>                  单个职位全量详情 (JD + 打分)
     analyze --job ID|--auto   AI 分析打分
     analyze --company BRAND_ID  公司级 AI 评价 (图鉴词条, 手动)
-    crawl [--url URL]         增量采集 (自动降速/提前结束)
+    crawl [--url URL]         增量采集 (自动降速/提前结束; --background 后台跑)
+    crawl-status              查询采集进度 (配合 crawl --background 轮询)
     daily [--url URL]         每日编排: 采集 → 挑候选 → AI 分析 → 摘要
 """
 
@@ -265,6 +266,19 @@ def cmd_status(args) -> int:
         "coverage": last_run.get("coverage"),
         "early_stop_reason": last_run.get("early_stop_reason"),
     }
+
+    # 采集进度概要 (crawl --background 的心跳文件, 没有也不影响)
+    try:
+        from ..scraper import progress as _progress
+
+        snap = _progress.snapshot()
+        data["crawl_progress"] = {
+            k: snap.get(k)
+            for k in ("running", "phase", "pid", "current_page",
+                      "elapsed_seconds", "done", "error")
+        }
+    except Exception:
+        pass
     return _ok("status", data)
 
 
@@ -495,6 +509,9 @@ def cmd_crawl(args) -> int:
             "未登录 zhipin.com。请在 CDP Chrome 窗口里登录 BOSS直聘后重试。",
         )
 
+    if args.background:
+        return _spawn_background_crawl(args, url)
+
     out = do_crawl(
         url,
         max_pages=args.max_pages,
@@ -502,9 +519,114 @@ def cmd_crawl(args) -> int:
         fetch_company=not args.no_company,
         auto_score=not args.no_score,
     )
+    if out.get("error_code") == "crawl_busy":
+        busy = out.get("busy") or {}
+        return _err(
+            "crawl", "crawl_busy",
+            f"已有采集在运行 (pid={busy.get('pid')})。"
+            "共享一个 CDP Chrome 不允许并发采集: 用 crawl-status 轮询其进度, "
+            "done 后再发起新采集。",
+            data={"busy": busy},
+        )
     if "error" in out:
         return _err("crawl", "crawl_failed", out["error"], data=out)
     return _ok("crawl", out)
+
+
+def _spawn_background_crawl(args, url: str) -> int:
+    """分离子进程后台采集, 立即返回 pid 与日志/进度文件路径。
+
+    父进程只做预检与锁查询 (快速失败); 权威的锁检查在子进程
+    adapter.crawl() 内部, 竞态时子进程会以 crawl_busy 退出并写日志。
+    """
+    import subprocess
+
+    from .. import config as cfg
+    from ..scraper import progress
+
+    busy = progress.read_lock()
+    if busy and progress.pid_alive(busy.get("pid", 0)):
+        return _err(
+            "crawl", "crawl_busy",
+            f"已有采集在运行 (pid={busy.get('pid')})。"
+            "用 crawl-status 轮询其进度, done 后再发起新采集。",
+            data={"busy": busy},
+        )
+
+    argv = [sys.executable, "-m", "gaj", "agent", "crawl", "--url", url]
+    if args.max_pages is not None:
+        argv += ["--max-pages", str(args.max_pages)]
+    if args.start_page:
+        argv += ["--start-page", str(args.start_page)]
+    if args.no_company:
+        argv.append("--no-company")
+    if args.no_score:
+        argv.append("--no-score")
+
+    # 大口径采集常达数小时, macOS 默认几十分钟就休眠, 会直接中断采集;
+    # caffeinate -is 阻止系统空闲休眠 (屏幕仍可熄灭), 非 macOS 自然回退
+    import shutil
+
+    keep_awake = bool(shutil.which("caffeinate"))
+    if keep_awake:
+        argv = ["caffeinate", "-is"] + argv
+
+    log_file = cfg.LOGS_DIR / f"crawl-bg-{time.strftime('%Y%m%dT%H%M%S')}.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_file, "w", encoding="utf-8") as lf:
+        proc = subprocess.Popen(
+            argv,
+            cwd=str(cfg.PROJECT_ROOT),
+            stdin=subprocess.DEVNULL,
+            stdout=lf,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    return _ok(
+        "crawl",
+        {
+            "background": True,
+            "pid": proc.pid,
+            "url": url,
+            "log_file": str(log_file),
+            "progress_file": str(progress.PROGRESS_PATH),
+            "poll": "python3 -m gaj agent crawl-status",
+            "keep_awake": keep_awake,
+            "note": "子进程已分离, 调用方退出不影响采集; "
+                    "进度文件在采集启动时会覆盖上一次的结果, "
+                    "历史结果看 crawl-status 的 last_runs",
+        },
+    )
+
+
+def cmd_crawl_status(args) -> int:
+    """查询采集进度 (配合 crawl --background 使用)。
+
+    --wait SECONDS: 有界阻塞等待采集结束 (上限 600s, 建议 ≤ 540 以内嵌
+    agent shell 的 10 分钟超时)。数小时的大采集用分次 --wait 代替高频轮询。
+    """
+    from ..scraper import progress
+
+    timeout = max(0, min(int(getattr(args, "wait", 0) or 0), 600))
+    snap = progress.snapshot()
+    if timeout > 0:
+        deadline = time.time() + timeout
+        saw_running = bool(snap.get("running"))
+        while not snap.get("done") and time.time() < deadline:
+            # 见过运行中之后, 若进程已死/锁已释放, 再等也不会有结果
+            if saw_running and not snap.get("running") and not snap.get("pid_alive"):
+                break
+            time.sleep(min(3.0, max(0.1, deadline - time.time())))
+            snap = progress.snapshot()
+            saw_running = saw_running or bool(snap.get("running"))
+        elapsed = round(timeout - max(0.0, deadline - time.time()), 1)
+        snap = dict(snap)
+        snap["wait"] = {
+            "requested": timeout,
+            "elapsed": elapsed,
+            "timed_out": not snap.get("done") and elapsed >= timeout,
+        }
+    return _ok("crawl-status", snap)
 
 
 # ---------------------------------------------------------------- daily
@@ -668,7 +790,13 @@ def cmd_daily(args) -> int:
             auto_score=True,
         )
         new_ids = sorted(repo.all_job_ids() - before)
-        if "error" in out:
+        if out.get("error_code") == "crawl_busy":
+            busy = out.get("busy") or {}
+            warnings.append(
+                f"已有采集在运行 (pid={busy.get('pid')}), 本次跳过采集 "
+                "(只分析存量职位), 可用 crawl-status 查看其进度"
+            )
+        elif "error" in out:
             warnings.append(f"采集失败: {out['error']}")
         else:
             crawl_data = out
@@ -726,6 +854,7 @@ _HANDLERS = {
     "job": cmd_job,
     "analyze": cmd_analyze,
     "crawl": cmd_crawl,
+    "crawl-status": cmd_crawl_status,
     "daily": cmd_daily,
 }
 
@@ -774,6 +903,19 @@ def main(argv: list[str] | None = None) -> int:
            前面几页全重复又没锚点时, 可用 --start-page N 直接跳到 N 页继续采集。
            返回 crawl_stats(含 last_dup_page/resume_used) + migrated + scored。
            首次需 --url 提供 BOSS 筛选页 URL，之后记住可省略。
+           --background: 分离子进程后台采集, 立即返回 pid/日志/进度文件路径,
+           用 crawl-status 轮询(长采集推荐, 避免阻塞调用方)。同一时刻只允许
+           一个采集在跑(共享 CDP Chrome), 撞锁报 crawl_busy。
+
+  crawl-status
+           查询采集进度(配合 crawl --background)。返回 running/phase
+           (crawl→migrate→score→reindex→done|error)/current_page/stats/
+           elapsed_seconds/done/error/result_summary/last_runs(最近5次
+           运行的结果归档)。--wait SECONDS 有界阻塞等待结束(上限600)，
+           数小时的大采集用分次 --wait 代替高频轮询。done 后进度文件
+           保留最终结果, 下次采集启动时才覆盖(归档不丢); error 时先看
+           日志再决定重试。进程被 kill 也能正确显示 running=false
+           (锁按 pid 存活判定)。
 
   daily    每日编排: 采集→AI分析→摘要，一条命令完成日常流程。
            始终产出 digest_markdown，局部失败不阻断(warnings 里可见)。
@@ -782,9 +924,11 @@ def main(argv: list[str] | None = None) -> int:
            warnings/digest_markdown。
 
 错误码: usage/chrome_not_ready/not_logged_in/no_crawl_url/job_not_found/
-       crawl_failed/ai_failed/timeout/index_error/internal
+       crawl_busy/crawl_failed/ai_failed/timeout/index_error/internal
 退出码: 0=成功 1=失败 2=参数错误
-超时预算: status/jobs/job 30s, crawl 最坏 30min, daily 建议 45min
+超时预算: status/jobs/job/crawl-status 30s (--wait 例外, 等多久由参数定);
+       crawl 前台阻塞与采集量成正比, 完整口径可达数小时 —— agent 一律
+       建议 --background 并用 --max-pages 分块; daily 建议 45min
 """,
     )
     sub = ap.add_subparsers(dest="command", required=True)
@@ -839,6 +983,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="从第 N 页开始采集 (0=自动/第1页; 前面几页全重复时可直接跳到后面)")
     p.add_argument("--no-company", action="store_true", help="不抓公司详情页")
     p.add_argument("--no-score", action="store_true", help="不自动规则打分")
+    p.add_argument("--background", action="store_true",
+                   help="后台分离子进程采集, 立即返回 pid/日志/进度文件; 用 crawl-status 轮询")
+
+    p = sub.add_parser("crawl-status", help="查询采集进度 (配合 crawl --background 使用)")
+    p.add_argument("--wait", type=int, default=0, metavar="SECONDS",
+                   help="有界阻塞等待采集结束, 0=立即返回 (上限 600, 建议 ≤ 540)")
 
     p = sub.add_parser("daily", help="每日编排: 采集→AI分析→摘要 (定时任务首选)")
     p.add_argument("--url", default="", help="BOSS 列表页 URL (缺省用上次记住的)")

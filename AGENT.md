@@ -195,7 +195,8 @@ python3 -m gaj snapshot diff --scope-link "https://www.zhipin.com/..." \
 | 命令                          | 上界来源                                                            | 量级              |
 | --------------------------- | --------------------------------------------------------------- | --------------- |
 | `status` / `jobs` / `job`   | 纯本地读索引/文件                                                       | 秒级              |
-| `crawl`                     | `--max-pages`（默认无上限，建议按需设置，如：10）+ 连续重复页提前结束；单次 CDP 通信超时 30s，列表 API 每次重试 3 次 | 通常几分钟，最坏约 30 分钟 |
+| `crawl`                     | 阻塞时长与采集量成正比（人工模拟节奏 4-11s/页 + 逐职位抓详情），单口径完整采集常见**数小时**；`--max-pages` 可分块，连续重复页提前结束；单次 CDP 通信超时 30s，列表 API 每次重试 3 次 | **agent 一律用 `--background` + 分块，不要前台等待** |
+| `crawl-status`              | 纯本地读进度文件（`--wait` 例外，等多久由参数定，上限 600s）    | 秒级            |
 | `analyze` / `daily` 的 AI 部分 | 每个职位生成超时 300s（超时即返回，不阻塞）；daily 默认只分析 3 个                        | 每职位 ≤ 5-6 分钟    |
 
 进程被外部强制终止是安全的：数据逐个职位增量落盘，重跑不会重复抓取
@@ -238,6 +239,57 @@ python3 -m gaj snapshot diff --scope-link "https://www.zhipin.com/..." \
 
 你也可以调大 `--max-pages` 或换筛选条件更窄的 URL 减少重复率。
 
+### 长采集的后台运行（agent 推荐方式）
+
+`crawl` 阻塞时长与采集量成正比：单口径完整采集（翻到 hasMore=False）常见
+**数小时**，前台跑会占死终端、也超出多数 agent shell 工具的超时预算。
+正确姿势是 **后台运行 + 分块采集 + 有界等待**：
+
+```bash
+# 1. 后台启动（子进程自动 caffeinate 防 macOS 休眠）: 立即返回 pid/日志/进度文件
+python3 -m gaj agent crawl --url "<BOSS列表页URL>" --max-pages 10 --background
+
+# 2. 有界等待: 每次调用最多阻塞 480s，done=true 则结束，否则 timed_out=true
+#    数小时的采集就分次调用 --wait（每次一个 shell 调用），不要高频空转轮询，
+#    也可以不等——先向用户报告"采集中"，之后按需来查
+python3 -m gaj agent crawl-status --wait 480
+
+# 3. done 后读 result_summary（本次 crawl_stats/migrated/scored）；
+#    覆盖了也不怕，last_runs 里保留最近 5 次运行的结果归档
+python3 -m gaj agent crawl-status
+```
+
+**分块采集**：大口径用 `--max-pages 10` 一块一块跑（一块约 40-60 分钟），
+每块结束记录续翻锚点，下一块自动从未覆盖处接续（重复页自动跳过），
+直到 `early_stop_reason=covered`（搜索结果已覆盖）。相比一次跑几小时，
+分块有干净的检查点：随时可停、随时可查、中断只损失当前块。
+
+**多口径串行采集示例**（如无锡 + 苏州对比）：
+
+```bash
+python3 -m gaj agent crawl --url "<无锡列表页URL>" --max-pages 10 --background
+# 分次 crawl-status --wait 480 直到 done，必要时再启动下一块
+python3 -m gaj agent crawl --url "<苏州列表页URL>" --max-pages 10 --background
+# 同上，直到 covered
+# 两个口径都采完后, 分别 report-bundle 固化快照, 再 snapshot diff 对比
+```
+
+机制说明：
+
+* **互斥锁**（`data/crawl.lock`，按 pid 存活判定）：同一时刻只允许一个采集，
+  防止并发多开触发反爬。撞锁报 `crawl_busy`，等待运行中的采集结束即可。
+  崩溃残留的锁会被下次采集自动接管，无需手动清理。
+* **进度心跳**（`data/crawl_progress.json`）：采集过程中逐页/逐职位原子落盘，
+  `status` 命令也附带 `crawl_progress` 概要。`kill -9` 也能被正确识别为
+  running=false（锁按 pid 判活），数据已增量落盘，重跑安全。
+* **结果归档**：每次 done/error 的结果进 `last_runs`（最近 5 次），多口径
+  串行时下一次采集启动不会覆盖上一个口径的最终结果。
+* **分离子进程**：`--background` 用 `start_new_session` 启动，调用方（agent
+  会话/终端）退出不影响采集；子进程 stdout/err 重定向到
+  `logs/crawl-bg-<时间戳>.log`，并套 `caffeinate -is` 阻止 macOS 休眠
+  （数小时采集不加这个，合盖/空闲休眠必中断）。手动前台跑长时间采集时，
+  建议自己包一层 `caffeinate -is python3 -m gaj ...`。
+
 ## 注意事项
 
 * AI 分析依赖**可见的** Chrome（网页版大模型需要登录态，无头模式不行）。
@@ -247,10 +299,12 @@ python3 -m gaj snapshot diff --scope-link "https://www.zhipin.com/..." \
   `AIConfig.tab_mode` 改为 `"background"`（代价是后台节流时靠看门狗救援，
   响应可能更慢）。
 
-* 采集节奏模拟人工浏览，不要为提速改动节奏逻辑或并发多开 crawl。
+* 采集节奏模拟人工浏览，不要为提速改动节奏逻辑或并发多开 crawl
+  （系统已用 `data/crawl.lock` 强制互斥，并发会得到 `crawl_busy`）。
 
 * 数据都在 `data/` 下（已被 gitignore），`data/crawl_state.json` 记录
-  采集覆盖率状态，删除无害。
+  采集覆盖率状态，`crawl_progress.json` / `crawl.lock` 是采集运行时状态
+  （进度心跳 / 互斥锁），都是纯派生数据，删除无害。
 
 * 选择器可能随大模型网站改版失效；`analyze` 连续失败且报"输入框注入失败"
   之类错误时，提示用户检查 `gaj/browser/llm_driver_deepseek.py` 的选择器。

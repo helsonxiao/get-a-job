@@ -10,6 +10,40 @@
 
 ***
 
+## \[v0.9.0] — 采集 agent 友好化：后台运行 + 进度心跳 + 互斥锁
+
+> 2026-09-14。单口径完整采集常达数小时，此前前台同步阻塞跑不动也看不到进度。
+> 现在 agent 可以后台启动采集、有界等待、低成本轮询进度，并用互斥锁强制串行
+> 防并发触发反爬。采集节奏本身未改动（反爬红线）。
+
+### 新增
+
+- **`gaj agent crawl --background`**：预检通过后分离子进程后台采集，立即返回
+  pid/日志/进度文件路径；`start_new_session` 保证调用方退出不影响采集，
+  并自动套 `caffeinate -is` 阻止 macOS 休眠中断数小时采集。
+- **`gaj agent crawl-status`**：读取 `data/crawl_progress.json` 心跳文件，
+  返回 running/phase（crawl→migrate→score→reindex→done|error）/current_page/
+  实时统计/elapsed；`--wait SECONDS`（上限 600）有界阻塞等待，数小时采集
+  分次等待代替高频轮询，进程崩溃也能按 pid 判活正确显示。
+- **进度心跳落盘**：`boss_scraper` 爬虫新增 `on_progress` 回调，采集过程中
+  逐页/逐职位原子写入进度文件；`status` 命令附带 `crawl_progress` 概要。
+- **结果归档 `last_runs`**：每次 done/error 的结果进历史环（最近 5 次），
+  多口径串行采集（如无锡/苏州对比）时下一轮启动不会覆盖上一轮的最终结果。
+- **采集互斥锁**（`data/crawl.lock`，O_CREAT|O_EXCL + pid 判活）：同一时刻
+  只允许一个采集，撞锁报新错误码 `crawl_busy`；崩溃残留的 stale 锁自动接管。
+
+### 变更
+
+- **文档修正**：AGENT.md/SKILL.md 修正「最坏约 30 分钟」过时估算为
+  「单口径完整采集常见数小时」，新增「长采集的后台运行」小节，推荐
+  `--background` + `--max-pages` 分块（块间自动续翻接续，直到 covered）+
+  `crawl-status --wait` 有界等待的标准流程，含无锡/苏州串行对比示例。
+- **daily 降级**：daily 内置采集撞锁时降级为 warning（跳过采集只分析存量），
+  不再破坏编排在其他环节的产出。
+- 老 CLI `gaj crawl` 撞锁时输出友好提示而非裸错误。
+
+***
+
 ## \[v0.8.0] — OpenAI 兼容 API 打分 + 简历内容质量方法论 (#2)
 
 > 2026-09-10。可选走 OpenAI 兼容 API 打分（不再依赖 Chrome CDP/登录态），
