@@ -106,7 +106,7 @@ def _walk_keys(obj):
 
 def test_bundle_top_level_contract(conn):
     bundle = reportbundle.build_report_bundle(conn)
-    assert bundle["schema_version"] == "3.0"
+    assert bundle["schema_version"] == "3.1"
     assert set(bundle) >= {
         "schema_version", "generated_at", "data_fingerprint",
         "meta", "quality", "market", "focus",
@@ -352,7 +352,7 @@ def test_v22_board_pool_sizes(conn):
         _insert_job(conn, f"jx{i:02d}", f"cx{i:02d}", f"池公司{i:02d}", "无锡", "计算机软件", 20 + i % 10, 3)
     conn.commit()
     bundle = reportbundle.build_report_bundle(conn)
-    assert bundle["schema_version"] == "3.0"
+    assert bundle["schema_version"] == "3.1"
     assert len(bundle["market"]["company_boards"]["hiring"]) <= 30
     assert len(bundle["market"]["company_boards"]["hiring"]) > 10, "池应超过旧版 top10"
     assert len(bundle["market"]["skill_leaderboard"]["items"]) <= 30
@@ -373,7 +373,7 @@ def test_scope_link_isolation(conn):
                  "WHERE company_id = 'c4'")
     conn.commit()
     all_bundle = reportbundle.build_report_bundle(conn)
-    assert all_bundle["schema_version"] == "3.0"
+    assert all_bundle["schema_version"] == "3.1"
     assert all_bundle["meta"]["job_count"] == 16
 
     scope_a = reportbundle.build_report_bundle(conn, scope_link="https://example.com/list?city=1")
@@ -411,6 +411,76 @@ def test_scope_rename_and_label(conn):
     conn.commit()
     b = reportbundle.build_report_bundle(conn, scope_link=link)
     assert b["meta"]["scope"]["scope_label"] == "无锡-后端-双休"
+
+
+def test_snapshot_bundle_freezes_member_set(conn):
+    """v3.1 按快照出报告: 影子换成 snapshot_members, 快照后新采集岗位不混入;
+    读快照不再顺手固化新快照; 指纹与口径包不同。"""
+    from gaj.store import observatory_snapshot as obsnap
+
+    link = "https://example.com/list?city=1"
+    conn.execute("UPDATE jobs SET source_link = ? WHERE company_id IN ('c1','c2')", (link,))
+    conn.commit()
+
+    b_scope = reportbundle.build_report_bundle(conn, scope_link=link)
+    n_scope = b_scope["meta"]["scope"]["job_count"]
+    assert n_scope == 8
+    snaps = obsnap.list_snapshots(conn, link)
+    assert len(snaps) == 1, "带 scope 导出顺手固化一份快照"
+    snap_id = snaps[0]["snapshot_id"]
+
+    # 快照后新采集: 再补 1 个同口径岗位 (全量口径会混入)
+    _insert_job(conn, "j60", "c1", "甲公司一", "无锡", "计算机软件", 21, 3)
+    conn.execute("UPDATE jobs SET source_link = ? WHERE job_id = 'j60'", (link,))
+    conn.commit()
+
+    b_snap = reportbundle.build_report_bundle(conn, snapshot_ref=snap_id)
+    assert b_snap["schema_version"] == "3.1"
+    assert b_snap["meta"]["job_count"] == n_scope, "快照成员集冻结, 新采集岗位不混入"
+    snap_block = b_snap["meta"]["snapshot"]
+    assert snap_block["snapshot_id"] == snap_id
+    assert snap_block["source_link"] == link
+    assert snap_block["snapshot_job_count"] == n_scope
+    assert snap_block["member_count"] == n_scope
+    assert snap_block["missing_members"] == 0
+    assert b_snap["meta"]["scope"]["scope_link"] == link, "未给口径时自动采用快照口径"
+    assert b_snap["data_fingerprint"] != b_scope["data_fingerprint"]
+    # 读快照不再固化新快照
+    assert len(obsnap.list_snapshots(conn, link)) == 1
+
+    # 对照: 全量口径会计入新岗位
+    b_full = reportbundle.build_report_bundle(conn, scope_link=link)
+    assert b_full["meta"]["scope"]["job_count"] == n_scope + 1
+
+
+def test_snapshot_ref_resolution_errors(conn):
+    """引用解析: snapshot_id 全局可查; period 引用须带口径; 口径不一致 / 不存在即报错。"""
+    from gaj.store import observatory_snapshot as obsnap
+
+    link = "https://example.com/list?city=1"
+    conn.execute("UPDATE jobs SET source_link = ? WHERE company_id = 'c1'", (link,))
+    conn.commit()
+    reportbundle.build_report_bundle(conn, scope_link=link)
+    snap_id = obsnap.list_snapshots(conn, link)[0]["snapshot_id"]
+
+    # snapshot_id 引用无需口径
+    b = reportbundle.build_report_bundle(conn, snapshot_ref=snap_id)
+    assert b["meta"]["snapshot"]["snapshot_id"] == snap_id
+    # period_month 引用 + 口径 → 该口径最新一份
+    b2 = reportbundle.build_report_bundle(
+        conn, snapshot_ref=b["meta"]["snapshot"]["period_month"], scope_link=link)
+    assert b2["meta"]["snapshot"]["snapshot_id"] == snap_id
+    # 不存在
+    with pytest.raises(reportbundle.SnapshotRefError):
+        reportbundle.build_report_bundle(conn, snapshot_ref="nope")
+    # period 引用未带口径
+    with pytest.raises(reportbundle.SnapshotRefError):
+        reportbundle.build_report_bundle(
+            conn, snapshot_ref=b["meta"]["snapshot"]["period_month"])
+    # 口径不一致
+    with pytest.raises(reportbundle.SnapshotRefError):
+        reportbundle.build_report_bundle(conn, snapshot_ref=snap_id,
+                                         scope_link="https://other")
 
 
 def test_rescrape_same_job_no_duplicate(conn, isolated_repo):

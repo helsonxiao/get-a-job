@@ -43,6 +43,16 @@ v2.3 (2026-08-30, 来源口径隔离):
 - meta 新增 scope 块: {scope_link, scope_label, job_count, total_job_count,
   unscoped_job_count} —— 未分口径 (无 source_link) 的历史数据在此显式报数,
   指定口径后绝不混入其它口径。
+
+v3.1 (2026-09-15, 按快照出报告):
+- build_report_bundle 新增 snapshot_ref 参数: 指定后影子来源从「scope 全量」
+  换成「该快照的 snapshot_members 成员集」(join 回 main.jobs 取全字段),
+  聚合链路复用 —— 报告/图卡与快照口径 (如 苏州 256/305) 不再漂移。
+- ref 支持 snapshot_id (全局精确), 或 period_month / period_quarter
+  (须同时给 scope_link, 取该口径最新一份)。
+- meta 新增 snapshot 块; fingerprint 掺入 snapshot_id (不同快照必不同指纹);
+  指定 snapshot 时跳过「出报告顺手 capture_snapshot」副作用, 避免读快照又生成快照。
+- 成员行在 main.jobs 已被删除时显式报数 (meta.snapshot.missing_members)。
 """
 
 from __future__ import annotations
@@ -58,7 +68,7 @@ from .. import config as cfg
 from ..logging_setup import get_logger
 from . import observatory
 
-SCHEMA_VERSION = "3.0"
+SCHEMA_VERSION = "3.1"
 
 #: 榜单池默认容量 (v2.2): bundle 输出足够大的候选池, 由生成器按样本量自适应切片。
 #: 只增不改, 旧生成器兼容 (多出来的行会被旧生成器全量渲染或自行截断)。
@@ -163,7 +173,8 @@ def _crawl_meta(conn: sqlite3.Connection) -> dict:
 def _fingerprint(meta: dict) -> str:
     """数据版本指纹: 同一批数据两次打包指纹一致 (不含生成时间)。
 
-    指定口径时掺入口径链接哈希 —— 不同口径的指纹必然不同。
+    指定口径时掺入口径链接哈希 —— 不同口径的指纹必然不同;
+    指定快照时掺入快照 id —— 同口径不同快照的指纹必然不同。
     """
     w = meta["window"]
     raw = "|".join([
@@ -175,6 +186,9 @@ def _fingerprint(meta: dict) -> str:
     scope = (meta.get("scope") or {}).get("scope_link") or ""
     if scope:
         raw += "|scope:" + scope
+    snap_id = (meta.get("snapshot") or {}).get("snapshot_id") or ""
+    if snap_id:
+        raw += "|snap:" + snap_id
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -827,7 +841,8 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = DEFAULT_
                         board_size: int = DEFAULT_BOARD_SIZE,
                         skill_size: int = DEFAULT_SKILL_SIZE,
                         scope_link: str | None = None,
-                        include_ignored: bool = True) -> dict:
+                        include_ignored: bool = True,
+                        snapshot_ref: str | None = None) -> dict:
     """打包报告数据契约。
 
     top_industries: 行业对比表候选池容量 (按岗位数降序, 与观察台口径一致)。
@@ -836,14 +851,30 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = DEFAULT_
     scope_link: 来源筛选链接 (口径隔离)。指定后全部聚合只统计该链接的岗位:
       实现 = temp 表影子 (temp.jobs 覆盖同名表, 聚合代码零改动),
       finally 中拆除影子; 口径注册进 source_links 表并写入 meta.scope。
+    snapshot_ref: 历史快照引用 (v3.1)。snapshot_id, 或 period_month /
+      period_quarter (须同时给 scope_link, 取该口径最新一份)。指定后影子来源
+      从「scope 全量」换成「该快照的 snapshot_members 成员集」—— 岗位集合被
+      冻结在采集快照时点, 图卡与快照口径不再漂移; 且跳过 capture_snapshot
+      副作用 (读快照不再生成新快照)。scope_link 未给时自动采用快照自身口径。
     """
+    # 快照解析放在影子创建前 (失败即抛, 不产出半成品)
+    snapshot = _resolve_snapshot(conn, snapshot_ref, scope_link) if snapshot_ref else None
+    if snapshot and not scope_link:
+        scope_link = snapshot["source_link"]
     scoped = bool(scope_link)
     # v2.3a: 统一走影子 —— 影子表把 ignored 列清零, 使聚合的 _VISIBLE
     # (ignored=0) 在「含已忽略」模式下放行全部行; 口径过滤同层完成。
     # 统计要在影子创建前完成 (影子内 ignored 恒 0, 统计不出真实忽略数)。
     conn.execute("DROP TABLE IF EXISTS temp.jobs")
     where, params = [], []
-    if scope_link:
+    if snapshot is not None:
+        # 快照模式: 成员集即冻结岗位集 (capture 时只存可见岗位)。
+        # join 回 main.jobs 取全字段供聚合; 已删岗位在 meta.snapshot 报数。
+        where.append(
+            "job_id IN (SELECT job_id FROM snapshot_members WHERE snapshot_id = ?)"
+        )
+        params.append(snapshot["snapshot_id"])
+    elif scope_link:
         where.append("source_link = ?")
         params.append(scope_link)
         conn.execute(
@@ -873,9 +904,11 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = DEFAULT_
         bundle = _build_scoped(conn, top_industries, board_size, skill_size,
                                scope_link if scoped else None,
                                include_ignored=include_ignored,
-                               ignored_in_scope=ignored_in_scope)
+                               ignored_in_scope=ignored_in_scope,
+                               snapshot=snapshot)
         # ---- 快照副作用: 仅带 scope 的导出固化为当前纪元的不可变快照并推进纪元 ----
-        if scope_link:
+        # 按快照出报告时跳过: 读快照再固化快照 = 无意义递归
+        if scope_link and snapshot is None:
             try:
                 from .observatory_snapshot import capture_snapshot
 
@@ -890,10 +923,44 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = DEFAULT_
         conn.execute("DROP TABLE IF EXISTS temp.jobs")
 
 
+class SnapshotRefError(ValueError):
+    """快照引用无法解析 (不存在 / period 引用未给口径 / 口径不一致)。"""
+
+
+def _resolve_snapshot(conn: sqlite3.Connection, ref: str,
+                      scope_link: str | None) -> dict:
+    """解析快照引用: snapshot_id 全局精确; period 引用须带口径 (取最新一份)。"""
+    ref = (ref or "").strip()
+    if not ref:
+        raise SnapshotRefError("快照引用为空")
+    row = conn.execute(
+        "SELECT * FROM observatory_snapshots WHERE snapshot_id = ? LIMIT 1",
+        (ref,),
+    ).fetchone()
+    if row:
+        snap = dict(row)
+        if scope_link and snap["source_link"] != scope_link:
+            raise SnapshotRefError(
+                f"快照 {ref} 属于口径 {snap['source_link']!r}, 与 --scope-link 不一致"
+            )
+        return snap
+    if not scope_link:
+        raise SnapshotRefError(
+            f"未找到快照 {ref!r}: 按 period_month / period_quarter 引用须同时提供 --scope-link"
+        )
+    from .observatory_snapshot import get_snapshot
+
+    snap = get_snapshot(conn, scope_link, ref)
+    if not snap:
+        raise SnapshotRefError(f"未找到快照 {ref!r} (口径={scope_link!r})")
+    return snap
+
+
 def _build_scoped(conn: sqlite3.Connection, top_industries: int,
                   board_size: int, skill_size: int,
                   scope_link: str | None, include_ignored: bool = True,
-                  ignored_in_scope: int = 0) -> dict:
+                  ignored_in_scope: int = 0,
+                  snapshot: dict | None = None) -> dict:
     with_pricing = observatory.observatory_salary_pricing(conn)
     industry_list_full = observatory.observatory_industry_list(conn)
 
@@ -955,6 +1022,23 @@ def _build_scoped(conn: sqlite3.Connection, top_industries: int,
     }
 
     meta = _crawl_meta(conn)
+    if snapshot is not None:
+        member_count = conn.execute(
+            "SELECT COUNT(*) FROM snapshot_members WHERE snapshot_id = ?",
+            (snapshot["snapshot_id"],),
+        ).fetchone()[0]
+        meta["snapshot"] = {
+            "snapshot_id": snapshot["snapshot_id"],
+            "source_link": snapshot["source_link"],
+            "epoch_id": snapshot["epoch_id"],
+            "captured_at": snapshot["captured_at"],
+            "period_month": snapshot["period_month"],
+            "period_quarter": snapshot["period_quarter"],
+            "snapshot_job_count": snapshot["job_count"],
+            "snapshot_company_count": snapshot["company_count"],
+            "member_count": member_count,
+            "missing_members": member_count - meta["job_count"],
+        }
     if scope_link:
         meta["scope"] = _scope_meta(conn, scope_link)
         meta["scope"]["ignored_included"] = ignored_in_scope

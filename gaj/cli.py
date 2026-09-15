@@ -111,6 +111,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="行业对比候选池容量 (schema 2.2 默认 12, 生成器按样本量自适应切片)")
     p.add_argument("--scope-link", default=None,
                    help="来源筛选链接 (口径隔离): 指定后全部聚合只统计该链接采集的岗位")
+    p.add_argument("--snapshot", default=None,
+                   help="历史快照引用 (按快照出报告): snapshot_id, 或 period_month / "
+                        "period_quarter (须同时给 --scope-link); 影子换成快照成员集, "
+                        "且不再顺手固化新快照")
     p.add_argument("--exclude-ignored", action="store_true",
                    help="排除已忽略岗位 (默认包含: 市场报告应体现全市场, 个人忽略不影响统计)")
 
@@ -284,10 +288,15 @@ def main(argv: list[str] | None = None) -> int:
         from .store import index, reportbundle
 
         with index.session() as conn:
-            bundle = reportbundle.build_report_bundle(
-                conn, top_industries=args.top_industries, scope_link=args.scope_link,
-                include_ignored=not args.exclude_ignored,
-            )
+            try:
+                bundle = reportbundle.build_report_bundle(
+                    conn, top_industries=args.top_industries, scope_link=args.scope_link,
+                    include_ignored=not args.exclude_ignored,
+                    snapshot_ref=args.snapshot,
+                )
+            except reportbundle.SnapshotRefError as exc:
+                print(f"✗ {exc}", file=sys.stderr)
+                return 2
         print(json.dumps(bundle, ensure_ascii=False, indent=2 if args.pretty else None))
         return 0
 
