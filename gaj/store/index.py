@@ -171,6 +171,32 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
+def _cold_backup(conn: sqlite3.Connection, tag: str) -> Path | None:
+    """schema 升级前的一次性冷备 (sqlite backup API, WAL 模式安全)。
+
+    备份到数据库同目录 backups/ 下, 带时间戳与标签; 失败只告警不阻塞迁移。
+    """
+    try:
+        db_file = next(
+            r[2] for r in conn.execute("PRAGMA database_list").fetchall()
+            if r[1] == "main" and r[2]
+        )
+        backup_dir = Path(db_file).parent / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = backup_dir / (
+            f"{Path(db_file).stem}-{time.strftime('%Y%m%d-%H%M%S')}-{tag}.db"
+        )
+        dest = sqlite3.connect(dest_path)
+        try:
+            conn.backup(dest)
+        finally:
+            dest.close()
+        return dest_path
+    except Exception as exc:
+        log.warning(f"迁移前冷备失败 (不阻塞迁移, 继续升级): {exc}")
+        return None
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """轻量 schema 迁移: 给老库补新列和新索引。"""
     cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)").fetchall()}
@@ -271,6 +297,44 @@ def _migrate(conn: sqlite3.Connection) -> None:
            )"""
     )
 
+    # 岗位×口径多对多成员表 (口径多归属改造, 只增不减): 一个岗位可同时是多个
+    # 口径的成员; jobs.source_link 冻结为首次归属, 不再承担成员关系职责。
+    # 老库首次升级时自动冷备一次再迁移 (用户采集数据来之不易, 迁移必须可回退),
+    # 并在日志中显式报数 —— 所有入口 (web/CLI/agent/采集) 都经 connect(),
+    # 升级对使用者透明、无需手工操作。
+    had_scope_members = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'scope_members'"
+    ).fetchone() is not None
+    if not had_scope_members:
+        conn.commit()  # 落定此前的 schema 步骤, 保证冷备是完整一致快照
+        backup_path = _cold_backup(conn, "pre-scope-members")
+        if backup_path:
+            log.info(f"口径多归属升级前已自动冷备: {backup_path}")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS scope_members (
+               source_link   TEXT NOT NULL,
+               job_id        TEXT NOT NULL,
+               first_seen_at TEXT NOT NULL DEFAULT '',
+               last_epoch_id TEXT NOT NULL DEFAULT '',
+               PRIMARY KEY (source_link, job_id)
+           )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scope_members_job ON scope_members(job_id)"
+    )
+    # 存量回填: DB 内有 source_link 的岗位各展开为一条成员行 (幂等, 重复迁移
+    # 不报错; INSERT OR IGNORE 不产生重复行、不覆盖已有 last_epoch_id)。
+    backfilled = conn.execute(
+        "INSERT OR IGNORE INTO scope_members (source_link, job_id, first_seen_at, last_epoch_id)"
+        " SELECT source_link, job_id, COALESCE(first_seen, ''), COALESCE(collection_epoch, '')"
+        " FROM main.jobs WHERE source_link IS NOT NULL AND source_link != ''"
+    ).rowcount
+    if not had_scope_members:
+        log.info(
+            f"口径多归属自动迁移完成: scope_members 回填 {max(backfilled, 0)} 行"
+            " (实时口径统计不受影响, 各口径岗位数与升级前一致)"
+        )
+
     score_cols = {r[1] for r in conn.execute("PRAGMA table_info(scores)").fetchall()}
     if "context_fp" not in score_cols:
         conn.execute("ALTER TABLE scores ADD COLUMN context_fp TEXT")
@@ -288,33 +352,63 @@ def _migrate(conn: sqlite3.Connection) -> None:
 CURRENT_SCOPE: "contextvars.ContextVar[str]" = contextvars.ContextVar("gaj_current_scope", default="")
 
 
-def touch_job_source_link(job_id: str, source_link: str) -> bool:
-    """增量口径重归属的 DB 侧直更 (独立连接, 立即可见; 文件侧走 repo.update_source_link)。
+def upsert_scope_member(job_id: str, source_link: str) -> bool:
+    """成员关系只增登记: 岗位在某口径 sighting 时调用 (独立连接, 立即提交)。
 
-    同时把岗位打到该口径当前活跃纪元 (collection_epoch), 使本次筛选列表出现的历史岗位
-    实时计入当前纪元, 参与未来快照的成员统计。
+    - 成员行不存在则插入 (first_seen_at=now, last_epoch_id=该口径活跃纪元);
+      已存在则仅更新本口径的 last_epoch_id (其他口径成员行不受影响)。
+    - jobs.source_link 冻结为首次归属: 仅在该岗位 source_link 为空时补写
+      (历史无口径数据的首归), 不改写已有值; collection_epoch 维持
+      「最后 sighting 纪元」语义继续更新。
+    - 函数内不写文件 (文件侧由调用方配合 repo 完成); 返回 False = 岗位不存在。
     """
     from . import observatory_snapshot as obsnap
     from datetime import datetime, timezone
 
     conn = connect()
     try:
+        now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         epoch_id = obsnap.ensure_active_epoch(conn, source_link)
         # 归属到某口径时同步登记注册表 (幂等), 保证即使该口径本次没抓新岗位
         # (全是列表页命中的历史岗位) 也会在 UI 中可见。
         conn.execute(
             "INSERT OR IGNORE INTO main.source_links (link, label, created_at)"
             " VALUES (?, '', ?)",
-            (source_link, datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")),
+            (source_link, now),
         )
-        cur = conn.execute(
-            "UPDATE jobs SET source_link = ?, collection_epoch = ? WHERE job_id = ?",
-            (source_link, epoch_id, job_id),
+        # 成员行只增: 已存在则仅刷新本口径的 last_epoch_id
+        conn.execute(
+            "INSERT INTO scope_members (source_link, job_id, first_seen_at, last_epoch_id)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(source_link, job_id)"
+            " DO UPDATE SET last_epoch_id = excluded.last_epoch_id",
+            (source_link, job_id, now, epoch_id),
         )
+        # collection_epoch 维持「最后 sighting 纪元」语义
+        conn.execute(
+            "UPDATE jobs SET collection_epoch = ? WHERE job_id = ?",
+            (epoch_id, job_id),
+        )
+        # source_link 冻结为首次归属: 仅为尚无口径归属的历史岗位补写
+        conn.execute(
+            "UPDATE jobs SET source_link = ?"
+            " WHERE job_id = ? AND (source_link IS NULL OR source_link = '')",
+            (source_link, job_id),
+        )
+        # 以「岗位存在」为准 (collection_epoch 值未变时 UPDATE rowcount 可能为 0)
+        exists = conn.execute(
+            "SELECT 1 FROM jobs WHERE job_id = ?", (job_id,)
+        ).fetchone()
         conn.commit()
-        return cur.rowcount > 0
+        return exists is not None
     finally:
         conn.close()
+
+
+def touch_job_source_link(job_id: str, source_link: str) -> bool:
+    """兼容包装: 语义已由「改写 source_link 归属」变为「只增成员登记」,
+    内部转调 upsert_scope_member (jobs.source_link 不再被改写, 仅冻结首归)。"""
+    return upsert_scope_member(job_id, source_link)
 
 
 def register_source_link(link: str) -> None:
@@ -344,7 +438,8 @@ def register_source_link(link: str) -> None:
 def apply_scope(conn: sqlite3.Connection, scope_link: str) -> None:
     """在连接上套用口径影子: temp.jobs + temp.company_stats 同名覆盖。
 
-    - temp.jobs: 只含该来源链接的岗位 —— 所有 ``FROM jobs`` 查询自动口径化;
+    - temp.jobs: 只含该口径成员岗位 (scope_members 成员关系, 含历史纪元) ——
+      所有 ``FROM jobs`` 查询自动口径化;
     - temp.company_stats: 从影子 jobs 实时重算的同构统计 —— 公司列表/象限/
       详情聚合自动口径化 (company_stats 物化表是全库值, 必须覆盖);
     - 影子生命周期 = 连接 (temp 表随连接销毁);
@@ -354,7 +449,9 @@ def apply_scope(conn: sqlite3.Connection, scope_link: str) -> None:
 
     conn.execute("DROP TABLE IF EXISTS temp.jobs")
     conn.execute(
-        "CREATE TEMP TABLE jobs AS SELECT * FROM main.jobs WHERE source_link = ?",
+        "CREATE TEMP TABLE jobs AS SELECT j.* FROM main.jobs j"
+        " WHERE EXISTS (SELECT 1 FROM main.scope_members m"
+        "               WHERE m.job_id = j.job_id AND m.source_link = ?)",
         (scope_link,),
     )
     conn.execute("DROP TABLE IF EXISTS temp.company_stats")
@@ -595,6 +692,42 @@ def _job_row(
     }
 
 
+def _upsert_scope_members(conn: sqlite3.Connection, job: Job) -> None:
+    """把 Job 的口径成员关系登记进 scope_members (在 upsert_job 的连接/事务内)。
+
+    数据来源 job.json provenance (reindex / 增量入库两条路径共用, 必须幂等):
+    - scope_links: 该岗位出现过的口径链接列表; 缺失/非 list 回退为
+      [job.source_link] (老文件单归属数据), 过滤空值后去重;
+    - scope_member_epochs: {link: epoch_id} 各口径 sighting 纪元 (可缺失);
+      某链接取不到纪元且恰为 job.source_link 时回退 job.collection_epoch
+      (老文件重建时恢复纪元)。
+    成员行不存在则插入 (first_seen_at 取 job.first_seen, 与迁移回填同口径),
+    已存在则仅更新本口径 last_epoch_id, 不碰 first_seen_at。
+    """
+    prov = job.provenance or {}
+    links = prov.get("scope_links")
+    if not isinstance(links, list):
+        links = [job.source_link] if job.source_link else []
+    links = [lnk for lnk in dict.fromkeys(links) if lnk]
+    if not links:
+        return
+
+    epochs = prov.get("scope_member_epochs")
+    if not isinstance(epochs, dict):
+        epochs = {}
+    fallback_epoch = getattr(job, "collection_epoch", "") or ""
+    first_seen = job.first_seen or time.strftime("%Y-%m-%dT%H:%M:%S")
+    for link in links:
+        epoch_id = epochs.get(link) or (fallback_epoch if link == job.source_link else "")
+        conn.execute(
+            "INSERT INTO scope_members (source_link, job_id, first_seen_at, last_epoch_id)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(source_link, job_id)"
+            " DO UPDATE SET last_epoch_id = excluded.last_epoch_id",
+            (link, job.job_id, first_seen, epoch_id),
+        )
+
+
 def upsert_job(
     conn: sqlite3.Connection,
     job: Job,
@@ -620,6 +753,9 @@ def upsert_job(
     cols = ", ".join(row.keys())
     placeholders = ", ".join(f":{k}" for k in row)
     conn.execute(f"INSERT OR REPLACE INTO jobs ({cols}) VALUES ({placeholders})", row)
+
+    # 口径成员关系只增登记 (含 reindex 从 job.json provenance 恢复成员行)
+    _upsert_scope_members(conn, job)
 
     conn.execute("DELETE FROM jobs_fts WHERE job_id = ?", (job.job_id,))
     conn.execute(

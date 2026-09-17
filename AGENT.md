@@ -306,5 +306,13 @@ python3 -m gaj agent crawl --url "<苏州列表页URL>" --max-pages 10 --backgro
   采集覆盖率状态，`crawl_progress.json` / `crawl.lock` 是采集运行时状态
   （进度心跳 / 互斥锁），都是纯派生数据，删除无害。
 
+* **数据兼容红线**：涉及 `data/` 存量数据结构的不兼容改动，必须同时满足
+  三条 —— ① 老数据在任意入口首次连接/启动时**自动迁移**（幂等，无需手工
+  操作，迁移结果在日志中显式报数）；② 迁移前**自动冷备**一次
+  （参照 `gaj/store/index.py::_cold_backup`，backup API 落
+  `data/backups/`）；③ 在 **CHANGELOG.md** 里写清升级说明与语义变化。
+  用户采集数据来之不易（一轮采集常达数小时），不允许任何要求用户手工
+  迁移、重建或丢弃数据的方案。
+
 * 选择器可能随大模型网站改版失效；`analyze` 连续失败且报"输入框注入失败"
   之类错误时，提示用户检查 `gaj/browser/llm_driver_deepseek.py` 的选择器。

@@ -1,6 +1,6 @@
 """来源口径管理 API —— 筛选链接列表 / 自定义命名。
 
-数据源: source_links 表 (口径注册表) + jobs.source_link (岗位归属)。
+数据源: source_links 表 (口径注册表) + scope_members 成员表 (岗位×口径多对多归属)。
 口径隔离的查询与出报告见 gaj store/reportbundle.build_report_bundle(scope_link=)。
 """
 from __future__ import annotations
@@ -23,14 +23,14 @@ async def list_scope_links() -> dict:
     """全部口径链接: 链接 / 自定义命名 / 岗位数; 附未分口径(历史数据)报数。"""
     with index.session() as conn:
         rows = conn.execute(
-            "SELECT s.link, s.label, s.created_at, COUNT(j.job_id) AS jobs"
-            " FROM source_links s LEFT JOIN jobs j ON j.source_link = s.link"
-            " GROUP BY s.link ORDER BY jobs DESC"
+            "SELECT s.link, s.label, s.created_at,"
+            " (SELECT COUNT(*) FROM scope_members m WHERE m.source_link = s.link) AS jobs"
+            " FROM source_links s ORDER BY jobs DESC"
         ).fetchall()
         unscoped = conn.execute(
-            "SELECT COUNT(*) FROM jobs"
+            "SELECT COUNT(*) FROM jobs j"
             " WHERE (ignored = 0 OR ignored IS NULL)"
-            " AND (source_link IS NULL OR source_link = '')"
+            " AND NOT EXISTS (SELECT 1 FROM scope_members m WHERE m.job_id = j.job_id)"
         ).fetchone()[0]
         total = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE (ignored = 0 OR ignored IS NULL)"
@@ -43,7 +43,7 @@ async def list_scope_links() -> dict:
         ],
         "unscoped_job_count": unscoped,
         "total_job_count": total,
-        "note": "未分口径 = 历史数据无 source_link, 生成报告时不参与任何单口径统计",
+        "note": "未分口径 = 无任何口径成员关系的历史数据, 生成报告时不参与任何单口径统计",
     }
 
 

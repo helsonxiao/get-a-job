@@ -133,6 +133,23 @@ def close_and_open_new_epoch(conn: sqlite3.Connection, source_link: str) -> dict
 # ---------------------------------------------------------------- 快照捕获
 
 
+def sync_scope_members(conn: sqlite3.Connection) -> None:
+    """补齐存量成员行 (幂等): 给有 source_link 但尚无成员行的岗位补登记,
+    last_epoch_id 取该岗位当前 collection_epoch (与 _migrate 迁移回填同语句)。
+
+    成员圈定与旧 source_link 圈定等价的前提是「成员表 ⊇ source_link 非空岗位」;
+    绕过成员写入路径 (upsert_job / upsert_scope_member) 直改 DB 的存量数据由此
+    兜底。已有成员行不触碰 (INSERT OR IGNORE): 各口径 last_epoch_id 仍只由
+    本口径 sighting 推进, 不会被其他口径的采集翻动。
+    """
+    conn.execute(
+        "INSERT OR IGNORE INTO scope_members"
+        " (source_link, job_id, first_seen_at, last_epoch_id)"
+        " SELECT source_link, job_id, COALESCE(first_seen, ''), COALESCE(collection_epoch, '')"
+        " FROM main.jobs WHERE source_link IS NOT NULL AND source_link != ''"
+    )
+
+
 def capture_snapshot(
     conn: sqlite3.Connection,
     source_link: str,
@@ -140,25 +157,35 @@ def capture_snapshot(
 ) -> dict:
     """固化该口径「活跃纪元」为一份快照，并闭合旧纪元、开启新纪元。
 
-    - 用 temp.jobs 影子限定 source_link + 活跃纪元 (含历史无纪元 ''/NULL 的首纪元);
+    - 先补齐存量成员行 (sync_scope_members, 幂等), 再用 temp.jobs 影子限定
+      「本口径成员 ∩ 活跃纪元」: scope_members 中 source_link = 本口径 且
+      last_epoch_id = 活跃纪元 (含 ''/NULL 容差, 对齐历史无纪元首纪元) 的
+      成员岗位; 另桥接 collection_epoch = 活跃纪元 —— 正规写入路径中两者
+      随 sighting 同步演进, 该分支仅对直改 DB 的存量数据生效, 不影响
+      「按口径独立 sighting」的隔离语义;
     - 复用 observatory_* 聚合各视图 → observatory_snapshots.metrics;
     - 落快照成员行 → snapshot_members (不可变);
     - 成功后推进纪元: 后续采集进入新纪元 → 收敛隔离。
     返回快照摘要 dict。
     """
     source_link = (source_link or "").strip()
+    sync_scope_members(conn)
     epoch_id = ensure_active_epoch(conn, source_link)
     now = _now_iso()
     period_month, period_quarter = period_labels(now)
 
     conn.execute("DROP TABLE IF EXISTS temp.jobs")
     try:
-        # ---- 口径影子 + 纪元过滤 (覆盖 reportbundle 遗留的仅口径影子) ----
+        # ---- 口径影子: 成员 ∩ 本口径活跃纪元 (含 ''/NULL 空纪元容差;
+        #      collection_epoch = 活跃纪元为存量直改数据的等价桥接) ----
         conn.execute(
-            "CREATE TEMP TABLE jobs AS SELECT * FROM main.jobs"
-            " WHERE source_link = ?"
-            "   AND (collection_epoch = ? OR collection_epoch IS NULL OR collection_epoch = '')",
-            (source_link, epoch_id),
+            "CREATE TEMP TABLE jobs AS SELECT j.* FROM main.jobs j"
+            " WHERE EXISTS (SELECT 1 FROM main.scope_members m"
+            "               WHERE m.job_id = j.job_id AND m.source_link = ?"
+            "                 AND (m.last_epoch_id = ?"
+            "                      OR m.last_epoch_id IS NULL OR m.last_epoch_id = ''"
+            "                      OR j.collection_epoch = ?))",
+            (source_link, epoch_id, epoch_id),
         )
         if include_ignored:
             # 与报告导出一致: 含忽略模式下影子内全部视为未忽略, 放行 _VISIBLE
@@ -260,9 +287,10 @@ def get_snapshot(
 def load_epoch_jobs(
     conn: sqlite3.Connection, source_link: str, epoch_id: str
 ) -> list[dict]:
-    """按 source_link + collection_epoch 回溯该纪元完整岗位行。"""
+    """按口径 + 纪元回溯该纪元 sighting 过的成员完整岗位行 (成员表圈定)。"""
     rows = conn.execute(
-        "SELECT * FROM jobs WHERE source_link = ? AND collection_epoch = ?",
+        "SELECT j.* FROM main.jobs j JOIN scope_members m ON m.job_id = j.job_id"
+        " WHERE m.source_link = ? AND m.last_epoch_id = ?",
         (source_link, epoch_id),
     ).fetchall()
     return [dict(r) for r in rows]

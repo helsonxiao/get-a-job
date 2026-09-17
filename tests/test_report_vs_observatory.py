@@ -112,7 +112,11 @@ def test_include_ignored_conservation(conn):
 
 
 def test_scope_and_ignored_combined(conn):
-    """口径 × 忽略 组合: 指定链接且含忽略时, 数字 = 该链接全部行 (含被忽略的)。"""
+    """口径 × 忽略 组合: 指定链接且含忽略时, 数字 = 该链接全部行 (含被忽略的)。
+
+    注: 夹具直改 SQL 的 source_link (含 fixture 里 j50 的预置值), 依赖
+    build_report_bundle(scope_link=…) 内 sync_scope_members 的存量兜底回填
+    成成员行后圈定 —— 直改 DB 的桥接路径。"""
     conn.execute("UPDATE jobs SET source_link = 'https://x/a' WHERE company_id IN ('c1','c5')")
     conn.commit()
     b = reportbundle.build_report_bundle(conn, scope_link="https://x/a", include_ignored=True)

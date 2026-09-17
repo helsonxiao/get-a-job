@@ -232,22 +232,22 @@ def crawl(
         incremental_ids: set = set()
 
         def _on_page_seen(job_ids: list) -> None:
-            """增量口径重归属: 列表页出现的历史岗位实时计入当前口径。"""
+            """增量成员登记: 列表页出现的历史岗位实时计入当前口径 (只增不减)。"""
             from ..store import index as _index
             from ..store.observatory_snapshot import active_epoch_id
-            from ..store.repo import set_collection_epoch, update_source_link
+            from ..store.repo import add_scope_link, set_collection_epoch
 
             epoch = active_epoch_id(list_url)
             for jid in job_ids:
                 if not jid or jid in incremental_ids:
                     continue
                 try:
-                    if _index.touch_job_source_link(jid, list_url):
-                        update_source_link(jid, list_url)
+                    if _index.upsert_scope_member(jid, list_url):
+                        add_scope_link(jid, list_url, epoch)
                         set_collection_epoch(jid, epoch)
                         incremental_ids.add(jid)
                 except Exception as exc:
-                    log.debug(f"增量口径重归属跳过 {jid}: {exc}")
+                    log.debug(f"成员登记跳过 {jid}: {exc}")
 
         crawler.crawl_from_url(list_url, on_page_seen=_on_page_seen)
         result["crawl_stats"] = crawler.stats.to_dict()
@@ -315,7 +315,7 @@ def crawl(
             log.error(f"迁移失败: {exc}")
             result["migrate_error"] = str(exc)
 
-    # ---- 2.5 列表级口径重归属: 本次筛选列表出现过的历史岗位统一挪到当前口径 ----
+    # ---- 2.5 列表级口径成员登记: 本次筛选列表出现过的历史岗位只增登记为当前口径成员 ----
     if auto_migrate:
         try:
             from ..store.migrate import reassign_source_links
@@ -323,11 +323,8 @@ def crawl(
             src_path = Path(result.get("crawl_dir") or "jobs")
             reassigned = reassign_source_links(src_path, list_url)
             result["reassigned"] = reassigned
-            if reassigned.get("reassigned"):
-                # 重归属改了 job.json, 强制重建索引让 source_link 进库
-                migrated_reindexed = False
         except Exception as exc:
-            log.error(f"口径重归属失败: {exc}")
+            log.error(f"口径成员登记失败: {exc}")
             result["reassign_error"] = str(exc)
 
     # ---- 3. 规则打分 ----

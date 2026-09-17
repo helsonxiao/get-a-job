@@ -65,6 +65,9 @@ def test_epoch_isolation_after_export(conn):
 
     # 模拟下一期采集: 岗位 a/b 还在 (重新打新纪元), 岗位 c 消失 (仍留在旧纪元 → 应被隔离),
     # 岗位 d 是新岗位 (打新纪元)
+    # 注: 本夹具直改 DB 的 collection_epoch (成员行 last_epoch_id 停留在 epoch1),
+    #     a/b 在第二份快照中靠 capture 圈定的 `j.collection_epoch = 活跃纪元` 桥接分支
+    #     命中; 正规 sighting 路径下由成员行 last_epoch_id 直接命中, 语义等价。
     conn.execute("UPDATE jobs SET collection_epoch = ? WHERE job_id IN ('a','b')", (new_epoch,))
     # c 不更新 epoch → 停留在旧纪元
     _insert_job(conn, "d", salary_mid=30, epoch=new_epoch)

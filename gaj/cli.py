@@ -321,17 +321,18 @@ def main(argv: list[str] | None = None) -> int:
         from datetime import datetime as _dt
 
         from .store import index, repo
+        from .store import observatory_snapshot as obsnap
 
         with index.session() as conn:
             if args.scope_action == "list":
                 rows = conn.execute(
-                    "SELECT link, label, COUNT(j.job_id) AS jobs"
-                    " FROM source_links s LEFT JOIN jobs j"
-                    " ON j.source_link = s.link GROUP BY s.link ORDER BY jobs DESC"
+                    "SELECT link, label,"
+                    " (SELECT COUNT(*) FROM scope_members m WHERE m.source_link = s.link) AS jobs"
+                    " FROM source_links s ORDER BY jobs DESC"
                 ).fetchall()
                 unscoped = conn.execute(
-                    "SELECT COUNT(*) FROM jobs WHERE " + "(ignored = 0 OR ignored IS NULL)"
-                    " AND (source_link IS NULL OR source_link = '')"
+                    "SELECT COUNT(*) FROM jobs j WHERE (j.ignored = 0 OR j.ignored IS NULL)"
+                    " AND NOT EXISTS (SELECT 1 FROM scope_members m WHERE m.job_id = j.job_id)"
                 ).fetchone()[0]
                 print(_json.dumps({
                     "links": [
@@ -339,7 +340,7 @@ def main(argv: list[str] | None = None) -> int:
                         for r in rows
                     ],
                     "unscoped_job_count": unscoped,
-                    "unscoped_note": "未分口径 = 历史数据无 source_link, 不参与任何单口径报告",
+                    "unscoped_note": "未分口径 = 无任何口径成员行, 不参与任何单口径报告",
                 }, ensure_ascii=False, indent=2 if getattr(args, "pretty", False) else None))
                 return 0
             if args.scope_action == "rename":
@@ -355,22 +356,15 @@ def main(argv: list[str] | None = None) -> int:
                     "INSERT OR IGNORE INTO source_links (link, label, created_at) VALUES (?,?,?)",
                     (args.link, "", _dt.now().astimezone().isoformat(timespec="seconds")),
                 )
+                epoch = obsnap.active_epoch_id(args.link)
                 for jid in ids:
-                    job = repo.load_job(jid)
-                    if not job:
-                        print(f"  跳过 (找不到 job.json): {jid}")
+                    if not index.upsert_scope_member(jid, args.link):
+                        print(f"  跳过 (岗位不存在): {jid}")
                         continue
-                    job.source_link = args.link
-                    job.provenance["source_link"] = args.link
-                    repo.save_job(job)
+                    repo.add_scope_link(jid, args.link, epoch)
                     changed += 1
-                conn.executemany(
-                    "UPDATE jobs SET source_link = ? WHERE job_id = ?",
-                    [(args.link, jid) for jid in ids],
-                )
                 conn.commit()
-                index.reindex()
-                print(f"✓ 已归属 {changed}/{len(ids)} 个岗位到口径: {args.link} (索引已重建)")
+                print(f"✓ 已为 {changed}/{len(ids)} 个岗位登记口径成员: {args.link}")
                 return 0
 
     if args.command == "strategy":

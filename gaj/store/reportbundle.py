@@ -807,8 +807,10 @@ def _local_pricing_block(conn: sqlite3.Connection, all_median) -> dict:
 
 
 def _scope_meta(conn: sqlite3.Connection, scope_link: str) -> dict:
-    """口径元数据: 链接/自定义命名/各口径岗位数 (含未分口径历史数据显式报数)。
+    """口径元数据: 链接/自定义命名/本口径岗位数。
 
+    unscoped = 不属于任何口径成员的岗位 (多归属下「未分口径」= 无任何
+    scope_members 成员行, 显式报数)。
     注意: 指定口径期间 temp.jobs 影子了 jobs 表, 统计全库必须用 main.jobs 全限定名。
     """
     scoped_count = conn.execute(
@@ -819,8 +821,8 @@ def _scope_meta(conn: sqlite3.Connection, scope_link: str) -> dict:
     ).fetchone()[0]
     total = conn.execute("SELECT COUNT(*) FROM main.jobs").fetchone()[0]
     unscoped = conn.execute(
-        "SELECT COUNT(*) FROM main.jobs"
-        " WHERE source_link IS NULL OR source_link = ''"
+        "SELECT COUNT(*) FROM main.jobs j"
+        " WHERE NOT EXISTS (SELECT 1 FROM scope_members m WHERE m.job_id = j.job_id)"
     ).fetchone()[0]
     label_row = conn.execute(
         "SELECT label FROM main.source_links WHERE link = ?", (scope_link,)
@@ -875,7 +877,15 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = DEFAULT_
         )
         params.append(snapshot["snapshot_id"])
     elif scope_link:
-        where.append("source_link = ?")
+        # 存量等价兜底: 补齐有 source_link 但缺成员行的岗位 (幂等),
+        # 保证成员圈定与旧 source_link 圈定在绕过成员写入路径的数据上同语义。
+        from .observatory_snapshot import sync_scope_members
+
+        sync_scope_members(conn)
+        where.append(
+            "EXISTS (SELECT 1 FROM scope_members m"
+            "        WHERE m.job_id = main.jobs.job_id AND m.source_link = ?)"
+        )
         params.append(scope_link)
         conn.execute(
             "INSERT OR IGNORE INTO main.source_links (link, label, created_at)"
@@ -889,7 +899,8 @@ def build_report_bundle(conn: sqlite3.Connection, top_industries: int = DEFAULT_
         q = "SELECT COUNT(*) FROM main.jobs WHERE ignored = 1"
         q_params = []
         if scope_link:
-            q += " AND source_link = ?"
+            q += (" AND EXISTS (SELECT 1 FROM scope_members m"
+                  " WHERE m.job_id = main.jobs.job_id AND m.source_link = ?)")
             q_params = [scope_link]
         ignored_in_scope = conn.execute(q, q_params).fetchone()[0]
     else:

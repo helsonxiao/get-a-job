@@ -329,13 +329,14 @@ def _migrate_record(
     if looks_polluted(jd_dom.get("jd_full", "")):
         report.denoised.append(job_id)
 
+    existing_job = None if dry_run else repo.load_job(job_id)
     job = Job.build(
         job_id=job_id,
         list_item=_legacy_list_item(rec, city, district),
         jd_dom=jd_dom,
         company=company,
         blacklist=blacklist,
-        existing=None if dry_run else repo.load_job(job_id),
+        existing=existing_job,
     )
     job.crawled_at = rec.meta.get("crawled_at", job.crawled_at)
     job.first_seen = rec.meta.get("crawled_at", job.first_seen)
@@ -344,9 +345,24 @@ def _migrate_record(
     job.provenance["migrated_from"] = f"{src.name}/{rec.dirname}"
     job.provenance["company_page"] = bool(company_dom)
     job.provenance["city_source"] = city_source
+    if existing_job is not None:
+        # 重迁移合并: Job.build 不继承 existing.provenance, 直接 save 会把
+        # scope_links / scope_member_epochs / source_link 等历史 provenance
+        # 整体冲掉 (成员关系文件侧持久化丢失)。以 existing 为基底, 本次
+        # 判定的新键覆盖; 顶层 source_link 恢复首归。
+        merged = dict(existing_job.provenance or {})
+        merged.update(job.provenance or {})
+        job.provenance = merged
+        if not job.source_link:
+            job.source_link = existing_job.source_link or ""
     if source_link:
-        job.source_link = source_link
-        job.provenance["source_link"] = source_link
+        # 首归冻结: 仅在尚无归属时补写, 不改写已有值
+        if not job.source_link:
+            job.source_link = source_link
+            job.provenance["source_link"] = source_link
+        links = job.provenance.setdefault("scope_links", [])
+        if isinstance(links, list) and source_link not in links:
+            links.append(source_link)
     if anonymous:
         job.provenance["employer_anonymous"] = True
 
@@ -370,16 +386,17 @@ def _migrate_record(
 
 
 def reassign_source_links(src: Path, source_link: str) -> dict:
-    """列表级口径重归属: 把「本次筛选列表出现过的岗位」统一归入本次口径。
+    """列表级口径成员只增登记: 把「本次筛选列表出现过的岗位」登记为该口径成员。
 
     背景: 同岗位被多个筛选链接命中时, 爬虫按 job_id 跳过重复详情抓取,
-    migrate 看不到这些岗位 —— 新口径采集后历史岗位不会自动挪过来。
+    migrate 看不到这些岗位 —— 新口径采集后历史岗位不会自动登记成成员。
     本函数从本次采集的列表页原始响应 (_debug/joblist_page_*.json) 收集
-    全部 encryptJobId, 对库中已存在的岗位仅更新 source_link (不重抓详情)。
+    全部 encryptJobId, 对库中已存在的岗位只增登记成员关系
+    (DB 侧 index.upsert_scope_member + 文件侧 repo.add_scope_link),
+    不改写 jobs.source_link / provenance.source_link (首归冻结)。
 
-    同时把命中岗位打到该口径当前活跃纪元 (collection_epoch), 参与未来快照成员统计。
-
-    返回: {"seen": 列表去重岗位数, "reassigned": 库中存在且归属变化的岗位数}
+    返回: {"seen": 列表去重岗位数, "reassigned": 本次新完成成员登记的岗位数
+    (已在成员表中的岗位不重复计数, 重复调用幂等 → reassigned=0)}
     """
     import json as _json
 
@@ -401,26 +418,37 @@ def reassign_source_links(src: Path, source_link: str) -> dict:
                 seen.add(jid)
     if not seen:
         return {"seen": 0, "reassigned": 0}
-    # 本次列表命中老岗位并归入该口径 → 同步登记注册表 (幂等)
+    # 本次列表命中老岗位并登记成该口径成员 → 同步登记注册表 (幂等)
     try:
         index.register_source_link(source_link)
     except Exception as exc:
-        log.warning(f"登记口径失败 (重归属 {source_link[:40]}...): {exc}")
+        log.warning(f"登记口径失败 (成员登记 {source_link[:40]}...): {exc}")
     epoch_id = active_epoch_id(source_link)
-    reassigned = 0
+    # 既有成员预读: reassigned 只计本次新完成登记的岗位 (重复调用幂等 → 0)
+    already: set[str] = set()
+    try:
+        with index.session() as conn:
+            already = {
+                r[0] for r in conn.execute(
+                    "SELECT job_id FROM scope_members WHERE source_link = ?",
+                    (source_link,),
+                )
+            }
+    except Exception as exc:
+        log.warning(f"读取既有成员失败 (去重计数跳过): {exc}")
+    registered = 0
     for jid in seen:
-        job = repo.load_job(jid)
-        if not job:
+        if not repo.load_job(jid):
+            # 仅登记库中已有岗位 (文件存在)
             continue
-        changed = bool(job.source_link != source_link or job.collection_epoch != epoch_id)
-        job.source_link = source_link
-        job.collection_epoch = epoch_id
-        job.provenance["source_link"] = source_link
-        repo.save_job(job)
-        if changed:
-            reassigned += 1
-    log.info(f"列表级口径重归属: 列表出现 {len(seen)} 岗, 重归属 {reassigned} 岗 → {source_link[:60]}...")
-    return {"seen": len(seen), "reassigned": reassigned}
+        if index.upsert_scope_member(jid, source_link):
+            repo.add_scope_link(jid, source_link, epoch_id)
+            if jid not in already:
+                registered += 1
+    log.info(
+        f"列表级口径成员登记: 列表出现 {len(seen)} 岗, 登记成员 {registered} 岗 → {source_link[:60]}..."
+    )
+    return {"seen": len(seen), "reassigned": registered}
 
 
 def migrate_one(

@@ -127,10 +127,12 @@ def save_job(
 
 
 def update_source_link(job_id: str, source_link: str) -> bool:
-    """轻量单岗口径更新: job.json 文件 source_link 字段原位改写。
+    """轻量单岗首归补写: 仅当 job.json 顶层 source_link 为空/缺失时写入。
 
-    用于采集增量回调 (爬虫逐页上报列表岗位) —— 不做全量 Job 读写,
-    文件与 DB 双更由调用方配合完成 (DB 侧 index.touch_job_source_link)。
+    口径多归属改造后, source_link 冻结为首次归属, 不再随口径 sighting 改写;
+    成员关系由 provenance.scope_links (append-only) 承担, 本函数顺带保证该
+    列表包含传入 link (已存在则跳过)。文件与 DB 双更由调用方配合完成
+    (DB 侧 index.upsert_scope_member)。
     返回 False = 岗位文件不存在。
     """
     jdir = job_dir(job_id)
@@ -138,9 +140,56 @@ def update_source_link(job_id: str, source_link: str) -> bool:
     if not path.is_file():
         return False
     data = json.loads(path.read_text(encoding="utf-8"))
-    data["source_link"] = source_link
     prov = data.get("provenance")
-    if isinstance(prov, dict):
+    if not isinstance(prov, dict):
+        prov = data["provenance"] = {}
+    links = prov.get("scope_links")
+    if not isinstance(links, list):
+        links = []
+    if source_link and source_link not in links:
+        links.append(source_link)
+        prov["scope_links"] = links
+    if source_link and not data.get("source_link"):
+        data["source_link"] = source_link
+        prov["source_link"] = source_link
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    return True
+
+
+def add_scope_link(job_id: str, source_link: str, epoch_id: str = "") -> bool:
+    """口径成员 sighting 的文件侧登记 (DB 侧由调用方配合 index.upsert_scope_member)。
+
+    - provenance.scope_links 追加 link (append-only, 已存在则跳过, 永不删除);
+    - provenance.scope_member_epochs[source_link] 记录该口径最后 sighting 纪元:
+      epoch_id 非空时原地更新, 为空时仅在该口径无记录时置 "" (不覆盖已有值);
+    - 顶层 source_link / provenance.source_link 为空时补写 (冻结首归)。
+    返回 False = 岗位文件不存在。
+    """
+    jdir = job_dir(job_id)
+    path = jdir / "job.json"
+    if not path.is_file():
+        return False
+    data = json.loads(path.read_text(encoding="utf-8"))
+    prov = data.get("provenance")
+    if not isinstance(prov, dict):
+        prov = data["provenance"] = {}
+    links = prov.get("scope_links")
+    if not isinstance(links, list):
+        links = []
+    if source_link and source_link not in links:
+        links.append(source_link)
+        prov["scope_links"] = links
+    if source_link:
+        epochs = prov.get("scope_member_epochs")
+        if not isinstance(epochs, dict):
+            epochs = prov["scope_member_epochs"] = {}
+        if epoch_id or source_link not in epochs:
+            epochs[source_link] = epoch_id
+    if source_link and not data.get("source_link"):
+        data["source_link"] = source_link
         prov["source_link"] = source_link
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True),
