@@ -1580,6 +1580,19 @@ def query_jobs(
     return [_row_to_dict(r) for r in rows]
 
 
+def count_collected_since(conn: sqlite3.Connection, since: str) -> int:
+    """统计 first_seen 不早于 since 的职位数, 即该时间点之后抓取的岗位详情量。
+
+    用于采集侧做「24 小时滚动窗口」配额判断 (见 CrawlConfig.max_jobs_per_24h)。
+    first_seen 历史上有 "YYYY-MM-DD HH:MM:SS" 和 ISO "T" 两种格式, 归一化成 T
+    再比较 (与 _build_where 的 new_since 同一处理, 避免字符串比较出错)。
+    """
+    return conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE REPLACE(first_seen, ' ', 'T') >= ?",
+        (since,),
+    ).fetchone()[0]
+
+
 def count_jobs(
     conn: sqlite3.Connection,
     *,

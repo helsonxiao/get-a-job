@@ -267,6 +267,26 @@ def cmd_status(args) -> int:
         "early_stop_reason": last_run.get("early_stop_reason"),
     }
 
+    # 24h 滚动窗口采集配额 (0=不限): 配额用尽时采集会以
+    # early_stop_reason="budget_24h" 提前结束, 这里给出剩余量便于归因
+    try:
+        cap = cfg.SETTINGS.crawl.max_jobs_per_24h
+        if cap:
+            from ..store import index as _index
+
+            since = (datetime.now() - timedelta(hours=24)).strftime(
+                "%Y-%m-%dT%H:%M:%S"
+            )
+            with _index.session() as conn:
+                used = _index.count_collected_since(conn, since)
+            data["budget_24h"] = {
+                "cap": cap,
+                "used": used,
+                "remaining": max(cap - used, 0),
+            }
+    except Exception as e:
+        data["budget_24h"] = {"error": str(e)}
+
     # 采集进度概要 (crawl --background 的心跳文件, 没有也不影响)
     try:
         from ..scraper import progress as _progress
@@ -898,10 +918,15 @@ def main(argv: list[str] | None = None) -> int:
 
   crawl    增量采集 BOSS直聘职位。已抓过的自动跳过。连续整页全重复时翻页间隔
            逐次拉长(上限 60s)，连续 3 页全重复即提前结束(early_stop=covered)。
-           续翻: 无论因何停止(covered/翻页上限/失败/中断), 都记录最后到达的页码;
-           下次前几页全重复时跳到该页接着翻, 有新职位则继续, 全重复才真停。
+           24h 滚动配额: 近 24h 已抓岗位数达到 config 的
+           crawl.max_jobs_per_24h(默认 350) 即提前结束(early_stop=budget_24h),
+           配额随窗口滚动自动释放, 次日再采; 剩余量见 status 的 budget_24h。
+           续翻: 无论因何停止(covered/budget_24h/翻页上限/失败/中断), 都记录
+           最后到达的页码; 下次前几页全重复时跳到该页接着翻, 有新职位则继续,
+           全重复才真停。锚点只进不退, 不会被反爬拒绝的浅页冲掉。
            前面几页全重复又没锚点时, 可用 --start-page N 直接跳到 N 页继续采集。
-           返回 crawl_stats(含 last_dup_page/resume_used) + migrated + scored。
+           返回 crawl_stats(含 last_dup_page/resume_used) + budget_24h
+           + migrated + scored。
            首次需 --url 提供 BOSS 筛选页 URL，之后记住可省略。
            --background: 分离子进程后台采集, 立即返回 pid/日志/进度文件路径,
            用 crawl-status 轮询(长采集推荐, 避免阻塞调用方)。同一时刻只允许

@@ -206,6 +206,32 @@ def crawl(
         # 续翻: 上次因连续重复页停止时的页码, 本次前几页全重复时跳到那里再试
         resume_page = crawl_state.get_last_dup_page(list_url)
 
+        # ---- 24h 滚动窗口配额: 限制单日采集总量, 避免高频采集被反爬封号 ----
+        # 计数口径 = 索引里 first_seen 落在近 24h 的岗位数 (每抓一个岗位详情
+        # 即增量入索引, 中途崩溃也不丢计数), 减去已用即为本次可采配额。
+        budget_cap = cfg.SETTINGS.crawl.max_jobs_per_24h
+        budget_used = 0
+        job_budget = None
+        if budget_cap:
+            try:
+                from datetime import datetime, timedelta
+
+                from ..store import index as _index
+
+                since = (datetime.now() - timedelta(hours=24)).strftime(
+                    "%Y-%m-%dT%H:%M:%S"
+                )
+                with _index.session() as conn:
+                    budget_used = _index.count_collected_since(conn, since)
+                job_budget = max(budget_cap - budget_used, 0)
+                log.info(
+                    f"24h 采集配额: 已用 {budget_used}/{budget_cap}, "
+                    f"本次最多再采 {job_budget} 个"
+                )
+            except Exception as exc:
+                log.warning(f"读取 24h 采集配额失败 (本次不限制): {exc}")
+                budget_used, job_budget = 0, None
+
         def _forward_progress(evt: dict) -> None:
             """爬虫进度事件 → 进度文件 (phase 固定为 crawl)。"""
             evt = dict(evt)
@@ -227,6 +253,7 @@ def crawl(
             slowdown_cap=cfg.SETTINGS.crawl.slowdown_cap,
             resume_page=resume_page,
             start_page=start_page,
+            job_budget=job_budget,
             on_progress=_forward_progress,
         )
         incremental_ids: set = set()
@@ -254,6 +281,12 @@ def crawl(
         result["crawl_stats_text"] = str(crawler.stats)
         result["crawl_dir"] = tmp_dir
         result["incremental"] = incremental_count
+        if budget_cap:
+            result["budget_24h"] = {
+                "cap": budget_cap,
+                "used": budget_used,
+                "remaining": max(budget_cap - budget_used - crawler.stats.jobs_scraped, 0),
+            }
         log.info(f"采集完成: {crawler.stats} (增量入库 {incremental_count} 个)")
 
         # 把本次采集链接登记进口径注册表 (已存在则跳过), 让 Web 口径管理 /
@@ -268,9 +301,10 @@ def crawl(
             result["crawl_state"] = crawl_state.record_crawl(
                 list_url, crawler.stats.to_dict()
             )
-            # 续翻页码持久化: 无论因何停止(covered/翻页上限/失败/中断)都记录
-            # 下次从该页接着翻; 真正翻到底(hasMore=False)时 crawler 会把
-            # last_dup_page 重置为 0, 下次从第 1 页重新抓最新。
+            # 续翻页码持久化: 因 covered/翻页上限/失败/中断停止时记录该页,
+            # 下次从该页接着翻; 锚点只进不退(见 JobCrawler._record_resume_anchor),
+            # 真正翻到底(hasMore=False)时 crawler 会把 last_dup_page 重置为 0,
+            # 下次从第 1 页重新抓最新。
             stats_dict = crawler.stats.to_dict()
             if stats_dict.get("last_dup_page_dirty"):
                 crawl_state.save_last_dup_page(
@@ -360,6 +394,7 @@ def crawl(
     log.info(f"采集全流程完成, 耗时 {result['elapsed']}s")
     summary = {
         "crawl_stats": result.get("crawl_stats"),
+        "budget_24h": result.get("budget_24h"),
         "incremental": result.get("incremental"),
         "migrated": result.get("migrated"),
         "reassigned": result.get("reassigned"),
